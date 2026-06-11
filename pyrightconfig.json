@@ -1,0 +1,9 @@
+{
+  "venvPath": "/home/verlyba/miniconda3/envs",
+  "venv": "lerobot",
+  "extraPaths": [
+    "/home/verlyba/robotics/lerobot/src",
+    "/home/verlyba/miniconda3/envs/lerobot/lib/python3.10/site-packages",
+    "src"
+  ]
+}

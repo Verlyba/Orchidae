@@ -1,0 +1,141 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-activitybar: var(--activitybar);
+  --color-activitybar-foreground: var(--activitybar-foreground);
+  --color-statusbar: var(--statusbar);
+  --color-statusbar-foreground: var(--statusbar-foreground);
+  --color-editor: var(--editor);
+  --color-editor-foreground: var(--editor-foreground);
+  --color-tab-active: var(--tab-active);
+  --color-tab-inactive: var(--tab-inactive);
+  --color-line-number: var(--line-number);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-comment: var(--syntax-comment);
+  --color-syntax-function: var(--syntax-function);
+  --color-syntax-variable: var(--syntax-variable);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-type: var(--syntax-type);
+}
+
+/* VS Code Dark+ theme as default */
+:root {
+  --radius: 3px;
+
+  --background: oklch(0.22 0.012 250);          /* #1e1e1e editor */
+  --foreground: oklch(0.87 0.005 250);          /* #d4d4d4 */
+
+  --editor: oklch(0.22 0.012 250);
+  --editor-foreground: oklch(0.87 0.005 250);
+
+  --sidebar: oklch(0.25 0.012 250);             /* #252526 */
+  --sidebar-foreground: oklch(0.80 0.006 250);  /* #cccccc */
+  --sidebar-primary: oklch(0.62 0.18 255);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.30 0.015 250);
+  --sidebar-accent-foreground: oklch(0.92 0.005 250);
+  --sidebar-border: oklch(0.18 0.01 250);
+  --sidebar-ring: oklch(0.62 0.18 255);
+
+  --activitybar: oklch(0.30 0.015 250);         /* #333333 */
+  --activitybar-foreground: oklch(0.75 0.006 250);
+
+  --statusbar: oklch(0.50 0.18 258);            /* #007acc VS blue */
+  --statusbar-foreground: oklch(0.98 0 0);
+
+  --tab-active: oklch(0.22 0.012 250);
+  --tab-inactive: oklch(0.27 0.012 250);        /* #2d2d2d */
+
+  --line-number: oklch(0.55 0.008 250);         /* #858585 */
+
+  /* Dark+ syntax */
+  --syntax-keyword: oklch(0.68 0.16 295);       /* #c586c0 magenta */
+  --syntax-string: oklch(0.72 0.12 35);         /* #ce9178 orange */
+  --syntax-comment: oklch(0.55 0.10 145);       /* #6a9955 green */
+  --syntax-function: oklch(0.86 0.15 95);       /* #dcdcaa yellow */
+  --syntax-variable: oklch(0.78 0.10 235);      /* #9cdcfe light blue */
+  --syntax-number: oklch(0.78 0.13 145);        /* #b5cea8 */
+  --syntax-type: oklch(0.78 0.12 180);          /* #4ec9b0 teal */
+
+  --card: oklch(0.25 0.012 250);
+  --card-foreground: oklch(0.87 0.005 250);
+  --popover: oklch(0.27 0.012 250);
+  --popover-foreground: oklch(0.87 0.005 250);
+
+  --primary: oklch(0.55 0.18 255);              /* #0e639c button */
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.32 0.014 250);
+  --secondary-foreground: oklch(0.87 0.005 250);
+  --muted: oklch(0.30 0.012 250);
+  --muted-foreground: oklch(0.65 0.008 250);
+  --accent: oklch(0.50 0.18 258);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.60 0.21 28);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.32 0.012 250);
+  --input: oklch(0.30 0.012 250);
+  --ring: oklch(0.55 0.18 258);
+
+  --chart-1: oklch(0.62 0.18 255);
+  --chart-2: oklch(0.72 0.12 35);
+  --chart-3: oklch(0.78 0.12 180);
+  --chart-4: oklch(0.86 0.15 95);
+  --chart-5: oklch(0.68 0.16 295);
+}
+
+.dark {
+  /* same as :root — VS Code is dark by default */
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+}

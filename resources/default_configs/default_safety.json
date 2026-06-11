@@ -1,0 +1,8 @@
+{
+    "slew_rate_limit": 0.05,
+    "lowpass_alpha": 0.25,
+    "watchdog_timeout_s": 5.0,
+    "emergency_stop_key": "Escape",
+    "max_velocity_rad_s": 2.0,
+    "min_action_interval_ms": 33
+}

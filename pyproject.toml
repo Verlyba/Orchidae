@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "orchiday"
+version = "0.1.0"
+description = "Cross-platform no-code platform for hierarchical robot control"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Orchiday Team"}
+]
+
+[project.scripts]
+orchiday = "orchiday.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

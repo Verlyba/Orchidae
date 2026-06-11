@@ -1,0 +1,28 @@
+{
+    "type": "SOarm101",
+    "description": "SO-ARM100 6-DOF stolní robotické rameno (Feetech serva)",
+    "axes": 6,
+    "baudrate": 1000000,
+    "protocol": "feetech_sts3215",
+    "joint_names": ["base", "shoulder", "elbow", "wrist_pitch", "wrist_roll", "gripper"],
+    "joint_limits_rad": {
+        "base": [-3.14, 3.14],
+        "shoulder": [-1.57, 1.57],
+        "elbow": [-1.57, 1.57],
+        "wrist_pitch": [-1.57, 1.57],
+        "wrist_roll": [-3.14, 3.14],
+        "gripper": [0.0, 1.0]
+    },
+    "safety": {
+        "slew_rate_limit": 0.05,
+        "lowpass_alpha": 0.25,
+        "watchdog_timeout_s": 5.0
+    },
+    "lerobot_config": {
+        "robot_type": "so100",
+        "cameras": {
+            "phone": {"type": "phone", "index": 0},
+            "laptop": {"type": "opencv", "index": 0}
+        }
+    }
+}

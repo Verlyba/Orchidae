@@ -1,0 +1,4615 @@
+/**
+ * Orchiday Web Frontend — Upgraded Application Logic (TypeScript)
+ * 
+ * Strict alignment with the PySide6 unified architecture:
+ * - 2 Main stacked pages: Setup / Konfigurace (⚙️) and Learning / Sběr dat (🏋️).
+ * - Coordinates Environment, Camera feeds, Model Config + CEO Planner split, and Motor Skills + Telemetry split.
+ * - Exposes real-time WebSocket bindings for log console, orchestration pipeline, and loss chart telemetry.
+ */
+
+interface Project {
+  name: string;
+  slug: string;
+  path: string;
+  robots: Robot[];
+  cameras: Camera[];
+  skills: string[];
+  skills_details: Record<string, SkillDetail>;
+  models?: {
+    llm_ceo?: ModelConfig;
+    vlm_inspector?: ModelConfig;
+  };
+  policy_architecture?: string;
+  lerobot_dir?: string;
+  dataset_storage_dir?: string;
+  leader_port?: string;
+  follower_port?: string;
+  robot_type?: string;
+}
+
+interface Robot {
+  id: string;
+  type: string;
+  port: string;
+  device_id?: string;
+  label?: string;
+  cameras?: string[];
+}
+
+interface Camera {
+  id: string;
+  source: number | string;
+  device_id?: string;
+  role: string;
+  resolution?: number[];
+  fps?: number;
+}
+
+interface SkillDetail {
+  name: string;
+  slug: string;
+  description?: string;
+  parent_slug?: string | null;
+}
+
+interface ModelConfig {
+  endpoint?: string;
+  model_name?: string;
+  system_prompt?: string;
+}
+
+interface LossPoint {
+  epoch: number;
+  loss: number;
+}
+
+interface WSMessage {
+  event: string;
+  data: any;
+}
+
+const App = {
+  ws: null as WebSocket | null,
+  project: null as Project | null,
+  lossData: [] as LossPoint[],
+  pipelineTasks: [] as string[],
+  _consoleLines: 0,
+  activeStep: 1,
+  activeSkill: null as string | null,
+  activeTrainingSkill: null as string | null,
+  trainingQueue: [] as string[],
+  activeCameras: [] as string[],
+  availablePorts: [] as any[],
+  availableCameras: [] as any[],
+  isProjectLoading: false,
+  collapsedFolders: new Set<string>(),
+  taggingStartTime: 0,
+  taggingActiveIndex: 0,
+  taggingPoints: [] as number[],
+  taggingInterval: null as any,
+  wizardActivePage: 1,
+  wizardSelectedOption: 'install', // 'install' or 'connect'
+  wizardLeaderPort: '',
+  wizardLeaderDeviceId: '',
+  wizardFollowerPort: '',
+  wizardFollowerDeviceId: '',
+  wizardLeaderSubStep: 1,
+  wizardFollowerSubStep: 1,
+  wizardLeRobotParentDir: '',
+  wizardCameras: [] as any[],
+  wizardFoundLeRobotPath: '',
+  wizardMode: 'initial' as 'initial' | 'quick',
+  newProjectSetupMode: 'quick' as 'quick' | 'plain',
+  autoDetectActiveArm: 'leader' as 'leader' | 'follower',
+  autoDetectLeaderStep: 1,
+  autoDetectFollowerStep: 1,
+  lastCamerasWidth: '520px',
+  cameraLayout: 'auto',
+
+  // Skill/step wizard state
+  skillWizardType: 'main' as 'main' | 'step',
+  skillWizardIsEdit: false,
+  skillWizardEditSlug: '',
+  skillWizardPrefilledParent: '',
+
+  // ── Init ────────────────────────────────────────────────────────────
+  init(): void {
+    this.connectWS();
+    this.bindConsoleInput();
+    this.bindAutoSlug();
+    this.loadProjects();
+    this.bindResizers();
+    
+    // Default tab
+    this.changeTab('projects');
+
+    // Camera layout setup
+    this.cameraLayout = localStorage.getItem('orchiday_camera_layout') || 'auto';
+    const layoutSelect = document.getElementById('camera-layout-select') as HTMLSelectElement | null;
+    if (layoutSelect) {
+      layoutSelect.value = this.cameraLayout;
+    }
+
+    // Setup Wizard Check
+    const completed = localStorage.getItem('orchiday_setup_completed');
+    if (!completed) {
+      this.showSetupWizard();
+    }
+
+    // Keyboard Enter listener for arm unplug detection
+    window.addEventListener('keydown', (e) => {
+      const overlay = document.getElementById('setup-wizard-overlay');
+      if (overlay && overlay.style.display !== 'none') {
+        if (e.key === 'Enter') {
+          if (this.wizardActivePage === 4 && this.wizardLeaderSubStep === 2) {
+            e.preventDefault();
+            this.wizardConfirmUnplugArm('leader');
+          } else if (this.wizardActivePage === 5 && this.wizardFollowerSubStep === 2) {
+            e.preventDefault();
+            this.wizardConfirmUnplugArm('follower');
+          }
+        }
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      this.drawLossChart();
+    });
+
+    // Global keyboard listener for live recording step controls
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      const liveControls = document.getElementById('rec-live-controls');
+      const taggingWizard = document.getElementById('rec-tagging-wizard');
+      if (liveControls && liveControls.style.display === 'flex') {
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          this.sendRecordingAction('next');
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          this.sendRecordingAction('reset');
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          this.sendRecordingAction('stop');
+        }
+      }
+      if (taggingWizard && taggingWizard.style.display === 'flex') {
+        if (e.key === ' ' || e.key === '2') {
+          e.preventDefault();
+          this.taggingNextStep();
+        }
+      }
+    });
+  },
+
+  // ── WebSocket Connection ────────────────────────────────────────────
+  connectWS(): void {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = location.host || 'localhost:8000';
+    this.ws = new WebSocket(`${proto}://${host}/ws`);
+
+    this.ws.onopen = () => {
+      const el = document.getElementById('status-ws');
+      if (el) el.className = 'status-dot connected';
+      this.log('SUCCESS', 'Connected to Orchiday server');
+    };
+
+    this.ws.onclose = () => {
+      const el = document.getElementById('status-ws');
+      if (el) el.className = 'status-dot error';
+      setTimeout(() => this.connectWS(), 3000);
+    };
+
+    this.ws.onerror = () => {
+      const el = document.getElementById('status-ws');
+      if (el) el.className = 'status-dot error';
+    };
+
+    this.ws.onmessage = (e: MessageEvent) => {
+      try {
+        this.handleEvent(JSON.parse(e.data));
+      } catch (_) {}
+    };
+  },
+
+  // ── Real-Time Event Dispatcher ──────────────────────────────────────
+  handleEvent(msg: WSMessage): void {
+    const { event, data } = msg;
+    switch (event) {
+      case 'log_message':
+        this.log(data.level, data.message);
+        break;
+      case 'console_output':
+        if (data.startsWith('[TELEMETRY]')) {
+          this.handleInferenceTelemetry(data);
+        } else {
+          this.logRaw(data);
+          this.handleInferenceTelemetry(data);
+        }
+        break;
+      case 'project_opened':
+        this.onProjectOpened(data);
+        break;
+      case 'project_closed':
+        this.onProjectClosed();
+        break;
+      case 'robot_added':
+      case 'robot_removed':
+      case 'camera_added':
+      case 'camera_removed':
+      case 'skill_created':
+      case 'skill_deleted':
+        this.refreshProject();
+        break;
+      case 'robot_connected':
+        const rEl = document.getElementById('status-robot');
+        if (rEl) rEl.className = 'status-dot connected';
+        this.log('INFO', 'Robot hardware connected successfully');
+        break;
+      case 'robot_disconnected':
+        const rdEl = document.getElementById('status-robot');
+        if (rdEl) rdEl.className = 'status-dot';
+        this.log('WARN', 'Robot hardware disconnected');
+        break;
+      case 'model_connection_ok':
+        const lmEl = document.getElementById('status-lm');
+        if (lmEl) lmEl.className = 'status-dot connected';
+        this.log('SUCCESS', `Connection to LM Studio established: ${data}`);
+        break;
+      case 'model_connection_fail':
+        const lmfEl = document.getElementById('status-lm');
+        if (lmfEl) lmfEl.className = 'status-dot error';
+        this.log('ERROR', `LM Studio model connection failed: ${data.error || data}`);
+        break;
+      case 'camera_started':
+        if (!this.activeCameras) this.activeCameras = [];
+        if (!this.activeCameras.includes(data)) this.activeCameras.push(data);
+        this.renderCameras();
+        this.log('SUCCESS', `Camera ${data} started streaming feed`);
+        break;
+      case 'camera_stopped':
+        if (this.activeCameras) this.activeCameras = this.activeCameras.filter(cid => cid !== data);
+        this.renderCameras();
+        this.log('INFO', `Camera ${data} feed offline`);
+        break;
+      case 'recording_started':
+        this.log('INFO', `Demonstration recording started for skill: ${data}`);
+        this.updateTrainingStatus(`Recording demonstration for '${data}'...`, 'var(--yellow)');
+        const keysG = document.getElementById('rec-keys-guide');
+        if (keysG) keysG.style.display = 'block';
+        break;
+      case 'recording_progress':
+        this.log('INFO', `Recording episode progress: ${Math.round(data.progress * 100)}%`);
+        this.updateTrainingStatus(`Recording... ${Math.round(data.progress * 100)}%`, 'var(--yellow)');
+        break;
+      case 'recording_stopped':
+        this.log('SUCCESS', `Demonstration episode recorded successfully for: ${data.skill}`);
+        this.updateTrainingStatus(`Recording complete! Saved ${data.episode_count || 0} episodes.`, 'var(--green)');
+        const keysGh = document.getElementById('rec-keys-guide');
+        if (keysGh) keysGh.style.display = 'none';
+        this.finishTaggingPostProcess();
+        this.refreshProject();
+        break;
+      case 'training_started':
+        this.log('INFO', `Trénování spuštěno pro krok: ${data}`);
+        this.activeTrainingSkill = data;
+        if (this.trainingQueue) {
+          this.trainingQueue = this.trainingQueue.filter(s => s !== data);
+        }
+        this.renderTrainingSkillsTree();
+        this.updateTrainingStatus(`Trénování kroku '${data}'...`, 'var(--cyan)');
+        break;
+      case 'training_progress':
+        this.addLossPoint(data.epoch, data.loss);
+        this.updateTrainingProgress(data.epoch, data.loss, data.skill);
+        break;
+      case 'training_finished':
+        this.log('SUCCESS', `Trénování úspěšně dokončeno pro: ${data.skill}`);
+        this.updateTrainingStatus(`Trénování dokončeno! Uložen checkpoint.`, 'var(--green)');
+        if (data.skill) {
+          const fill = document.getElementById(`train-progress-fill-${data.skill}`);
+          if (fill) fill.style.width = `100%`;
+          const txt = document.getElementById(`train-progress-text-${data.skill}`);
+          if (txt) txt.textContent = `Dokončeno`;
+        }
+        if (this.activeTrainingSkill === data.skill) {
+          this.activeTrainingSkill = null;
+        }
+        this.refreshProject();
+        break;
+      case 'training_error':
+        this.log('ERROR', `Chyba trénování u kroku '${data.skill}': ${data.error}`);
+        this.updateTrainingStatus(`Chyba: ${data.error}`, 'var(--red)');
+        if (data.skill) {
+          const txt = document.getElementById(`train-progress-text-${data.skill}`);
+          if (txt) txt.textContent = `Chyba`;
+        }
+        if (this.activeTrainingSkill === data.skill) {
+          this.activeTrainingSkill = null;
+        }
+        this.refreshProject();
+        break;
+      case 'orchestration_plan_ready':
+        this.renderPipeline(data);
+        break;
+      case 'orchestration_task_started':
+        this.setPipelineStep(data, 'active');
+        this.updateOrchStatus(`Active step: ${data}`, 'var(--yellow)');
+        const evalTaskEl = document.getElementById('eval-task-name') as HTMLInputElement | null;
+        if (evalTaskEl) {
+          evalTaskEl.value = data;
+        }
+        break;
+      case 'orchestration_task_completed':
+        this.setPipelineStep(data.task, data.success ? 'done' : 'failed');
+        const snapBadgeComp = document.getElementById('vlm-inspect-badge');
+        if (snapBadgeComp) {
+          snapBadgeComp.textContent = data.success ? 'Success' : 'Failed';
+          if (data.success) {
+            snapBadgeComp.style.background = 'var(--green-light)';
+            snapBadgeComp.style.color = 'var(--green)';
+          } else {
+            snapBadgeComp.style.background = 'var(--red-light)';
+            snapBadgeComp.style.color = 'var(--red)';
+          }
+        }
+        break;
+      case 'orchestration_locked':
+        const latchBanner = document.getElementById('task-latch-card-banner');
+        if (latchBanner) {
+          latchBanner.className = 'task-latch-banner locked';
+          const latchIcon = document.getElementById('task-latch-visual-icon');
+          const latchTitle = document.getElementById('task-latch-title-text');
+          const latchDesc = document.getElementById('task-latch-desc-text');
+          if (latchIcon) latchIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
+          if (latchTitle) latchTitle.textContent = 'Task Latch: LOCKED';
+          if (latchDesc) latchDesc.textContent = 'Motor executing at 30 FPS. Async CEO/VLM processing paused for safety.';
+        }
+        break;
+      case 'orchestration_unlocked':
+        const latchBannerUn = document.getElementById('task-latch-card-banner');
+        if (latchBannerUn) {
+          latchBannerUn.className = 'task-latch-banner unlocked';
+          const latchIcon = document.getElementById('task-latch-visual-icon');
+          const latchTitle = document.getElementById('task-latch-title-text');
+          const latchDesc = document.getElementById('task-latch-desc-text');
+          if (latchIcon) latchIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>';
+          if (latchTitle) latchTitle.textContent = 'Task Latch: UNLOCKED';
+          if (latchDesc) latchDesc.textContent = 'Motor finished block. VLM Inspector active on boundaries.';
+        }
+        break;
+      case 'orchestration_vlm_snap':
+        const snapImg = document.getElementById('vlm-inspect-image') as HTMLImageElement | null;
+        const snapNone = document.getElementById('vlm-inspect-none');
+        const snapBadge = document.getElementById('vlm-inspect-badge');
+        if (snapImg && snapNone) {
+          snapImg.src = `data:image/jpeg;base64,${data}`;
+          snapImg.style.display = 'block';
+          snapNone.style.display = 'none';
+        }
+        if (snapBadge) {
+          snapBadge.textContent = 'Verifying...';
+          snapBadge.style.background = 'var(--accent-light)';
+          snapBadge.style.color = 'var(--yellow)';
+        }
+        break;
+      case 'orchestration_finished':
+        this.updateOrchStatus(data ? 'CEO task completed successfully!' : 'Completed with errors.', data ? 'var(--green)' : 'var(--yellow)');
+        break;
+      case 'orchestration_error':
+        this.updateOrchStatus(`Error: ${data}`, 'var(--red)');
+        break;
+      case 'pong':
+        break;
+    }
+  },
+
+  // ── Tab Router (Upgraded for dynamically changing Sidebar content) ────
+  changeTab(tabId: string): void {
+    // Guard: Must have active project to select tabs other than 'projects'
+    if (tabId !== 'projects' && !this.project) {
+      alert('Nejprve prosím otevřete nebo vytvořte projekt na záložce Projekty.');
+      this.changeTab('projects');
+      return;
+    }
+
+    // Stop camera preview if leaving hardware page
+    if (tabId !== 'hardware') {
+      this.hwStopCameraPreview();
+    }
+
+    // 1. Toggles activitybar buttons active state
+    document.querySelectorAll('.activitybar .activity-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    const activeBtn = document.getElementById(`btn-${tabId}`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    // 2. Toggles workspace page visibility
+    document.querySelectorAll('.workspace .editor-area').forEach(page => {
+      page.classList.remove('active-page');
+    });
+    const activePage = document.getElementById(`page-${tabId}`);
+    if (activePage) activePage.classList.add('active-page');
+
+    // 3. Update breadcrumbs trail dynamically
+    const bcSection = document.getElementById('breadcrumb-section');
+    const bcFile = document.getElementById('breadcrumb-file');
+    if (bcSection) {
+      if (tabId === 'projects') bcSection.textContent = 'projects';
+      else if (tabId === 'hardware') bcSection.textContent = 'hardware';
+      else if (tabId === 'teleoperation') bcSection.textContent = 'teleoperation';
+      else if (tabId === 'orchestration') bcSection.textContent = 'orchestration';
+      else if (tabId === 'datacollection') bcSection.textContent = 'data_collection';
+      else if (tabId === 'learning') bcSection.textContent = 'learning';
+      else if (tabId === 'modelrun') bcSection.textContent = 'model_run';
+      else if (tabId === 'settings') bcSection.textContent = 'settings';
+    }
+    if (bcFile) {
+      if (tabId === 'projects') bcFile.textContent = 'projects.json';
+      else if (tabId === 'hardware') bcFile.textContent = 'hardware_config.json';
+      else if (tabId === 'teleoperation') bcFile.textContent = 'teleoperation.json';
+      else if (tabId === 'orchestration') bcFile.textContent = 'orchestration.json';
+      else if (tabId === 'datacollection') bcFile.textContent = this.activeSkill || 'pick_cube';
+      else if (tabId === 'learning') bcFile.textContent = 'policy_training.json';
+      else if (tabId === 'modelrun') bcFile.textContent = 'ceo_execution.json';
+      else if (tabId === 'settings') bcFile.textContent = 'config.json';
+    }
+
+    if (tabId === 'learning') {
+      // Force chart redraw to fill container
+      setTimeout(() => this.drawLossChart(), 100);
+      this.api('GET', '/training/status')
+        .then(status => {
+          this.activeTrainingSkill = status.active_skill;
+          this.trainingQueue = status.queue || [];
+          this.renderTrainingSkillsTree();
+        })
+        .catch(err => {
+          console.error("Failed to fetch training status", err);
+          this.renderTrainingSkillsTree();
+        });
+    } else if (tabId === 'settings') {
+      this.loadSysInfo();
+    }
+  },
+
+  async loadSysInfo(): Promise<void> {
+    try {
+      this.log('INFO', 'Loading system diagnostic information...');
+      const sysinfo = await this.api('GET', '/settings/sysinfo');
+      if (sysinfo) {
+        // Pre-fill paths
+        const pyPathInput = document.getElementById('settings-python-path') as HTMLInputElement | null;
+        if (pyPathInput) pyPathInput.value = sysinfo.python_path || '';
+        
+        const lerobotDirInput = document.getElementById('settings-lerobot-dir-global') as HTMLInputElement | null;
+        if (lerobotDirInput) lerobotDirInput.value = sysinfo.lerobot_dir || '';
+        
+        const storageDirInput = document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null;
+        if (storageDirInput && this.project) {
+          storageDirInput.value = this.project.dataset_storage_dir || '';
+        }
+
+        // Populate diagnostic labels
+        const lblPyVersion = document.getElementById('diag-python-version');
+        if (lblPyVersion) lblPyVersion.textContent = sysinfo.python_version || 'Neznámá';
+
+        const lblLeRobotVersion = document.getElementById('diag-lerobot-version');
+        if (lblLeRobotVersion) lblLeRobotVersion.textContent = sysinfo.lerobot_version || 'Nenalezeno';
+
+        const lblCondaEnv = document.getElementById('diag-conda-env');
+        if (lblCondaEnv) lblCondaEnv.textContent = sysinfo.conda_env || 'Neznámé';
+
+        const lblMinicondaPath = document.getElementById('diag-miniconda-path');
+        if (lblMinicondaPath) lblMinicondaPath.textContent = sysinfo.miniconda_path || 'Nenalezeno';
+        
+        this.log('SUCCESS', 'System diagnostic information loaded');
+      }
+    } catch (err) {
+      this.log('ERROR', 'Failed to load system diagnostics info.');
+    }
+  },
+
+  async saveGlobalSettings(): Promise<void> {
+    const pyPathEl = document.getElementById('settings-python-path') as HTMLInputElement | null;
+    const pyPath = pyPathEl ? pyPathEl.value.trim() : '';
+
+    const lerobotDirEl = document.getElementById('settings-lerobot-dir-global') as HTMLInputElement | null;
+    const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
+
+    const storageDirEl = document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null;
+    const storageDir = storageDirEl ? storageDirEl.value.trim() : '';
+
+    this.log('INFO', 'Saving global and project settings...');
+    const r = await this.api('POST', '/settings', {
+      python_path: pyPath,
+      lerobot_dir: lerobotDir,
+      dataset_storage_dir: storageDir
+    });
+
+    if (r && r.ok) {
+      this.log('SUCCESS', 'Settings saved successfully');
+      this.loadSysInfo();
+    } else {
+      this.log('ERROR', 'Failed to save settings');
+    }
+  },
+
+  // ── API Communicator ────────────────────────────────────────────────
+  async api(method: string, path: string, body?: any): Promise<any> {
+    const host = location.host || 'localhost:8000';
+    const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(`http://${host}/api${path}`, opts);
+    return r.json();
+  },
+
+  // ── Projects Controller ─────────────────────────────────────────────
+  async loadProjects(): Promise<void> {
+    try {
+      const data = await this.api('GET', '/projects');
+      this.renderProjectList(data.projects || [], data.recent || []);
+      
+      const cur = await this.api('GET', '/project');
+      if (cur.project) this.onProjectOpened(cur.project);
+    } catch (_) {}
+  },
+
+  renderProjectList(projects: any[], recent: any[]): void {
+    const all = projects.length ? projects : recent.map(r => ({ name: r.name, _path: r.path, slug: r.slug, skills: [], robots: (r as any).robots || [] }));
+    
+    // Main project manager grid
+    const el = document.getElementById('project-list');
+    if (el) {
+      let cardsHtml = all.map(p => {
+        const isActive = this.project && this.project.path === p._path;
+        
+        // Determine robot type from config
+        const robot = (p.robots && p.robots.length > 0) ? p.robots[0] : null;
+        let robotLabel = 'Nekonfigurován';
+        let robotClass = 'none';
+        
+        if (robot) {
+          const typeLower = (robot.type || robot.follower_type || '').toLowerCase();
+          if (typeLower.includes('soarm') || typeLower.includes('so-arm')) {
+            robotLabel = 'SO-ARM 101';
+            robotClass = 'soarm101';
+          } else if (typeLower.includes('so100') || typeLower.includes('so-100')) {
+            robotLabel = 'SO-100';
+            robotClass = 'so100';
+          } else if (typeLower.includes('koch')) {
+            robotLabel = 'Koch v1.1';
+            robotClass = 'koch';
+          } else if (typeLower.includes('aloha')) {
+            robotLabel = 'Aloha';
+            robotClass = 'aloha';
+          } else if (typeLower.includes('moss')) {
+            robotLabel = 'Moss v1';
+            robotClass = 'moss';
+          } else if (typeLower.includes('stretch')) {
+            robotLabel = 'Stretch';
+            robotClass = 'stretch';
+          } else if (typeLower.includes('lekiwi')) {
+            robotLabel = 'LeKiwi';
+            robotClass = 'lekiwi';
+          } else {
+            robotLabel = robot.type || robot.follower_type || 'Custom';
+            robotClass = 'custom';
+          }
+        }
+
+        return `
+          <div class="project-card fade-in ${isActive ? 'active' : ''}" onclick="App.openProject('${p._path || ''}')">
+            <button class="project-delete-btn" onclick="App.deleteProject('${p._path || ''}', event)" title="Smazat projekt">✕</button>
+            ${isActive ? `
+              <div class="project-active-check">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+            ` : ''}
+            <div class="project-name">${this.esc(p.name)}</div>
+            <div class="project-meta">${p.slug || ''} ${p.created_at ? '· ' + new Date(p.created_at).toLocaleDateString() : ''}</div>
+            
+            <div class="robot-badge ${robotClass}">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:2px;"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path></svg>
+              ${robotLabel}
+            </div>
+
+            <div class="project-skills">${(p.skills_names || p.skills || []).map((s: string) => `<span class="skill-tag">${s}</span>`).join('')}</div>
+          </div>
+        `;
+      }).join('');
+      
+      // Append the empty placeholder card at the end
+      cardsHtml += `
+        <div class="project-card empty-project-card fade-in" onclick="App.showNewProjectModal()">
+          <div class="plus-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+          <div class="empty-card-title">Nový Projekt</div>
+          <div class="empty-card-desc">Konfigurace s průvodcem nebo prostý projekt</div>
+        </div>
+      `;
+      
+      el.innerHTML = cardsHtml;
+    }
+
+    // Sidebar small project shortcuts
+    const sideEl = document.getElementById('sidebar-projects-list-container');
+    if (sideEl) {
+      if (!all.length) {
+        sideEl.innerHTML = `<div style="font-size: 10px; color: var(--text-muted);">Žádné projekty.</div>`;
+      } else {
+        sideEl.innerHTML = all.map(p => {
+          const isActive = this.project && this.project.path === p._path;
+          return `
+            <div class="sidebar-project-item ${isActive ? 'active' : ''}" onclick="App.openProject('${p._path || ''}')">
+              <div class="name">${this.esc(p.name)}</div>
+              <div class="meta">${p.slug || ''}</div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+  },
+
+  showNewProjectModal(): void {
+    this.showNewProjectModeSelection();
+    this.openModal('modal-new-project');
+  },
+
+  showNewProjectModeSelection(): void {
+    const title = document.getElementById('new-project-modal-title');
+    const selection = document.getElementById('new-project-mode-selection');
+    const detailsForm = document.getElementById('new-project-details-form');
+    const footer = document.getElementById('new-project-modal-footer');
+    
+    if (title) title.textContent = 'Vytvořit Nový Projekt';
+    if (selection) selection.style.display = 'block';
+    if (detailsForm) detailsForm.style.display = 'none';
+    if (footer) footer.style.display = 'none';
+  },
+
+  selectNewProjectModeDirect(mode: 'quick' | 'plain'): void {
+    this.newProjectSetupMode = mode;
+    if (mode === 'quick') {
+      this.closeModal('modal-new-project');
+      this.showSetupWizard('quick');
+    } else {
+      const title = document.getElementById('new-project-modal-title');
+      const selection = document.getElementById('new-project-mode-selection');
+      const detailsForm = document.getElementById('new-project-details-form');
+      const footer = document.getElementById('new-project-modal-footer');
+      
+      if (title) title.textContent = 'Název a nastavení prostého projektu';
+      if (selection) selection.style.display = 'none';
+      if (detailsForm) detailsForm.style.display = 'flex';
+      if (footer) footer.style.display = 'flex';
+      
+      const nameInput = document.getElementById('new-project-name') as HTMLInputElement;
+      if (nameInput) {
+        nameInput.value = '';
+        nameInput.focus();
+      }
+      const slugInput = document.getElementById('new-project-slug') as HTMLInputElement;
+      if (slugInput) slugInput.value = '';
+    }
+  },
+
+  async createProject(): Promise<void> {
+    const name = (document.getElementById('new-project-name') as HTMLInputElement).value.trim();
+    const slug = (document.getElementById('new-project-slug') as HTMLInputElement).value.trim();
+    const parentDir = (document.getElementById('new-project-parent-dir') as HTMLInputElement | null)?.value.trim() || '';
+    if (!name || !slug) return;
+    const r = await this.api('POST', '/projects', { name, slug, parent_dir: parentDir });
+    if (r.ok) {
+      this.closeModal('modal-new-project');
+      this.loadProjects();
+    } else {
+      this.log('ERROR', r.error || 'Failed to create project');
+      alert('Chyba při vytváření projektu: ' + (r.error || 'neznámá chyba'));
+    }
+  },
+
+  async openProject(path: string): Promise<void> {
+    if (!path) return;
+    await this.api('POST', '/projects/open', { path });
+  },
+
+  async deleteProject(path: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    if (!confirm('Opravdu chcete tento projekt smazat? Všechna data projektu budou trvale smazána.')) {
+      return;
+    }
+    const r = await this.api('POST', '/projects/delete', { path });
+    if (r.ok) {
+      if (this.project && this.project.path === path) {
+        this.onProjectClosed();
+      }
+      this.loadProjects();
+    } else {
+      alert('Chyba při mazání projektu: ' + (r.error || 'neznámá chyba'));
+    }
+  },
+
+  onProjectOpened(data: any): void {
+    this.isProjectLoading = true;
+    this.project = data.project || data;
+    this.activeCameras = data.active_cameras || [];
+    
+    // Update global workspace badge in Title bar
+    const titleBarActive = document.getElementById('title-active-project');
+    if (titleBarActive && this.project) {
+      titleBarActive.textContent = this.project.name;
+    }
+
+    // Update sidebar project badge details
+    const sideProjName = document.getElementById('sidebar-proj-name');
+    if (sideProjName && this.project) {
+      sideProjName.textContent = this.project.name;
+    }
+
+    // Update unified global project badges across all tabs!
+    document.querySelectorAll('.project-badge-global').forEach(badge => {
+      badge.textContent = this.project?.name || 'Unnamed Project';
+    });
+    
+    // Select first skill by default
+    const skills = this.project?.skills || [];
+    this.activeSkill = skills[0] || 'pick_cube';
+
+    // Re-render project cards to reflect the new active state (without refetching from server)
+    this.updateProjectCardsActiveState();
+
+    this.renderRobots();
+    this.renderCameras();
+    this.renderSkillsFull();
+    this.renderTrainingSkillsTree();
+    this.loadModelConfig();
+    this.scanHardware().then(() => {
+      this.prefillWorkflowData();
+      this.isProjectLoading = false;
+      this.startAllProjectCameras();
+    }).catch(() => {
+      this.isProjectLoading = false;
+    });
+  },
+
+  onProjectClosed(): void {
+    this.project = null;
+    this.activeCameras = [];
+    
+    // Reset global workspace badge in Title bar
+    const titleBarActive = document.getElementById('title-active-project');
+    if (titleBarActive) {
+      titleBarActive.textContent = 'Žádný projekt';
+    }
+
+    // Reset unified global project badges across all tabs!
+    document.querySelectorAll('.project-badge-global').forEach(badge => {
+      badge.textContent = 'No project loaded';
+    });
+    
+    this.changeTab('projects');
+    this.loadProjects();
+  },
+
+  /** Update active/checked state on existing project cards without refetching from server. */
+  updateProjectCardsActiveState(): void {
+    const activePath = this.project?.path || '';
+
+    // Update main project grid cards
+    document.querySelectorAll('#project-list .project-card:not(.empty-project-card)').forEach(card => {
+      const onclick = card.getAttribute('onclick') || '';
+      const match = onclick.match(/App\.openProject\('([^']*)'\)/);
+      const cardPath = match ? match[1] : '';
+      const isActive = !!(activePath && cardPath === activePath);
+
+      card.classList.toggle('active', isActive);
+
+      // Add or remove checkmark badge
+      let check = card.querySelector('.project-active-check');
+      if (isActive && !check) {
+        const div = document.createElement('div');
+        div.className = 'project-active-check';
+        div.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        card.insertBefore(div, card.children[1]); // after delete button
+      } else if (!isActive && check) {
+        check.remove();
+      }
+    });
+
+    // Update sidebar project shortcuts
+    document.querySelectorAll('#sidebar-projects-list-container .sidebar-project-item').forEach(item => {
+      const onclick = item.getAttribute('onclick') || '';
+      const match = onclick.match(/App\.openProject\('([^']*)'\)/);
+      const itemPath = match ? match[1] : '';
+      item.classList.toggle('active', !!(activePath && itemPath === activePath));
+    });
+  },
+
+  async refreshProject(): Promise<void> {
+    try {
+      const r = await this.api('GET', '/project');
+      if (r.project) {
+        this.project = r.project;
+        this.activeCameras = r.active_cameras || [];
+        this.renderRobots();
+        this.renderCameras();
+        this.renderSkillsFull();
+        this.renderTrainingSkillsTree();
+        
+        const skills = this.project?.skills || [];
+        if (this.activeSkill && skills.includes(this.activeSkill)) {
+          this.selectSkill(this.activeSkill);
+        } else if (skills.length > 0) {
+          this.selectSkill(skills[0]);
+        } else {
+          const emptyState = document.getElementById('rec-empty-state');
+          const activePanel = document.getElementById('rec-active-panel');
+          if (emptyState) emptyState.style.display = 'flex';
+          if (activePanel) activePanel.style.display = 'none';
+        }
+
+        await this.scanHardware();
+        this.prefillWorkflowData();
+        const dock = document.getElementById('docked-cameras-area');
+        if (dock && dock.style.width !== '0px') {
+          this.startAllProjectCameras();
+        }
+      }
+    } catch (_) {}
+  },
+
+  // ── Hardware Scan & Dynamic Pair ────────────────────────────────────
+  async scanHardware(): Promise<void> {
+    try {
+      const res = await this.api('GET', '/hardware/scan');
+      this.availablePorts = res.ports || [];
+      this.availableCameras = res.cameras || [];
+      
+      this.populatePortDropdowns();
+      this.populateCameraDropdowns();
+    } catch (err) {
+      this.log('WARN', 'Failed to scan USB/serial or video hardware devices.');
+    }
+  },
+
+  populatePortDropdowns(): void {
+    const dropdownIds = ['robot-port', 'tele-leader-port', 'tele-follower-port'];
+    dropdownIds.forEach(id => {
+      const select = document.getElementById(id) as HTMLSelectElement | null;
+      if (!select) return;
+
+      const currentVal = select.value || select.getAttribute('data-last-val');
+      
+      let html = `<option value="">-- Vyberte port --</option>`;
+      this.availablePorts.forEach(p => {
+        html += `<option value="${p.device}" data-persistent-id="${p.persistent_id}">${this.esc(p.friendly_name)}</option>`;
+      });
+      html += `<option value="__custom__">Ruční zadání cesty...</option>`;
+      
+      select.innerHTML = html;
+
+      // Restore value. If it's custom and not in scanned ports list, add it dynamically!
+      if (currentVal) {
+        let opt = select.querySelector(`option[value="${currentVal}"]`);
+        if (!opt && currentVal !== '__custom__') {
+          const newOpt = document.createElement('option');
+          newOpt.value = currentVal;
+          newOpt.textContent = currentVal;
+          select.insertBefore(newOpt, select.lastElementChild);
+        }
+        select.value = currentVal;
+        select.setAttribute('data-last-val', currentVal);
+      }
+    });
+    this.updateHardwareButtonStates();
+  },
+
+  populateCameraDropdowns(): void {
+    const select = document.getElementById('camera-source') as HTMLSelectElement | null;
+    if (select) {
+      const currentVal = select.value || select.getAttribute('data-last-val');
+      let html = `<option value="">-- Vyberte kameru --</option>`;
+      this.availableCameras.forEach(c => {
+        html += `<option value="${c.index}" data-persistent-id="${c.persistent_id}">${this.esc(c.friendly_name)}</option>`;
+      });
+      html += `<option value="__custom__">Ruční index nebo URL...</option>`;
+      select.innerHTML = html;
+      if (currentVal) {
+        let opt = select.querySelector(`option[value="${currentVal}"]`);
+        if (!opt && currentVal !== '__custom__') {
+          const newOpt = document.createElement('option');
+          newOpt.value = currentVal;
+          newOpt.textContent = currentVal;
+          select.insertBefore(newOpt, select.lastElementChild);
+        }
+        select.value = currentVal;
+        select.setAttribute('data-last-val', currentVal);
+      }
+    }
+
+    const hwSelect = document.getElementById('hw-camera-port-select') as HTMLSelectElement | null;
+    if (hwSelect) {
+      const currentVal = hwSelect.value || hwSelect.getAttribute('data-last-val');
+      let html = `<option value="">-- Vyberte port kamery --</option>`;
+      this.availableCameras.forEach(c => {
+        html += `<option value="${c.index}" data-persistent-id="${c.persistent_id}">${this.esc(c.friendly_name)}</option>`;
+      });
+      html += `<option value="__custom__">Ruční index nebo URL...</option>`;
+      hwSelect.innerHTML = html;
+      if (currentVal) {
+        let opt = hwSelect.querySelector(`option[value="${currentVal}"]`);
+        if (!opt && currentVal !== '__custom__') {
+          const newOpt = document.createElement('option');
+          newOpt.value = currentVal;
+          newOpt.textContent = currentVal;
+          hwSelect.insertBefore(newOpt, hwSelect.lastElementChild);
+        }
+        hwSelect.value = currentVal;
+        hwSelect.setAttribute('data-last-val', currentVal);
+      }
+    }
+  },
+
+  onRobotPortSelectChange(): void {
+    const select = document.getElementById('robot-port') as HTMLSelectElement | null;
+    if (select && select.value === '__custom__') {
+      const val = prompt('Zadejte ručně cestu k portu robota:', select.getAttribute('data-last-val') || '/dev/ttyUSB0');
+      if (val && val.trim()) {
+        let opt = select.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
+        if (!opt) {
+          opt = document.createElement('option') as HTMLOptionElement;
+          opt.value = val.trim();
+          opt.textContent = val.trim();
+          select.insertBefore(opt, select.lastElementChild);
+        }
+        select.value = val.trim();
+        select.setAttribute('data-last-val', val.trim());
+      } else {
+        select.value = select.getAttribute('data-last-val') || '';
+      }
+    } else if (select) {
+      select.setAttribute('data-last-val', select.value);
+    }
+  },
+
+  onCameraSourceSelectChange(): void {
+    const select = document.getElementById('camera-source') as HTMLSelectElement | null;
+    if (select && select.value === '__custom__') {
+      const val = prompt('Zadejte index kamery (např. 0, 1) nebo video stream URL:', select.getAttribute('data-last-val') || '0');
+      if (val && val.trim()) {
+        let opt = select.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
+        if (!opt) {
+          opt = document.createElement('option') as HTMLOptionElement;
+          opt.value = val.trim();
+          opt.textContent = val.trim();
+          select.insertBefore(opt, select.lastElementChild);
+        }
+        select.value = val.trim();
+        select.setAttribute('data-last-val', val.trim());
+      } else {
+        select.value = select.getAttribute('data-last-val') || '';
+      }
+    } else if (select) {
+      select.setAttribute('data-last-val', select.value);
+    }
+  },
+
+  onTelePortChange(role: string): void {
+    const select = document.getElementById(`tele-${role}-port`) as HTMLSelectElement | null;
+    if (select && select.value === '__custom__') {
+      const val = prompt(`Zadejte ručně cestu k portu pro ${role.toUpperCase()} arm:`, select.getAttribute('data-last-val') || (role === 'leader' ? '/dev/ttyUSB1' : '/dev/ttyUSB0'));
+      if (val && val.trim()) {
+        let opt = select.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
+        if (!opt) {
+          opt = document.createElement('option') as HTMLOptionElement;
+          opt.value = val.trim();
+          opt.textContent = val.trim();
+          select.insertBefore(opt, select.lastElementChild);
+        }
+        select.value = val.trim();
+        select.setAttribute('data-last-val', val.trim());
+      } else {
+        select.value = select.getAttribute('data-last-val') || '';
+      }
+    } else if (select) {
+      select.setAttribute('data-last-val', select.value);
+    }
+    
+    // Auto-save port changes immediately
+    this.saveSettingsState();
+    this.updateHardwareButtonStates();
+  },
+
+  updateHardwareButtonStates(): void {
+    const leaderPort = (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value || '';
+    const followerPort = (document.getElementById('tele-follower-port') as HTMLSelectElement | null)?.value || '';
+    const leaderType = (document.getElementById('tele-leader-type') as HTMLInputElement | null)?.value || '';
+    const followerType = (document.getElementById('tele-follower-type') as HTMLInputElement | null)?.value || '';
+
+    // Sync active hardware info labels to teleoperation page
+    const infoRobotEl = document.getElementById('tele-info-robot-type');
+    const infoLeaderPortEl = document.getElementById('tele-info-leader-port');
+    const infoLeaderTypeEl = document.getElementById('tele-info-leader-type');
+    const infoFollowerPortEl = document.getElementById('tele-info-follower-port');
+    
+    if (infoRobotEl) infoRobotEl.textContent = followerType ? followerType.replace('_follower', '').toUpperCase() : '-';
+    if (infoLeaderPortEl) infoLeaderPortEl.textContent = leaderPort || '-';
+    if (infoLeaderTypeEl) infoLeaderTypeEl.textContent = leaderType ? leaderType.replace('_leader', '').toUpperCase() : '-';
+    if (infoFollowerPortEl) infoFollowerPortEl.textContent = followerPort || '-';
+
+    const btnCalLeader = document.getElementById('btn-calibrate-leader');
+    const btnCalFollower = document.getElementById('btn-calibrate-follower');
+    const btnStartTele = document.getElementById('btn-start-teleop');
+
+    if (btnCalLeader) {
+      if (leaderPort) {
+        btnCalLeader.className = 'btn btn-xs btn-success';
+        (btnCalLeader as HTMLButtonElement).disabled = false;
+      } else {
+        btnCalLeader.className = 'btn btn-xs btn-secondary';
+        (btnCalLeader as HTMLButtonElement).disabled = true;
+      }
+    }
+
+    if (btnCalFollower) {
+      if (followerPort) {
+        btnCalFollower.className = 'btn btn-xs btn-success';
+        (btnCalFollower as HTMLButtonElement).disabled = false;
+      } else {
+        btnCalFollower.className = 'btn btn-xs btn-secondary';
+        (btnCalFollower as HTMLButtonElement).disabled = true;
+      }
+    }
+
+    if (btnStartTele) {
+      const canStart = !!leaderPort && !!followerPort;
+      
+      if (canStart) {
+        btnStartTele.className = 'btn btn-xs btn-primary';
+        (btnStartTele as HTMLButtonElement).disabled = false;
+      } else {
+        btnStartTele.className = 'btn btn-xs btn-secondary';
+        (btnStartTele as HTMLButtonElement).disabled = true;
+      }
+    }
+  },
+
+  // ── Hardware Page Auto-detection & Cameras ───────────────────────
+  async hwStartDetectArm(role: 'leader' | 'follower'): Promise<void> {
+    try {
+      this.log('INFO', `Spouštím skenování portů pro detekci ${role} ramene...`);
+      const res = await this.api('POST', '/setup/detect-arms/start');
+      if (res.ok) {
+        const step1El = document.getElementById(`hw-${role}-step-1`);
+        const step2El = document.getElementById(`hw-${role}-step-2`);
+        const step3El = document.getElementById(`hw-${role}-step-3`);
+        if (step1El) step1El.style.display = 'none';
+        if (step2El) step2El.style.display = 'block';
+        if (step3El) step3El.style.display = 'none';
+      }
+    } catch (err) {
+      alert(`Chyba při zahájení detekce: ${err}`);
+    }
+  },
+
+  async hwConfirmUnplugArm(role: 'leader' | 'follower'): Promise<void> {
+    try {
+      this.log('INFO', `Ověřuji odpojené zařízení pro ${role} rameno...`);
+      const res = await this.api('POST', '/setup/detect-arms/unplugged');
+      if (res.ok && res.device) {
+        const step1El = document.getElementById(`hw-${role}-step-1`);
+        const step2El = document.getElementById(`hw-${role}-step-2`);
+        const step3El = document.getElementById(`hw-${role}-step-3`);
+        if (step1El) step1El.style.display = 'none';
+        if (step2El) step2El.style.display = 'none';
+        if (step3El) step3El.style.display = 'block';
+
+        const textEl = document.getElementById(`hw-${role}-detected-text`);
+        if (textEl) {
+          textEl.textContent = `Detekováno: ${res.device} (${res.persistent_id})`;
+        }
+
+        // Save persistent ID and update select values
+        if (role === 'leader') {
+          const leaderIdInput = document.getElementById('tele-leader-id') as HTMLInputElement;
+          if (leaderIdInput) leaderIdInput.value = res.persistent_id;
+          
+          const selectEl = document.getElementById('tele-leader-port') as HTMLSelectElement;
+          if (selectEl) {
+            let opt = selectEl.querySelector(`option[value="${res.device}"]`) as HTMLOptionElement;
+            if (!opt) {
+              opt = document.createElement('option');
+              opt.value = res.device;
+              opt.textContent = `${res.device} (${res.persistent_id})`;
+              selectEl.appendChild(opt);
+            }
+            selectEl.value = res.device;
+            this.onTelePortChange('leader');
+          }
+        } else {
+          const followerIdInput = document.getElementById('tele-follower-id') as HTMLInputElement;
+          if (followerIdInput) followerIdInput.value = res.persistent_id;
+
+          const selectEl = document.getElementById('tele-follower-port') as HTMLSelectElement;
+          if (selectEl) {
+            let opt = selectEl.querySelector(`option[value="${res.device}"]`) as HTMLOptionElement;
+            if (!opt) {
+              opt = document.createElement('option');
+              opt.value = res.device;
+              opt.textContent = `${res.device} (${res.persistent_id})`;
+              selectEl.appendChild(opt);
+            }
+            selectEl.value = res.device;
+            this.onTelePortChange('follower');
+          }
+        }
+      } else {
+        alert(res.error || 'Nepodařilo se detekovat odpojené zařízení. Zkuste to znovu.');
+      }
+    } catch (err) {
+      alert(`Chyba při detekci odpojení: ${err}`);
+    }
+  },
+
+  hwResetDetectArm(role: 'leader' | 'follower'): void {
+    const step1El = document.getElementById(`hw-${role}-step-1`);
+    const step2El = document.getElementById(`hw-${role}-step-2`);
+    const step3El = document.getElementById(`hw-${role}-step-3`);
+    if (step1El) step1El.style.display = 'block';
+    if (step2El) step2El.style.display = 'none';
+    if (step3El) step3El.style.display = 'none';
+  },
+
+  hwOnCameraPortChange(): void {
+    const portSelect = document.getElementById('hw-camera-port-select') as HTMLSelectElement;
+    const previewImg = document.getElementById('hw-camera-preview-img') as HTMLImageElement;
+    const placeholder = document.getElementById('hw-camera-preview-placeholder');
+    
+    if (!portSelect || !previewImg || !placeholder) return;
+
+    if (portSelect.value === '__custom__') {
+      const val = prompt('Zadejte index kamery (např. 0, 1) nebo video stream URL:', portSelect.getAttribute('data-last-val') || '0');
+      if (val && val.trim()) {
+        let opt = portSelect.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
+        if (!opt) {
+          opt = document.createElement('option') as HTMLOptionElement;
+          opt.value = val.trim();
+          opt.textContent = val.trim();
+          portSelect.insertBefore(opt, portSelect.lastElementChild);
+        }
+        portSelect.value = val.trim();
+        portSelect.setAttribute('data-last-val', val.trim());
+      } else {
+        portSelect.value = portSelect.getAttribute('data-last-val') || '';
+      }
+    } else {
+      portSelect.setAttribute('data-last-val', portSelect.value);
+    }
+    
+    const sourceVal = portSelect.value;
+    if (!sourceVal) {
+      this.hwStopCameraPreview();
+      return;
+    }
+    
+    previewImg.src = `/api/setup/camera-preview/feed?source=${sourceVal}`;
+    previewImg.style.display = 'block';
+    placeholder.style.display = 'none';
+  },
+
+  hwStopCameraPreview(): void {
+    const previewImg = document.getElementById('hw-camera-preview-img') as HTMLImageElement;
+    const placeholder = document.getElementById('hw-camera-preview-placeholder');
+    if (previewImg) {
+      previewImg.src = '';
+      previewImg.style.display = 'none';
+    }
+    if (placeholder) {
+      placeholder.style.display = 'block';
+    }
+  },
+
+  async hwAddCamera(): Promise<void> {
+    const portSelect = document.getElementById('hw-camera-port-select') as HTMLSelectElement | null;
+    const roleSelect = document.getElementById('hw-camera-role-select') as HTMLSelectElement | null;
+    if (!portSelect || !roleSelect) return;
+    
+    let source: string = portSelect.value;
+    if (!source) {
+      alert('Vyberte prosím platný port kamery.');
+      return;
+    }
+    
+    let deviceId = '';
+    const selectedOption = portSelect.options[portSelect.selectedIndex];
+    if (selectedOption) {
+      deviceId = selectedOption.getAttribute('data-persistent-id') || `camera-index-${source}`;
+    }
+    
+    const role = roleSelect.value;
+    
+    const cams = this.project?.cameras || [];
+    let count = 1;
+    let camId = `cam_${role}`;
+    while (cams.some(c => c.id === camId)) {
+      count++;
+      camId = `cam_${role}_${count}`;
+    }
+
+    const parsedSource = isNaN(Number(source)) ? source : parseInt(source, 10);
+    this.log('INFO', `Přidávám kameru: ${camId} na portu ${source}`);
+    await this.api('POST', '/cameras', { id: camId, source: parsedSource, device_id: deviceId, role });
+    
+    portSelect.value = '';
+    this.hwStopCameraPreview();
+
+    this.refreshProject();
+  },
+
+  async hwClearCameras(): Promise<void> {
+    const cams = this.project?.cameras || [];
+    if (!cams.length) return;
+    this.log('INFO', 'Odebírám všechny kamery...');
+    for (const c of cams) {
+      await this.api('DELETE', `/cameras/${c.id}`);
+    }
+    this.refreshProject();
+  },
+
+  // ── Robot Hardware Management ───────────────────────────────────────
+  renderRobots(): void {
+    const el = document.getElementById('robot-list');
+    if (!el) return;
+    const robots = this.project?.robots || [];
+    if (!robots.length) {
+      el.innerHTML = `<div class="empty-state-text">Žádný robot nenakonfigurován.</div>`;
+      return;
+    }
+    el.innerHTML = robots.map(r => `
+      <div class="item-row compact-row">
+        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path><circle cx="10" cy="10" r="2"></circle></svg> <strong>${this.esc(r.id)}</strong> (${r.type.toUpperCase()}) — Port: ${r.port}</span>
+        <div style="display:flex; gap:4px;">
+          <button class="btn btn-xs btn-secondary" onclick="App.calibrateRobot('${r.id}')">Kalibrovat</button>
+          <button class="btn btn-xs btn-danger" onclick="App.removeRobot('${r.id}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  showAddRobotModal(): void {
+    this.scanHardware();
+    this.openModal('modal-add-robot');
+  },
+
+  async addRobot(): Promise<void> {
+    const id = (document.getElementById('robot-id') as HTMLInputElement).value.trim();
+    const type = (document.getElementById('robot-type') as HTMLSelectElement).value;
+    
+    const select = document.getElementById('robot-port') as HTMLSelectElement | null;
+    let port = select ? select.value : '';
+    let deviceId = '';
+    
+    if (port === '__custom__') {
+      port = (document.getElementById('robot-port-custom') as HTMLInputElement).value.trim();
+    } else if (port && select) {
+      const opt = select.options[select.selectedIndex];
+      deviceId = opt.getAttribute('data-persistent-id') || '';
+    }
+
+    if (!id) return;
+    await this.api('POST', '/robots', { id, type, port, device_id: deviceId });
+    this.closeModal('modal-add-robot');
+    this.refreshProject();
+  },
+
+  async removeRobot(id: string): Promise<void> {
+    await this.api('DELETE', `/robots/${id}`);
+    this.refreshProject();
+  },
+
+  async calibrateRobot(id: string): Promise<void> {
+    this.log('INFO', `Starting calibration for robot ${id}...`);
+    await this.api('POST', `/robots/${id}/calibrate`);
+  },
+
+  async calibrateArm(role: 'leader' | 'follower'): Promise<void> {
+    const robotType = (document.getElementById('robot-type-select') as HTMLSelectElement | null)?.value || 'so100';
+    const select = document.getElementById(`tele-${role}-port`) as HTMLSelectElement | null;
+    let port = select ? select.value : '';
+    if (port === '__custom__') {
+      port = (document.getElementById(`tele-${role}-port-custom`) as HTMLInputElement | null)?.value.trim() || '';
+    }
+    const id = (document.getElementById(`tele-${role}-id`) as HTMLInputElement | null)?.value || `my_${role}_arm`;
+    const type = role === 'leader' ? `${robotType}_leader` : robotType;
+
+    if (!port) {
+      const msg = `Port sériového připojení pro rameno ${role.toUpperCase()} není vybrán!`;
+      this.log('ERROR', msg);
+      alert(msg);
+      return;
+    }
+
+    this.log('INFO', `Spouštím kalibraci pro ${role} rameno (${id}) na portu ${port}...`);
+    await this.api('POST', '/hardware/calibrate', {
+      robot_type: type,
+      robot_id: id,
+      port: port
+    });
+  },
+
+  // ── Camera Management ───────────────────────────────────────────────
+  renderCameras(): void {
+    // Clear any customized aspect-ratios first so they can fall back to CSS default 4:3
+    document.querySelectorAll('.cam-box').forEach(box => {
+      (box as HTMLElement).style.aspectRatio = '';
+    });
+    
+    const cams = this.project?.cameras || [];
+    
+    // Determine layout count to show
+    let displayCount = 2; // Default fallback count
+    if (this.cameraLayout === 'auto') {
+      displayCount = cams.length || 2;
+    } else {
+      displayCount = parseInt(this.cameraLayout, 10) || 2;
+    }
+    
+    // Dynamically render the docked cameras panel contents
+    const dockBody = document.querySelector('.cameras-dock-body') as HTMLElement | null;
+    if (dockBody) {
+      dockBody.style.setProperty('display', 'grid', 'important');
+      dockBody.style.setProperty('gap', '6px', 'important');
+      dockBody.style.setProperty('padding', '6px', 'important');
+      dockBody.style.setProperty('align-items', 'stretch', 'important');
+      dockBody.style.setProperty('justify-content', 'stretch', 'important');
+      
+      if (displayCount === 1) {
+        dockBody.style.setProperty('grid-template-columns', '1fr', 'important');
+        dockBody.style.setProperty('grid-template-rows', '1fr', 'important');
+      } else if (displayCount === 2) {
+        dockBody.style.setProperty('grid-template-columns', '1fr 1fr', 'important');
+        dockBody.style.setProperty('grid-template-rows', '1fr', 'important');
+      } else {
+        dockBody.style.setProperty('grid-template-columns', '1fr 1fr', 'important');
+        dockBody.style.setProperty('grid-template-rows', '1fr 1fr', 'important');
+      }
+      
+      let dockHtml = '';
+      for (let i = 0; i < displayCount; i++) {
+        const c = cams[i];
+        if (c) {
+          const isActive = (this.activeCameras || []).includes(c.id);
+          dockHtml += `
+            <div class="cam-box" style="position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; border: 1px solid var(--border); box-sizing: border-box;">
+              <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-light); text-transform: uppercase;">
+                ${this.esc(c.id)} (${this.esc(c.role)})
+              </span>
+              <div id="tele-cam-feed-placeholder-${i + 1}" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+                ${isActive 
+                  ? '<img src="/api/cameras/' + c.id + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />'
+                  : '<span style="font-size: 9px; color: var(--text-muted);">Kamera ' + this.esc(c.id) + ' offline</span>'
+                }
+              </div>
+            </div>
+          `;
+        } else {
+          dockHtml += `
+            <div class="cam-box" style="position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; border: 1px dashed var(--border-dark); box-sizing: border-box;">
+              <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-muted); text-transform: uppercase;">
+                Nenastaveno
+              </span>
+              <div id="tele-cam-feed-placeholder-${i + 1}" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+                <span style="font-size: 9px; color: var(--text-muted);">Žádná kamera v projektu</span>
+              </div>
+            </div>
+          `;
+        }
+      }
+      dockBody.innerHTML = dockHtml;
+    }
+
+    const el = document.getElementById('hw-camera-list');
+    if (!el) return;
+
+    if (!cams.length) {
+      el.innerHTML = '<div class="empty-state-text">Žádné kamery nenakonfigurovány.</div>';
+      
+      const placeholder1 = document.getElementById('cam-feed-placeholder-1');
+      if (placeholder1) placeholder1.innerHTML = '<span>Žádná kamera v projektu</span>';
+      const placeholder2 = document.getElementById('cam-feed-placeholder-2');
+      if (placeholder2) placeholder2.innerHTML = '<span>Žádná kamera v projektu</span>';
+      return;
+    }
+    const host = location.host || 'localhost:8000';
+    
+    // Render list in setup page
+    el.innerHTML = cams.map(c => {
+      const isActive = (this.activeCameras || []).includes(c.id);
+      return `
+        <div class="camera-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <strong>${this.esc(c.id)}</strong> <span style="font-size:10px; opacity:0.6;">(${c.role})</span> — Source: ${c.source}</span>
+            <div style="display:flex; gap:4px;">
+              ${isActive 
+                ? '<button class="btn btn-xs btn-secondary" onclick="App.stopCamera(\'' + c.id + '\')">Stop</button>'
+                : '<button class="btn btn-xs btn-success" onclick="App.startCamera(\'' + c.id + '\')">Start</button>'
+              }
+              <button class="btn btn-xs btn-danger" onclick="App.removeCamera(\'' + c.id + '\')">✕</button>
+            </div>
+          </div>
+          ${isActive 
+            ? '<div class="camera-feed-container"><img src="/api/cameras/' + c.id + '/feed" class="camera-feed-img" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';" /><div style="display:none; align-items:center; justify-content:center; width:100%; height:100%; font-size:9px; color:var(--text-muted);">Stream načítání selhalo</div></div>'
+            : '<div class="camera-offline">Kamera je offline. Klikněte na Start pro spuštění.</div>'
+          }
+        </div>
+      `;
+    }).join('');
+
+    // Update dynamic live stream streams inside Learning workflow panel and Teleoperation panel
+    cams.forEach((c, idx) => {
+      const isActive = (this.activeCameras || []).includes(c.id);
+      
+      const placeholder = document.getElementById('cam-feed-placeholder-' + (idx + 1));
+      if (placeholder) {
+        if (isActive) {
+          placeholder.innerHTML = '<img src="/api/cameras/' + c.id + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />';
+        } else {
+          placeholder.innerHTML = '<span>Kamera ' + c.id + ' (' + c.role + ') offline</span>';
+        }
+      }
+
+      const telePlaceholder = document.getElementById('tele-cam-feed-placeholder-' + (idx + 1));
+      if (telePlaceholder) {
+        if (isActive) {
+          telePlaceholder.innerHTML = '<img src="/api/cameras/' + c.id + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />';
+        } else {
+          telePlaceholder.innerHTML = '<span>Kamera ' + c.id + ' (' + c.role + ') offline</span>';
+        }
+      }
+    });
+  },
+
+  onCameraLayoutChange(): void {
+    const select = document.getElementById('camera-layout-select') as HTMLSelectElement | null;
+    if (select) {
+      this.cameraLayout = select.value;
+      localStorage.setItem('orchiday_camera_layout', this.cameraLayout);
+      this.renderCameras();
+    }
+  },
+
+  adjustCameraAspectRatio(img: HTMLImageElement): void {
+    if (img && img.naturalWidth && img.naturalHeight) {
+      const camBox = img.closest('.cam-box') as HTMLDivElement | null;
+      if (camBox) {
+        camBox.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+      }
+    }
+  },
+
+  showAddCameraModal(): void {
+    this.scanHardware();
+    this.openModal('modal-add-camera');
+  },
+
+  async addCamera(): Promise<void> {
+    const id = (document.getElementById('camera-id') as HTMLInputElement).value.trim();
+    
+    const select = document.getElementById('camera-source') as HTMLSelectElement | null;
+    let source: string = select ? select.value : '';
+    let deviceId = '';
+
+    if (source === '__custom__') {
+      source = (document.getElementById('camera-source-custom') as HTMLInputElement).value.trim();
+    } else if (source !== '' && select) {
+      const opt = select.options[select.selectedIndex];
+      deviceId = opt.getAttribute('data-persistent-id') || '';
+    }
+
+    const role = (document.getElementById('camera-role') as HTMLSelectElement).value;
+    if (!id) return;
+    
+    const parsedSource = (source === '' || isNaN(Number(source))) ? source : parseInt(source, 10);
+    await this.api('POST', '/cameras', { id, source: parsedSource, device_id: deviceId, role });
+    this.closeModal('modal-add-camera');
+    this.refreshProject();
+  },
+
+  async removeCamera(id: string): Promise<void> {
+    await this.api('DELETE', `/cameras/${id}`);
+    this.refreshProject();
+  },
+
+  async startCamera(id: string): Promise<void> { await this.api('POST', `/cameras/${id}/start`); },
+  async stopCamera(id: string): Promise<void> { await this.api('POST', `/cameras/${id}/stop`); },
+  async startAllProjectCameras(): Promise<void> {
+    const cams = this.project?.cameras || [];
+    for (const c of cams) {
+      if (!(this.activeCameras || []).includes(c.id)) {
+        this.log('INFO', `Starting camera ${c.id}...`);
+        await this.startCamera(c.id);
+      }
+    }
+  },
+
+  // ── Workflow Stepper ────────────────────────────────────────────────
+  setDropdownOrCustomValue(selectId: string, value: string): void {
+    const select = document.getElementById(selectId) as HTMLSelectElement | null;
+    if (!select) return;
+    if (!value) {
+      select.value = '';
+      return;
+    }
+
+    let found = false;
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === value) {
+        select.value = value;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      // Dynamically add the loaded option inside the dropdown itself
+      const newOpt = document.createElement('option');
+      newOpt.value = value;
+      newOpt.textContent = value;
+      select.insertBefore(newOpt, select.lastElementChild);
+      select.value = value;
+    }
+
+    select.setAttribute('data-last-val', value);
+  },
+
+  prefillWorkflowData(): void {
+    const robots = this.project?.robots || [];
+    const skills = this.project?.skills || [];
+    
+    const activeRobot = robots[0] || { id: 'my_follower_arm', type: 'so100', port: '/dev/ttyUSB0' };
+    const activeSkill = this.activeSkill || skills[0] || 'pick_cube';
+
+    // Prefill Step 1: Teleop
+    const leaderIdEl = document.getElementById('tele-leader-id') as HTMLInputElement | null;
+    if (leaderIdEl) {
+      leaderIdEl.value = `${activeRobot.id.replace('_follower', '')}_leader`;
+    }
+    
+    // Prefill leader port ONLY if it is physically scanned and available
+    const savedLeaderPort = this.project?.leader_port || "";
+    const isLeaderAvailable = this.availablePorts.some(p => p.device === savedLeaderPort);
+    this.setDropdownOrCustomValue('tele-leader-port', isLeaderAvailable ? savedLeaderPort : "");
+    
+    const leaderTypeEl = document.getElementById('tele-leader-type') as HTMLInputElement | null;
+    if (leaderTypeEl) {
+      leaderTypeEl.value = `${activeRobot.type}_leader`;
+    }
+    const followerIdEl = document.getElementById('tele-follower-id') as HTMLInputElement | null;
+    if (followerIdEl) {
+      followerIdEl.value = activeRobot.id;
+    }
+    
+    // Prefill follower port ONLY if it is physically scanned and available
+    const savedFollowerPort = this.project?.follower_port || activeRobot.port || "";
+    const isFollowerAvailable = this.availablePorts.some(p => p.device === savedFollowerPort);
+    this.setDropdownOrCustomValue('tele-follower-port', isFollowerAvailable ? savedFollowerPort : "");
+    
+    const followerTypeEl = document.getElementById('tele-follower-type') as HTMLInputElement | null;
+    if (followerTypeEl) {
+      followerTypeEl.value = activeRobot.type.includes('follower') ? activeRobot.type : `${activeRobot.type}_follower`;
+    }
+
+    // Prefill inputs based on active selected skill
+    this.selectSkill(activeSkill);
+  },
+
+  // ── Step 1: Teleoperation ───────────────────────────────────────────
+  async startTeleop(): Promise<void> {
+    const rType = (document.getElementById('tele-follower-type') as HTMLInputElement).value;
+    
+    const followerSelect = document.getElementById('tele-follower-port') as HTMLSelectElement | null;
+    let rPort = followerSelect ? followerSelect.value : '';
+    if (rPort === '__custom__') {
+      rPort = (document.getElementById('tele-follower-port-custom') as HTMLInputElement).value.trim();
+    } else {
+      rPort = (rPort || '').trim();
+    }
+
+    const rId = (document.getElementById('tele-follower-id') as HTMLInputElement).value;
+    const tType = (document.getElementById('tele-leader-type') as HTMLInputElement).value;
+    
+    const leaderSelect = document.getElementById('tele-leader-port') as HTMLSelectElement | null;
+    let tPort = leaderSelect ? leaderSelect.value : '';
+    if (tPort === '__custom__') {
+      tPort = (document.getElementById('tele-leader-port-custom') as HTMLInputElement).value.trim();
+    } else {
+      tPort = (tPort || '').trim();
+    }
+
+    const tId = (document.getElementById('tele-leader-id') as HTMLInputElement).value;
+    const displayData = (document.getElementById('tele-display-data') as HTMLInputElement).checked;
+    const fpsVal = (document.getElementById('tele-fps') as HTMLInputElement | null)?.value;
+    const fps = fpsVal ? parseInt(fpsVal, 10) : 60;
+    const timeSVal = (document.getElementById('tele-time-s') as HTMLInputElement | null)?.value;
+    const timeS = timeSVal ? parseFloat(timeSVal) : null;
+
+    if (!rPort || !tPort) {
+      const msg = "Both Follower and Leader serial ports must be specified!";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    if (rPort === tPort) {
+      const msg = `Serial Port Conflict! Leader and Follower cannot share the same port: '${rPort}'`;
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    this.log('INFO', `Starting teleop workflow between leader (${tId}) and follower (${rId}) with FPS: ${fps}, duration: ${timeS || 'infinite'}...`);
+    await this.api('POST', '/teleop/start', {
+      robot_type: rType,
+      robot_port: rPort,
+      robot_id: rId,
+      teleop_type: tType,
+      teleop_port: tPort,
+      teleop_id: tId,
+      display_data: displayData,
+      fps: fps,
+      teleop_time_s: isNaN(timeS) || timeS === null ? null : timeS,
+      cameras: ""
+    });
+  },
+
+  async stopTeleop(): Promise<void> {
+    this.log('WARN', 'Stopping teleoperation session...');
+    await this.api('POST', '/teleop/stop');
+  },
+
+  // ── Step 2: Teleoperated Record ─────────────────────────────────────
+  async startWorkflowRecord(): Promise<void> {
+    const robots = this.project?.robots || [];
+    const rType = robots[0]?.type || 'so100';
+    const rPort = robots[0]?.port || '';
+    const repo = (document.getElementById('rec-repo-id') as HTMLInputElement | null)?.value.trim();
+    const eps = parseInt((document.getElementById('rec-episodes') as HTMLInputElement | null)?.value || '50', 10);
+    const fps = 30; // Native LeRobot FPS target
+
+    if (!repo) {
+      const msg = "Dataset Repo ID cannot be empty!";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    if (!rPort) {
+      const msg = "No Follower robot serial port configured in Hardware Config! Please add/configure a robot port first.";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+    
+    // Show interactive UI guide for LeRobot keys
+    const guide = document.getElementById('rec-keys-guide');
+    if (guide) {
+      guide.style.display = 'block';
+      guide.innerHTML = `
+        <strong>Nahrávání aktivní!</strong><br>
+        1. Přepni se do okna kamer (Pygame).<br>
+        2. <strong>MEZERNÍK</strong> = Start / Stop epizody<br>
+        3. <strong>Pravý SHIFT</strong> = Smazat nepovedenou epizodu<br>
+        4. <strong>ESC</strong> = Ukončit sběr dat
+      `;
+    }
+
+    const liveControls = document.getElementById('rec-live-controls');
+    if (liveControls) {
+      liveControls.style.display = 'flex';
+    }
+
+    this.log('INFO', `Requesting Record for ${repo} (${eps} eps @ ${fps}fps)`);
+    const extraArgs = (document.getElementById('rec-extra-args') as HTMLInputElement | null)?.value.trim() || '';
+    const res = await this.api('POST', '/recording/start', {
+      robot_type: rType,
+      dataset_name: repo,
+      skill_slug: this.activeSkill,
+      num_episodes: eps,
+      fps: fps,
+      port: rPort,
+      extra_args_str: extraArgs
+    });
+    
+    if (res && res.ok === false) {
+      this.log('ERROR', `Backend Validation Failed: ${res.error}`);
+      alert(`Chyba: ${res.error}`);
+      if (guide) guide.style.display = 'none';
+      if (liveControls) liveControls.style.display = 'none';
+    } else if (res && res.ok !== false) {
+      this.initTaggingWizard();
+    }
+  },
+
+  async stopWorkflowRecord(): Promise<void> {
+    const skillSlug = this.activeSkill || 'pick_cube';
+    await this.api('POST', '/recording/stop', { skill_slug: skillSlug });
+    const guide = document.getElementById('rec-keys-guide');
+    if (guide) guide.style.display = 'none';
+    const liveControls = document.getElementById('rec-live-controls');
+    if (liveControls) liveControls.style.display = 'none';
+    
+    await this.finishTaggingPostProcess();
+  },
+
+  async sendRecordingAction(action: string): Promise<void> {
+    this.log('INFO', `Recording action triggered: ${action.toUpperCase()}`);
+    const res = await this.api('POST', '/recording/action', { action });
+    if (res && res.ok === false) {
+      this.log('WARN', `Action warning: ${res.error}`);
+    }
+  },
+
+  // ── Step 3: Replay Episode ──────────────────────────────────────────
+  async startReplay(): Promise<void> {
+    const repo = (document.getElementById('rep-repo-id') as HTMLInputElement).value.trim();
+    const idx = parseInt((document.getElementById('rep-episode-idx') as HTMLInputElement).value, 10);
+    const robots = this.project?.robots || [];
+    const rType = robots[0]?.type || 'so100';
+    const rPort = robots[0]?.port || '';
+
+    if (!repo) {
+      const msg = "Dataset Repo ID cannot be empty!";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    if (!rPort) {
+      const msg = "No Follower robot serial port configured! Cannot replay episode without hardware port.";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    this.log('INFO', `Triggering LeRobot Replay for dataset '${repo}', episode ${idx}...`);
+    await this.api('POST', '/replay/start', {
+      robot_type: rType,
+      dataset_name: repo,
+      episode_index: idx,
+      port: rPort
+    });
+  },
+
+  // ── Step 4: Policy Training ─────────────────────────────────────────
+  async startWorkflowTraining(): Promise<void> {
+    const checkedCheckboxes = document.querySelectorAll('.train-step-checkbox:checked');
+    const checkedSkills: string[] = [];
+    checkedCheckboxes.forEach(cb => {
+      const slug = cb.getAttribute('data-skill');
+      if (slug) checkedSkills.push(slug);
+    });
+
+    if (checkedSkills.length === 0) {
+      const msg = "Vyberte prosím alespoň jeden krok (dovednost) ze seznamu pro trénování.";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    const policy = (document.getElementById('train-policy-type') as HTMLSelectElement).value;
+    const epochs = parseInt((document.getElementById('train-epochs') as HTMLInputElement).value, 10) || 100;
+
+    this.trainingQueue = [...checkedSkills];
+    this.lossData = [];
+    this.setProgressPercent(0);
+    this.drawLossChart();
+
+    const device = (document.getElementById('train-device') as HTMLSelectElement | null)?.value || 'cuda';
+    const wandb = (document.getElementById('train-wandb') as HTMLInputElement | null)?.checked || false;
+    const extraArgs = (document.getElementById('train-extra-args') as HTMLInputElement | null)?.value.trim() || '';
+
+    this.log('INFO', `Spouštění sekvenčního trénování pro: ${checkedSkills.join(', ')}...`);
+    this.renderTrainingSkillsTree();
+
+    await this.api('POST', '/training/start', {
+      skills: checkedSkills,
+      policy_type: policy,
+      epochs: epochs,
+      device: device,
+      use_wandb: wandb,
+      extra_args_str: extraArgs
+    });
+  },
+
+  async stopWorkflowTraining(): Promise<void> {
+    const active = this.activeTrainingSkill || this.activeSkill || 'pick_cube';
+    await this.api('POST', '/training/stop', { skill_slug: active });
+    this.trainingQueue = [];
+    this.activeTrainingSkill = null;
+    this.renderTrainingSkillsTree();
+  },
+
+  async startWorkflowInference(): Promise<void> {
+    const path = (document.getElementById('eval-policy-path') as HTMLInputElement).value.trim();
+    const taskName = (document.getElementById('eval-task-name') as HTMLInputElement).value.trim();
+    const robots = this.project?.robots || [];
+    const rType = robots[0]?.type || 'so100';
+    const rPort = robots[0]?.port || '';
+
+    if (!path) {
+      const msg = "Policy checkpoint path must be specified for deployment!";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    if (!rPort) {
+      const msg = "No Follower robot serial port configured! Cannot deploy policy without hardware port.";
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    this.log('INFO', `Deploying trained policy checkpoint: ${path}...`);
+    const res = await this.api('POST', '/inference/start', {
+      robot_type: rType,
+      policy_path: path,
+      skill_slug: taskName.replace('eval_', ''),
+      port: rPort,
+      fps: 30
+    });
+    if (res && res.ok !== false) {
+      this.initPersistentInferenceUI();
+    }
+  },
+
+  async stopWorkflowInference(): Promise<void> {
+    const taskName = (document.getElementById('eval-task-name') as HTMLInputElement).value.trim();
+    await this.api('POST', '/inference/stop', { skill_slug: taskName.replace('eval_', '') });
+    const panel = document.getElementById('infer-persistent-panel');
+    if (panel) panel.style.display = 'none';
+  },
+
+  selectRobot(type: string): void {
+    const hiddenSelect = document.getElementById('robot-type-select') as HTMLSelectElement | null;
+    if (hiddenSelect) {
+      hiddenSelect.value = type;
+    }
+    
+    // Update active state in horizontal segmented control
+    document.querySelectorAll('.robot-type-pill').forEach(pill => {
+      if (pill.getAttribute('data-value') === type) {
+        pill.classList.add('active');
+      } else {
+        pill.classList.remove('active');
+      }
+    });
+
+    this.onRobotTypeChange();
+
+    // Dynamically auto-save configuration in active project config in real time
+    this.saveSettingsState();
+  },
+
+  saveSettingsState(): void {
+    if (this.isProjectLoading) return;
+    if (!this.project) return;
+    const robotType = (document.getElementById('robot-type-select') as HTMLSelectElement | null)?.value || 'so100';
+    const followerPort = (document.getElementById('tele-follower-port') as HTMLSelectElement | null)?.value || '';
+    const leaderPort = (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value || '';
+    const storageDir = (document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null)?.value.trim() || '';
+
+    const loopIntervalInput = document.getElementById('settings-loop-interval') as HTMLInputElement | null;
+    const loopInterval = loopIntervalInput ? parseFloat(loopIntervalInput.value) : null;
+
+    const lerobotDirEl = document.getElementById('settings-lerobot-dir-global') as HTMLInputElement | null;
+    const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
+
+    const pyPathEl = document.getElementById('settings-python-path') as HTMLInputElement | null;
+    const pyPath = pyPathEl ? pyPathEl.value.trim() : '';
+
+    this.api('POST', '/settings', {
+      lerobot_dir: lerobotDir,
+      python_path: pyPath,
+      robot_type: robotType,
+      follower_port: followerPort,
+      leader_port: leaderPort,
+      dataset_storage_dir: storageDir,
+      sequential_loop_interval: isNaN(loopInterval as number) ? null : loopInterval
+    }).catch(err => {
+      console.error("Failed to auto-save settings state:", err);
+    });
+  },
+
+  onRobotTypeChange(): void {
+    const robotTypeSelect = document.getElementById('robot-type-select') as HTMLSelectElement | null;
+    if (!robotTypeSelect) return;
+    const robotType = robotTypeSelect.value;
+    const isSingleArm = ['so100_follower', 'so100_leader', 'koch_follower', 'koch_leader', 'moss', 'stretch', 'lekiwi'].includes(robotType);
+
+    const leaderGroup = document.getElementById('leader-config-group');
+    const btnCalibrateLeader = document.getElementById('btn-calibrate-leader');
+
+    if (isSingleArm) {
+      if (leaderGroup) leaderGroup.style.display = 'none';
+      if (btnCalibrateLeader) btnCalibrateLeader.style.display = 'none';
+    } else {
+      if (leaderGroup) leaderGroup.style.display = 'flex';
+      if (btnCalibrateLeader) btnCalibrateLeader.style.display = 'inline-flex';
+    }
+
+    // Set hidden inputs dynamically for app.js/app.ts internal routing
+    const leaderTypeInput = document.getElementById('tele-leader-type') as HTMLInputElement | null;
+    const followerTypeInput = document.getElementById('tele-follower-type') as HTMLInputElement | null;
+    if (leaderTypeInput) leaderTypeInput.value = robotType + '_leader';
+    if (followerTypeInput) followerTypeInput.value = robotType;
+    this.updateHardwareButtonStates();
+  },
+
+  loadModelConfig(): void {
+    if (!this.project?.models) return;
+    const llm = this.project.models.llm_ceo || {};
+    const vlm = this.project.models.vlm_inspector || {};
+    
+    const robotType = this.project.robot_type || 'so100';
+    const robotTypeSelect = document.getElementById('robot-type-select') as HTMLSelectElement | null;
+    if (robotTypeSelect) {
+      robotTypeSelect.value = robotType;
+    }
+
+    // Synchronize horizontal segmented slider selector state on load
+    document.querySelectorAll('.robot-type-pill').forEach(pill => {
+      if (pill.getAttribute('data-value') === robotType) {
+        pill.classList.add('active');
+        pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      } else {
+        pill.classList.remove('active');
+      }
+    });
+
+    this.onRobotTypeChange();
+
+    const settingsDs = document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null;
+    if (settingsDs) settingsDs.value = this.project.dataset_storage_dir || '';
+
+    const llmEp = document.getElementById('llm-endpoint') as HTMLInputElement | null;
+    const vlmEp = document.getElementById('vlm-endpoint') as HTMLInputElement | null;
+    const llmMod = document.getElementById('llm-model') as HTMLInputElement | null;
+    const vlmMod = document.getElementById('vlm-model') as HTMLInputElement | null;
+    const llmPrompt = document.getElementById('llm-prompt') as HTMLTextAreaElement | null;
+
+    if (llmEp) llmEp.value = llm.endpoint || 'http://localhost:1234/v1';
+    if (vlmEp) vlmEp.value = vlm.endpoint || 'http://localhost:1234/v1';
+    if (llmMod) llmMod.value = llm.model_name || 'qwen2.5-7b-instruct';
+    if (vlmMod) vlmMod.value = vlm.model_name || 'qwen2-vl-7b-instruct';
+    if (llmPrompt) llmPrompt.value = llm.system_prompt || 'You are a robotic arm task planner. Decompose the user\'s instruction into an ordered array of sub-tasks. Respond with a pure JSON array of strings, no extra commentary.';
+
+    const loopIntervalInput = document.getElementById('settings-loop-interval') as HTMLInputElement | null;
+    if (loopIntervalInput) {
+      const orch = this.project.orchestration || {};
+      loopIntervalInput.value = orch.sequential_loop_interval ?? '5';
+    }
+
+    this.updateHardwareButtonStates();
+  },
+
+  async saveModelConfig(): Promise<void> {
+    const llmEndpoint = (document.getElementById('llm-endpoint') as HTMLInputElement).value.trim();
+    const vlmEndpoint = (document.getElementById('vlm-endpoint') as HTMLInputElement).value.trim();
+    const llmModel = (document.getElementById('llm-model') as HTMLInputElement).value.trim();
+    const vlmModel = (document.getElementById('vlm-model') as HTMLInputElement).value.trim();
+    const prompt = (document.getElementById('llm-prompt') as HTMLTextAreaElement).value.trim();
+    const robotType = (document.getElementById('robot-type-select') as HTMLSelectElement).value;
+
+    this.log('INFO', 'Saving configurations...');
+    await this.api('POST', '/models/llm_ceo', { endpoint: llmEndpoint, model_name: llmModel, system_prompt: prompt });
+    await this.api('POST', '/models/vlm_inspector', { endpoint: vlmEndpoint, model_name: vlmModel });
+    
+    // Save LeRobot dir dynamically in the active project config along with robot type and ports!
+    const followerPort = (document.getElementById('tele-follower-port') as HTMLSelectElement | null)?.value || '';
+    const leaderPort = (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value || '';
+    const storageDir = (document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null)?.value.trim() || '';
+
+    const loopIntervalInput = document.getElementById('settings-loop-interval') as HTMLInputElement | null;
+    const loopInterval = loopIntervalInput ? parseFloat(loopIntervalInput.value) : null;
+
+    const lerobotDirEl = document.getElementById('settings-lerobot-dir-global') as HTMLInputElement | null;
+    const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
+
+    const pyPathEl = document.getElementById('settings-python-path') as HTMLInputElement | null;
+    const pyPath = pyPathEl ? pyPathEl.value.trim() : '';
+
+    await this.api('POST', '/settings', { 
+      lerobot_dir: lerobotDir,
+      python_path: pyPath,
+      robot_type: robotType,
+      follower_port: followerPort,
+      leader_port: leaderPort,
+      dataset_storage_dir: storageDir,
+      sequential_loop_interval: isNaN(loopInterval as number) ? null : loopInterval
+    });
+
+    this.log('SUCCESS', 'All configurations saved dynamically in project.json!');
+    this.updateHardwareButtonStates();
+  },
+
+  async browseDirectory(inputId: string): Promise<void> {
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    if (!input) return;
+    try {
+      this.log('INFO', 'Otevírám průzkumník souborů pro výběr složky...');
+      const res = await this.api('POST', '/utils/browse_directory');
+      if (res && res.ok && res.path) {
+        input.value = res.path;
+        this.log('SUCCESS', `Složka vybrána: ${res.path}`);
+        this.saveSettingsState();
+      } else if (res && !res.path) {
+        this.log('INFO', 'Výběr složky byl zrušen.');
+      } else {
+        this.log('ERROR', 'Nepodařilo se vybrat složku.');
+      }
+    } catch (err) {
+      this.log('ERROR', 'Chyba při otevírání průzkumníku: ' + err);
+    }
+  },
+
+  // ── CEO Planner & NLP Orchestration ─────────────────────────────────
+  async executeOrchestration(): Promise<void> {
+    const input = (document.getElementById('orch-input') as HTMLInputElement).value.trim();
+    if (!input) return;
+    this.updateOrchStatus('Planning task steps...', 'var(--yellow)');
+    
+    await this.api('POST', '/orchestrate', { instruction: input });
+    (document.getElementById('orch-input') as HTMLInputElement).value = '';
+  },
+
+  renderSkillsFull(): void {
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    
+    const sideSkills = document.getElementById('skill-list-full');
+    if (sideSkills) {
+      if (!skills.length) {
+        sideSkills.innerHTML = `
+          <div class="empty-state" style="padding: 12px;">
+            <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+            <div class="empty-state-text">Vytvořte první Dovednost (Hlavní cíl) tlačítkem níže.</div>
+          </div>`;
+        return;
+      }
+
+      if (!this.activeSkill || !skills.includes(this.activeSkill)) {
+        this.activeSkill = skills[0];
+      }
+
+      const parentSkills = skills.filter(s => !details[s]?.parent_slug);
+      let html = '';
+      
+      parentSkills.forEach(m => {
+        const subSkills = skills.filter(s => details[s]?.parent_slug === m);
+        const isCollapsed = this.collapsedFolders.has(m);
+        
+        // Render a premium milestone container instead of file folders!
+        html += `
+          <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-lg); padding: 6px; margin-bottom: 12px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 6px; margin-bottom: 4px;">
+              <button class="skills-tree-folder ${isCollapsed ? 'collapsed' : ''}" data-folder="${m}" onclick="App.toggleSkillsFolder('${m}')" style="flex: 1; display: flex; align-items: center; border: none; background: none; color: var(--text-light); text-align: left; padding: 4px; gap: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;">
+                <span class="chevron-icon" style="display: inline-flex; align-items: center; justify-content: center; transform: rotate(${isCollapsed ? '0deg' : '90deg'}); transition: transform 0.2s; color: var(--text-muted);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 10px; height: 10px;"><path d="M9 5l7 7-7 7"></path></svg></span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; color: var(--cyan); flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg>
+                <span>${details[m]?.name || m}</span>
+                <span class="count-badge" style="background: rgba(0, 188, 212, 0.1); color: var(--cyan); border-radius: 10px; font-size: 9px; padding: 1px 6px; font-weight: 600; margin-left: auto;">${subSkills.length}</span>
+              </button>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <button class="action-btn-edit" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="Upravit dovednost" 
+                  style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-light); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; padding: 0;"
+                  onmouseover="this.style.background='rgba(255, 255, 255, 0.15)'" 
+                  onmouseout="this.style.background='rgba(255, 255, 255, 0.05)'"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                </button>
+                <button class="action-btn-plus" onclick="event.stopPropagation(); App.showNewSubSkillModal('${m}')" title="Přidat krok (Sub-skill)" 
+                  style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.2); color: var(--cyan); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; padding: 0;"
+                  onmouseover="this.style.background='rgba(0, 188, 212, 0.2)'; this.style.borderColor='var(--cyan)';" 
+                  onmouseout="this.style.background='rgba(0, 188, 212, 0.08)'; this.style.borderColor='rgba(0, 188, 212, 0.2)';"
+                >+</button>
+              </div>
+            </div>
+            <ul class="skills-tree-subs ${isCollapsed ? 'collapsed' : ''}" id="folder-subs-${m}" style="list-style: none; padding-left: 14px; margin: 4px 0 4px 10px; border-left: 1.5px solid rgba(0, 188, 212, 0.15);">
+        `;
+ 
+        if (!subSkills.length) {
+          html += `
+            <li style="padding: 6px 12px 6px 10px; font-size:11px; color:var(--text-muted); font-style:italic;">
+              Žádné kroky. Přidejte první krok kliknutím na [+] nahoře.
+            </li>
+          `;
+        } else {
+          subSkills.forEach(s => {
+            const isActive = s === this.activeSkill;
+            const parentSlug = details[s]?.parent_slug || '';
+            const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
+            html += `
+              <li style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <button class="skills-tree-item ${isActive ? 'active' : ''}" onclick="App.selectSkill('${s}')" style="margin: 3px 0; flex: 1; display: flex; align-items: center; gap: 8px; border: none; background: transparent; padding: 6px 10px; border-radius: var(--radius); cursor: pointer; text-align: left; transition: all 0.2s;">
+                  ${isActive ? 
+                    `<span class="step-check-indicator active">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                     </span>` :
+                    `<span class="step-check-indicator">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                     </span>`
+                  }
+                  <span>${details[s]?.name || s}</span>
+                  <span class="ep-badge" id="ep-badge-${s}">...</span>
+                </button>
+                <div style="display: flex; align-items: center;">
+                  <button class="action-btn-edit-sub" onclick="event.stopPropagation(); App.showEditSkillModal('${s}')" title="Upravit krok" 
+                    style="background: transparent; border: none; color: var(--text-muted); padding: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s;"
+                    onmouseover="this.style.color='var(--cyan)';"
+                    onmouseout="this.style.color='var(--text-muted)';"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 11px; height: 11px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  </button>
+                  <button class="action-btn-edit-episodes" onclick="event.stopPropagation(); App.openManageEpisodesModal('${s}')" title="Správa epizod kroku" 
+                    style="background: transparent; border: none; color: var(--text-muted); padding: 4px 6px; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; margin-left: 4px;"
+                    onmouseover="this.style.color='var(--cyan)';"
+                    onmouseout="this.style.color='var(--text-muted)';"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 12px; height: 12px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                  </button>
+                </div>
+              </li>
+            `;
+            
+            this.api('GET', `/skills/${datasetSlug}/dataset_info`)
+              .then(info => {
+                const badge = document.getElementById(`ep-badge-${s}`);
+                if (badge) {
+                  if (info.exists && info.num_episodes > 0) {
+                    badge.textContent = `${info.num_episodes} ep`;
+                    badge.style.background = 'var(--green-light)';
+                    badge.style.color = 'var(--green)';
+                  } else {
+                    badge.textContent = '0 ep';
+                    badge.style.background = 'rgba(255,255,255,0.03)';
+                    badge.style.color = 'var(--text-muted)';
+                  }
+                }
+              })
+              .catch(err => console.error("Error loading stats for", s, err));
+          });
+        }
+        
+        html += `</ul></div>`;
+      });
+      sideSkills.innerHTML = html;
+    }
+  },
+
+  toggleSkillsFolder(folderId: string): void {
+    const subs = document.getElementById(`folder-subs-${folderId}`);
+    const folderBtn = document.querySelector(`.skills-tree-folder[data-folder="${folderId}"]`);
+    if (this.collapsedFolders.has(folderId)) {
+      this.collapsedFolders.delete(folderId);
+      if (subs) subs.classList.remove('collapsed');
+      if (folderBtn) folderBtn.classList.remove('collapsed');
+    } else {
+      this.collapsedFolders.add(folderId);
+      if (subs) subs.classList.add('collapsed');
+      if (folderBtn) folderBtn.classList.add('collapsed');
+    }
+  },
+
+  renderTrainingSkillsTree(): void {
+    const container = document.getElementById('train-skills-checklist-container');
+    if (!container) return;
+
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+
+    if (!skills.length) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 12px; text-align: center;">
+          <div class="empty-state-text" style="color: var(--text-muted); font-size: 12px;">Žádné dovednosti k dispozici. Vytvořte dovednosti na stránce sběru dat.</div>
+        </div>`;
+      return;
+    }
+
+    const parentSkills = skills.filter(s => !details[s]?.parent_slug);
+    let html = '';
+
+    parentSkills.forEach(parent => {
+      const subSkills = skills.filter(s => details[s]?.parent_slug === parent);
+      const isCollapsed = this.collapsedFolders.has('train_' + parent);
+
+      html += `
+        <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-lg); padding: 8px; margin-bottom: 10px; transition: all 0.2s;">
+          <div style="display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.02); margin-bottom: 6px;">
+            <button onclick="App.toggleTrainSkillsFolder('${parent}')" style="background: none; border: none; padding: 0; color: var(--text-muted); display: flex; align-items: center; cursor: pointer; transition: transform 0.2s; transform: rotate(${isCollapsed ? '0deg' : '90deg'});">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 10px; height: 10px;"><path d="M9 5l7 7-7 7"></path></svg>
+            </button>
+            <input type="checkbox" id="train-check-parent-${parent}" onchange="App.toggleTrainParentCheckbox('${parent}', this.checked)" style="width: 14px; height: 14px; cursor: pointer;">
+            <span style="font-weight: 700; font-size: 13px; color: var(--text-light);">${details[parent]?.name || parent}</span>
+          </div>
+          
+          <ul id="train-subs-${parent}" style="list-style: none; padding-left: 18px; margin: 0; border-left: 1.5px solid rgba(0, 188, 212, 0.15); display: ${isCollapsed ? 'none' : 'block'};">
+      `;
+
+      if (!subSkills.length) {
+        html += `
+          <li style="padding: 4px 0; font-size: 11px; color: var(--text-muted); font-style: italic;">
+            Žádné kroky k učení.
+          </li>
+        `;
+      } else {
+        subSkills.forEach(sub => {
+          const meta = details[sub]?.model_metadata;
+          let metaHtml = '<span style="color: var(--text-muted); font-style: italic; font-size: 9px;">Nenaučeno</span>';
+          if (meta) {
+            const formattedParams = meta.param_count ? (meta.param_count >= 1000000 ? (meta.param_count / 1000000).toFixed(1) + 'M' : (meta.param_count / 1000).toFixed(0) + 'k') : 'N/A';
+            metaHtml = `
+              <span class="meta-badge" style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.15); color: var(--cyan); border-radius: 4px; padding: 1px 4px; font-size: 9px; font-weight: 600;">
+                ${meta.policy_type || 'diffusion'} | ${meta.epochs || 0} ep | ${formattedParams} param
+              </span>
+            `;
+          }
+
+          const isActive = this.activeTrainingSkill === sub;
+          const isQueued = this.trainingQueue && this.trainingQueue.includes(sub);
+
+          let progressStyle = 'display: none;';
+          let progressVal = 0;
+          let progressText = 'Čeká...';
+
+          if (isActive) {
+            progressStyle = 'display: block;';
+            progressText = 'Trénování...';
+          } else if (isQueued) {
+            progressStyle = 'display: block;';
+            progressText = 'Čeká ve frontě...';
+          }
+
+          html += `
+            <li style="margin-bottom: 8px; display: flex; flex-direction: column; width: 100%;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                  <input type="checkbox" class="train-step-checkbox" data-parent="${parent}" data-skill="${sub}" id="train-check-sub-${sub}" style="width: 14px; height: 14px; cursor: pointer;">
+                  <span style="font-size: 12px; color: var(--text-light); font-weight: 500;">${details[sub]?.name || sub}</span>
+                </div>
+                <div style="flex-shrink: 0;">
+                  ${metaHtml}
+                </div>
+              </div>
+              
+              <div class="train-step-progress-wrapper" id="train-progress-wrapper-${sub}" style="${progressStyle} margin-top: 6px; padding-left: 22px;">
+                <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; position: relative;">
+                  <div class="progress-bar-fill" id="train-progress-fill-${sub}" style="width: ${progressVal}%; height: 100%; background: linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end)); transition: width 0.3s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 2px;">
+                  <span id="train-progress-text-${sub}">${progressText}</span>
+                  <span id="train-progress-loss-${sub}"></span>
+                </div>
+              </div>
+            </li>
+          `;
+        });
+      }
+
+      html += `</ul></div>`;
+    });
+
+    container.innerHTML = html;
+  },
+
+  toggleTrainSkillsFolder(parent: string): void {
+    const key = 'train_' + parent;
+    if (this.collapsedFolders.has(key)) {
+      this.collapsedFolders.delete(key);
+    } else {
+      this.collapsedFolders.add(key);
+    }
+    this.renderTrainingSkillsTree();
+  },
+
+  toggleTrainParentCheckbox(parent: string, checked: boolean): void {
+    const checkboxes = document.querySelectorAll(`.train-step-checkbox[data-parent="${parent}"]`);
+    checkboxes.forEach(cb => {
+      (cb as HTMLInputElement).checked = checked;
+    });
+  },
+
+  selectSkill(s: string): void {
+    this.activeSkill = s;
+    const details = this.project?.skills_details || {};
+    const skillDetail = details[s] || {};
+    const isStep = !!skillDetail.parent_slug;
+
+    const emptyState = document.getElementById('rec-empty-state');
+    const activePanel = document.getElementById('rec-active-panel');
+
+    // Update active breadcrumbs file trail to show active selected sub-skill
+    const bcFile = document.getElementById('breadcrumb-file');
+    if (bcFile) {
+      bcFile.textContent = s;
+    }
+
+    const skills = this.project?.skills || [];
+    const hasSubSkills = skills.some(sub => details[sub]?.parent_slug === s);
+
+    if (!isStep && !hasSubSkills) {
+      // It's a top-level Dovednost with NO sub-skills! Hide active recording panel, show empty state
+      if (emptyState) emptyState.style.display = 'flex';
+      if (activePanel) activePanel.style.display = 'none';
+    } else {
+      // It has sub-skills or it is a sub-skill! Show active recording panel, hide empty state
+      if (emptyState) emptyState.style.display = 'none';
+      if (activePanel) activePanel.style.display = 'flex';
+
+      const robots = this.project?.robots || [];
+      const activeRobot = robots[0] || { id: 'my_follower_arm', type: 'so100', port: '' };
+      const parentSlug = skillDetail.parent_slug || '';
+      const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
+      
+      // Update active sub-skill title in recording panel
+      const titleEl = document.getElementById('active-sub-skill-title');
+      if (titleEl) titleEl.textContent = skillDetail.name || s;
+      
+      // Update inputs
+      const recRepoInput = document.getElementById('rec-repo-id') as HTMLInputElement | null;
+      if (recRepoInput) recRepoInput.value = `local/${datasetSlug}`;
+      
+      const trainRepoInput = document.getElementById('train-repo-id') as HTMLInputElement | null;
+      if (trainRepoInput) trainRepoInput.value = `local/${datasetSlug}`;
+      
+      const evalPolicyInput = document.getElementById('eval-policy-path') as HTMLInputElement | null;
+      const policyType = this.project?.policy_architecture || 'diffusion';
+      if (evalPolicyInput) {
+        const policySlug = parentSlug ? `${parentSlug}_${s}` : s;
+        evalPolicyInput.value = `outputs/training/${policySlug}_${policyType}`;
+      }
+      
+      const evalTaskInput = document.getElementById('eval-task-name') as HTMLInputElement | null;
+      if (evalTaskInput) evalTaskInput.value = `eval_${s}`;
+
+      // Update hardware checks
+      this.updateRecordingHardwareChecks();
+
+      // Fetch LeRobot dataset info dynamically and render episodes manager list!
+      this.api('GET', `/skills/${datasetSlug}/dataset_info`)
+        .then(info => {
+          // Update live stats row in recording panel!
+          const epCountEl = document.getElementById('active-skill-episodes');
+          const sizeEl = document.getElementById('active-skill-size');
+          if (epCountEl) {
+            epCountEl.textContent = `${info.num_episodes || 0} epizod`;
+          }
+          if (sizeEl) {
+            sizeEl.textContent = `${info.size_mb || '0.00'} MB`;
+          }
+
+          const listContainer = document.getElementById('rec-episodes-list-container');
+          if (listContainer) {
+            if (!info.exists || info.num_episodes === 0) {
+              listContainer.innerHTML = `<div style="font-size:11px; color:var(--text-muted); font-style:italic; text-align:center; padding: 12px 0;">Žádné epizody nenahrány v local/${datasetSlug}.</div>`;
+            } else {
+              let listHtml = '';
+              for (let idx = 0; idx < info.num_episodes; idx++) {
+                listHtml += `
+                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 5px 8px; border-radius: 4px; font-size: 11px;">
+                    <span style="font-weight:700; color:var(--text-muted);">Epizoda ${idx}</span>
+                    <div style="display:flex; gap:4px;">
+                      <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">▶ Přehrát</button>
+                      <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">🗑 Smazat</button>
+                    </div>
+                  </div>
+                `;
+              }
+              listContainer.innerHTML = listHtml;
+            }
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load dataset info:", err);
+        });
+
+      // Fetch policy status to see if it is trained!
+      this.api('GET', `/skills/${s}/policy_status`)
+        .then(res => {
+          const trainStatusEl = document.getElementById('active-skill-training');
+          if (trainStatusEl) {
+            if (res.exists) {
+              trainStatusEl.textContent = 'Natrénováno';
+              trainStatusEl.style.color = 'var(--green)';
+            } else {
+              trainStatusEl.textContent = 'Není natrénováno';
+              trainStatusEl.style.color = 'var(--yellow)';
+            }
+          }
+        })
+        .catch(() => {
+          const trainStatusEl = document.getElementById('active-skill-training');
+          if (trainStatusEl) {
+            trainStatusEl.textContent = 'Neznámý stav';
+            trainStatusEl.style.color = 'var(--text-muted)';
+          }
+        });
+    }
+  },
+
+  updateRecordingHardwareChecks(): void {
+    const robots = this.project?.robots || [];
+    const activeRobot = robots[0];
+    const followerPort = activeRobot?.port || '';
+    const cameras = activeRobot?.cameras || [];
+
+    const hasPort = !!followerPort;
+    const hasCameras = cameras.length > 0;
+
+    const warnEl = document.getElementById('rec-hw-warning');
+    const warnText = document.getElementById('rec-hw-warning-text');
+    const btnStart = document.getElementById('btn-start-record') as HTMLButtonElement | null;
+
+    if (!hasPort || !hasCameras) {
+      if (warnEl) warnEl.style.display = 'block';
+      let errorMsg = '';
+      if (!hasPort && !hasCameras) {
+        errorMsg = 'Není nakonfigurován port Followera ani přiřazeny žádné kamery.';
+      } else if (!hasPort) {
+        errorMsg = 'Není nakonfigurován sériový port Followera.';
+      } else {
+        errorMsg = 'K Followerovi nejsou přiřazeny žádné kamery (přiřaďte je v Nastavení).';
+      }
+      if (warnText) warnText.textContent = errorMsg;
+      if (btnStart) btnStart.disabled = true;
+    } else {
+      if (warnEl) warnEl.style.display = 'none';
+      if (btnStart) btnStart.disabled = false;
+    }
+  },
+
+  getCurrentParentSlug(): string {
+    if (!this.activeSkill) return '';
+    const details = this.project?.skills_details || {};
+    const skill = details[this.activeSkill];
+    if (!skill) return '';
+    return skill.parent_slug || this.activeSkill;
+  },
+
+  showNewSubSkillModal(parentSlug?: string): void {
+    if (!this.project) {
+      alert("Žádný projekt není otevřen. Přejděte prosím nejprve na kartu 'Nastavení' a otevřete nebo vytvořte projekt!");
+      return;
+    }
+    const parent = parentSlug || this.getCurrentParentSlug();
+    if (!parent) {
+      alert("Nejprve prosím vyberte (kliknutím) dovednost ze seznamu vlevo, abych věděl, pod kterou dovednost chcete krok přidat!");
+      return;
+    }
+    this.showNewSkillModal(parent);
+  },
+
+  showNewSkillModal(parentSlug: string = ''): void { 
+    if (!this.project) {
+      alert("Žádný projekt není otevřen. Přejděte prosím nejprve na kartu 'Nastavení' a otevřete nebo vytvořte projekt!");
+      return;
+    }
+    this.openModal('modal-new-skill');
+    
+    // Reset wizard state
+    this.skillWizardIsEdit = false;
+    this.skillWizardEditSlug = '';
+    this.skillWizardPrefilledParent = parentSlug;
+    
+    // Reset fields
+    const nameInput = document.getElementById('new-skill-name') as HTMLInputElement | null;
+    const slugInput = document.getElementById('new-skill-slug') as HTMLInputElement | null;
+    const descInput = document.getElementById('new-skill-desc') as HTMLInputElement | null;
+    if (nameInput) nameInput.value = '';
+    if (slugInput) slugInput.value = '';
+    if (descInput) descInput.value = '';
+
+    // Populate parent dropdown
+    const select = document.getElementById('new-skill-parent') as HTMLSelectElement | null;
+    if (select) {
+      const skills = this.project?.skills || [];
+      const details = this.project?.skills_details || {};
+      const parentSkills = skills.filter(s => !details[s]?.parent_slug);
+      select.innerHTML = parentSkills.map(m => `<option value="${m}">${details[m]?.name || m}</option>`).join('');
+    }
+
+    const warningBox = document.getElementById('new-skill-warning-box');
+    if (warningBox) warningBox.style.display = 'none';
+
+    if (parentSlug) {
+      // It's a sub-skill (step) and parent is already selected! Skip step 1 selection
+      this.skillWizardType = 'step';
+      if (select) select.value = parentSlug;
+      this.showSkillWizardStep2();
+    } else {
+      // It's a clean slate creation, start at step 1
+      this.skillWizardType = 'main';
+      this.showSkillWizardStep1();
+    }
+  },
+
+  selectSkillWizardType(type: 'main' | 'step'): void {
+    this.skillWizardType = type;
+    const mainCard = document.getElementById('skill-type-card-main');
+    const stepCard = document.getElementById('skill-type-card-step');
+    if (type === 'main') {
+      mainCard?.classList.add('active');
+      stepCard?.classList.remove('active');
+    } else {
+      mainCard?.classList.remove('active');
+      stepCard?.classList.add('active');
+    }
+  },
+
+  showSkillWizardStep1(): void {
+    const step1El = document.getElementById('skill-wizard-step1');
+    const step2El = document.getElementById('skill-wizard-step2');
+    if (step1El) step1El.style.display = 'block';
+    if (step2El) step2El.style.display = 'none';
+    
+    const titleEl = document.getElementById('modal-new-skill-title');
+    if (titleEl) {
+      titleEl.textContent = this.skillWizardIsEdit ? 'Upravit Dovednost nebo Krok' : 'Vytvořit novou Dovednost nebo Krok';
+    }
+    this.selectSkillWizardType(this.skillWizardType);
+  },
+
+  showSkillWizardStep2(): void {
+    const step1El = document.getElementById('skill-wizard-step1');
+    const step2El = document.getElementById('skill-wizard-step2');
+    if (step1El) step1El.style.display = 'none';
+    if (step2El) step2El.style.display = 'block';
+
+    const titleEl = document.getElementById('modal-new-skill-title');
+    if (titleEl) {
+      if (this.skillWizardIsEdit) {
+        titleEl.textContent = this.skillWizardType === 'main' ? 'Upravit Hlavní Dovednost' : 'Upravit Motorický Krok';
+      } else {
+        titleEl.textContent = this.skillWizardType === 'main' ? 'Vytvořit Hlavní Dovednost' : 'Vytvořit Motorický Krok';
+      }
+    }
+
+    // Toggle parent dropdown visibility
+    const parentGroup = document.getElementById('new-skill-parent-group');
+    if (parentGroup) {
+      parentGroup.style.display = this.skillWizardType === 'step' ? 'block' : 'none';
+    }
+
+    // Update labels and hints based on type
+    const nameLabel = document.getElementById('new-skill-name-label');
+    const nameInput = document.getElementById('new-skill-name') as HTMLInputElement | null;
+    const descLabel = document.getElementById('new-skill-desc-label');
+    const descHint = document.getElementById('new-skill-desc-hint');
+    const descTextarea = document.getElementById('new-skill-desc') as HTMLTextAreaElement | null;
+    const backBtn = document.getElementById('new-skill-back-btn');
+    const submitBtn = document.getElementById('new-skill-submit-btn');
+
+    // Toggle Back button visibility in edit mode or when pre-filled parent exists
+    if (backBtn) {
+      backBtn.style.display = (this.skillWizardIsEdit || this.skillWizardPrefilledParent) ? 'none' : 'inline-block';
+    }
+
+    if (submitBtn) {
+      submitBtn.textContent = this.skillWizardIsEdit ? 'Uložit změny' : 'Vytvořit';
+    }
+
+    if (this.skillWizardType === 'main') {
+      if (nameLabel) nameLabel.textContent = 'Název dovednosti (Hlavní cíl)';
+      if (nameInput) nameInput.placeholder = 'např. Uklidit stůl';
+      if (descLabel) descLabel.textContent = 'Popis a instrukce pro plánování (LLM)';
+      if (descHint) {
+        descHint.textContent = 'Uveďte detailní popis výchozího stavu scény, co je cílem úkolu a za jakých podmínek má Velký Model (např. Gemma) tuto dovednost zvolit.';
+      }
+      if (descTextarea) descTextarea.placeholder = 'např. Stůl je neuklizený a jsou na něm poházené kostky. Spusťte tuto dovednost pro roztřídění kostek do misky...';
+    } else {
+      if (nameLabel) nameLabel.textContent = 'Název motorického kroku (Akce)';
+      if (nameInput) nameInput.placeholder = 'např. Najet k modré kostce';
+      if (descLabel) descLabel.textContent = 'Popis a instrukce pro vizuální ověření (VLM)';
+      if (descHint) {
+        descHint.textContent = 'Uveďte podrobný popis toho, co přesně tento krok dělá, jaké jsou podmínky spuštění a jak VLM ověří, že krok úspěšně proběhl.';
+      }
+      if (descTextarea) descTextarea.placeholder = 'např. Robot sjede s kleštěmi dolů nad kostku, dokud se jí nedotkne, a pak kleště pevně sevře. VLM ověří, že kostka je v gripperu.';
+    }
+
+    // Auto-slug generation binding
+    if (nameInput && !this.skillWizardIsEdit) {
+      nameInput.oninput = () => {
+        const slugInput = document.getElementById('new-skill-slug') as HTMLInputElement | null;
+        if (slugInput) {
+          slugInput.value = nameInput.value
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_|_$/g, '');
+        }
+      };
+    } else if (nameInput) {
+      nameInput.oninput = null; // Disable auto-slug when editing
+    }
+  },
+
+  nextSkillWizardStep(): void {
+    this.showSkillWizardStep2();
+  },
+
+  prevSkillWizardStep(): void {
+    this.showSkillWizardStep1();
+  },
+
+  showEditSkillModal(slug: string): void {
+    if (!this.project) {
+      alert("Žádný projekt není otevřen. Přejděte prosím nejprve na kartu 'Nastavení' a otevřete nebo vytvořte projekt!");
+      return;
+    }
+    const details = this.project?.skills_details || {};
+    const skill = details[slug];
+    if (!skill) {
+      alert(`Dovednost ${slug} nebyla nalezena!`);
+      return;
+    }
+
+    this.openModal('modal-new-skill');
+
+    this.skillWizardIsEdit = true;
+    this.skillWizardEditSlug = slug;
+    this.skillWizardPrefilledParent = '';
+    this.skillWizardType = skill.parent_slug ? 'step' : 'main';
+
+    // Prefill fields
+    const nameInput = document.getElementById('new-skill-name') as HTMLInputElement | null;
+    const slugInput = document.getElementById('new-skill-slug') as HTMLInputElement | null;
+    const descInput = document.getElementById('new-skill-desc') as HTMLInputElement | null;
+    if (nameInput) nameInput.value = skill.name || '';
+    if (slugInput) slugInput.value = slug;
+    if (descInput) descInput.value = skill.description || '';
+
+    // Populate and set parent select dropdown
+    const select = document.getElementById('new-skill-parent') as HTMLSelectElement | null;
+    if (select) {
+      const skills = this.project?.skills || [];
+      const parentSkills = skills.filter(s => !details[s]?.parent_slug && s !== slug);
+      select.innerHTML = parentSkills.map(m => `<option value="${m}">${details[m]?.name || m}</option>`).join('');
+      select.value = skill.parent_slug || '';
+    }
+
+    // Show warning box if it is a step and already has some recorded episodes
+    const warningBox = document.getElementById('new-skill-warning-box');
+    if (warningBox) {
+      if (skill.parent_slug) {
+        warningBox.style.display = 'block';
+      } else {
+        warningBox.style.display = 'none';
+      }
+    }
+
+    // Go directly to Step 2 details form
+    this.showSkillWizardStep2();
+  },
+
+  async submitSkillWizard(): Promise<void> {
+    if (!this.project) {
+      alert("Žádný projekt není otevřen!");
+      return;
+    }
+    const name = (document.getElementById('new-skill-name') as HTMLInputElement).value.trim();
+    let slug = (document.getElementById('new-skill-slug') as HTMLInputElement).value.trim();
+    const desc = (document.getElementById('new-skill-desc') as HTMLInputElement).value.trim();
+    
+    let parent_slug: string | null = null;
+    if (this.skillWizardType === 'step') {
+      parent_slug = (document.getElementById('new-skill-parent') as HTMLSelectElement | null)?.value || null;
+      if (!parent_slug) {
+        alert("Pro motorický krok musíte vybrat nadřazenou dovednost!");
+        return;
+      }
+    }
+
+    if (!name) {
+      alert("Název nesmí být prázdný!");
+      return;
+    }
+
+    if (this.skillWizardIsEdit) {
+      // EDIT MODE
+      this.log('INFO', `Ukládám změny dovednosti/kroku: '${name}' (slug: ${this.skillWizardEditSlug})...`);
+      try {
+        const res = await this.api('PUT', `/skills/${this.skillWizardEditSlug}`, {
+          name,
+          slug: this.skillWizardEditSlug,
+          description: desc,
+          parent_slug
+        });
+        if (res && res.error) {
+          alert(`Chyba při ukládání: ${res.error}`);
+          this.log('ERROR', `Uložení selhalo: ${res.error}`);
+          return;
+        }
+        this.closeModal('modal-new-skill');
+        await this.refreshProject();
+        this.log('SUCCESS', `✓ Dovednost '${name}' byla úspěšně upravena.`);
+      } catch (err: any) {
+        alert(`Chyba při komunikaci se serverem: ${err.message}`);
+        this.log('ERROR', `Komunikační chyba: ${err.message}`);
+      }
+    } else {
+      // CREATE MODE
+      if (!slug && name) {
+        slug = name.toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_|_$/g, '');
+      }
+      if (!slug) {
+        alert("Identifikátor se nepodařilo vygenerovat. Zadejte název platnými znaky.");
+        return;
+      }
+      
+      this.log('INFO', `Vytvářím ${this.skillWizardType === 'main' ? 'dovednost' : 'krok'}: '${name}' (slug: ${slug})...`);
+      try {
+        const res = await this.api('POST', '/skills', { name, slug, description: desc, parent_slug });
+        if (res && res.error) {
+          alert(`Chyba při vytváření: ${res.error}`);
+          this.log('ERROR', `Vytvoření selhalo: ${res.error}`);
+          return;
+        }
+        this.closeModal('modal-new-skill');
+        await this.refreshProject();
+        this.log('SUCCESS', `✓ ${this.skillWizardType === 'main' ? 'Dovednost' : 'Krok'} '${name}' byla úspěšně vytvořena.`);
+      } catch (err: any) {
+        alert(`Chyba při komunikaci se serverem: ${err.message}`);
+        this.log('ERROR', `Komunikační chyba: ${err.message}`);
+      }
+    }
+  },
+
+  exportAllDatasets(): void {
+    this.log('INFO', 'Generuji ZIP archiv se všemi datasety...');
+    const a = document.createElement('a');
+    a.href = '/api/project/export_datasets';
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    this.log('SUCCESS', 'Export všech dovedností do ZIPu byl zahájen.');
+  },
+
+  async deleteSkill(slug: string): Promise<void> {
+    if (confirm(`Opravdu chcete smazat '${slug}' a všechna jeho nahraná data?`)) {
+      try {
+        const res = await this.api('DELETE', `/skills/${slug}`);
+        if (res && res.error) {
+          alert(`Chyba při odebírání: ${res.error}`);
+          return;
+        }
+        if (this.activeSkill === slug) {
+          this.activeSkill = null;
+        }
+        await this.refreshProject();
+      } catch (err: any) {
+        console.error("Delete failed:", err);
+        alert(`Chyba při odebírání: ${err.message}`);
+      }
+    }
+  },
+
+  async playSpecificEpisode(idx: number, customDatasetSlug?: string): Promise<void> {
+    const s = customDatasetSlug || this.activeSkill;
+    if (!s) return;
+    const robots = this.project?.robots || [];
+    const activeRobot = robots[0] || { id: 'my_follower_arm', type: 'so100', port: '' };
+    
+    let datasetSlug = s;
+    if (!customDatasetSlug) {
+      const details = this.project?.skills_details || {};
+      const skillDetail = details[s] || {};
+      const parentSlug = skillDetail.parent_slug || '';
+      datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
+    }
+    
+    try {
+      this.log('INFO', `Spouštím přehrávání epizody ${idx} pro dovednost local/${datasetSlug}...`);
+      await this.api('POST', '/replay/start', {
+        robot_type: activeRobot.type,
+        dataset_name: `local/${datasetSlug}`,
+        episode_index: idx,
+        port: activeRobot.port
+      });
+    } catch (err: any) {
+      this.log('ERROR', 'Chyba při spuštění přehrávání: ' + err.message);
+      alert('Chyba přehrávání: ' + err.message);
+    }
+  },
+
+  async deleteSpecificEpisode(idx: number, customDatasetSlug?: string, originSkill?: string): Promise<void> {
+    const s = customDatasetSlug || this.activeSkill;
+    if (!s) return;
+    const robots = this.project?.robots || [];
+    const activeRobot = robots[0] || { id: 'my_follower_arm', type: 'so100', port: '' };
+    
+    let datasetSlug = s;
+    if (!customDatasetSlug) {
+      const details = this.project?.skills_details || {};
+      const skillDetail = details[s] || {};
+      const parentSlug = skillDetail.parent_slug || '';
+      datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
+    }
+    
+    if (confirm(`Opravdu chcete smazat epizodu ${idx} z datasetu local/${datasetSlug}? Tato akce změní uložená Parquet data a nelze ji vzít zpět!`)) {
+      try {
+        this.log('INFO', `Mažu epizodu ${idx} z datasetu local/${datasetSlug}...`);
+        const res = await this.api('POST', `/skills/${datasetSlug}/delete_episode`, {
+          episode_index: idx
+        });
+        if (res && res.error) {
+          alert(`Chyba: ${res.error}`);
+          return;
+        }
+        this.log('SUCCESS', `Epizoda ${idx} byla úspěšně smazána z datasetu.`);
+        
+        // Refresh whichever UI view is active
+        if (customDatasetSlug && originSkill) {
+          // If deleted from modal, refresh the modal list!
+          this.openManageEpisodesModal(originSkill);
+          // And refresh the tree stats!
+          this.renderSkillsFull();
+        } else {
+          // Normal flow
+          this.selectSkill(s);
+        }
+      } catch (err: any) {
+        this.log('ERROR', 'Smazání epizody selhalo: ' + err.message);
+        alert('Chyba odebírání: ' + err.message);
+      }
+    }
+  },
+
+  async openManageEpisodesModal(skillSlug: string): Promise<void> {
+    const details = this.project?.skills_details || {};
+    const detail = details[skillSlug];
+    const parentSlug = detail?.parent_slug || '';
+    const datasetSlug = parentSlug ? `${parentSlug}/${skillSlug}` : skillSlug;
+    
+    // Set modal title & display slug
+    const titleEl = document.getElementById('manage-episodes-title');
+    if (titleEl) titleEl.textContent = `Správa epizod: ${detail?.name || skillSlug}`;
+    
+    const pathEl = document.getElementById('manage-episodes-path');
+    if (pathEl) pathEl.textContent = `local/${datasetSlug}`;
+
+    const sizeEl = document.getElementById('manage-episodes-size');
+    if (sizeEl) sizeEl.textContent = 'Načítám...';
+
+    const listContainer = document.getElementById('manage-episodes-list');
+    if (listContainer) listContainer.innerHTML = '<div style="text-align:center; padding:20px; font-size:12px; color:var(--text-muted);">Načítám epizody z disku...</div>';
+
+    this.openModal('modal-manage-episodes');
+
+    try {
+      const info = await this.api('GET', `/skills/${datasetSlug}/dataset_info`);
+      if (sizeEl) sizeEl.textContent = `${info.size_mb || '0.00'} MB`;
+
+      if (listContainer) {
+        if (!info.exists || info.num_episodes === 0) {
+          listContainer.innerHTML = `<div style="font-size:12px; color:var(--text-muted); font-style:italic; text-align:center; padding: 24px 0;">Žádné epizody nenahrány v local/${datasetSlug}.</div>`;
+        } else {
+          let listHtml = '';
+          for (let idx = 0; idx < info.num_episodes; idx++) {
+            listHtml += `
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 8px 12px; border-radius: var(--radius); font-size: 12px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)';" onmouseout="this.style.background='rgba(255,255,255,0.02)';">
+                <span style="font-weight:700; color:var(--text-light);">Epizoda #${idx}</span>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx}, '${datasetSlug}')" style="padding: 4px 10px; font-size:11px;">▶ Přehrát</button>
+                  <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx}, '${datasetSlug}', '${skillSlug}')" style="padding: 4px 10px; font-size:11px;">🗑 Smazat</button>
+                </div>
+              </div>
+            `;
+          }
+          listContainer.innerHTML = listHtml;
+        }
+      }
+    } catch (err: any) {
+      if (listContainer) listContainer.innerHTML = `<div style="color:var(--red); text-align:center; padding:20px; font-size:12px;">Chyba při načítání: ${err.message}</div>`;
+      console.error(err);
+    }
+  },
+
+  updateTrainingStatus(text: string, color?: string): void {
+    const el = document.getElementById('training-status-indicator');
+    if (el) {
+      el.textContent = text;
+      el.style.color = color || 'var(--text-muted)';
+    }
+  },
+
+  updateTrainingProgress(epoch: number, loss: number, skill_slug?: string): void {
+    const activeSkill = skill_slug || this.activeTrainingSkill || this.activeSkill;
+    this.updateTrainingStatus(`Training: Epoch ${epoch} — Loss: ${loss.toFixed(5)}`, 'var(--yellow)');
+    
+    const totalEpochs = parseInt((document.getElementById('train-epochs') as HTMLInputElement).value, 10) || 100;
+    const percent = Math.min(100, Math.round((epoch / totalEpochs) * 100));
+    this.setProgressPercent(percent);
+    
+    if (activeSkill) {
+      const wrapper = document.getElementById(`train-progress-wrapper-${activeSkill}`);
+      if (wrapper) wrapper.style.display = 'block';
+      const fill = document.getElementById(`train-progress-fill-${activeSkill}`);
+      if (fill) fill.style.width = `${percent}%`;
+      const txt = document.getElementById(`train-progress-text-${activeSkill}`);
+      if (txt) txt.textContent = `Epocha ${epoch}/${totalEpochs}`;
+      const lossEl = document.getElementById(`train-progress-loss-${activeSkill}`);
+      if (lossEl) lossEl.textContent = `Loss: ${loss.toFixed(4)}`;
+    }
+  },
+
+  setProgressPercent(percent: number): void {
+    const bar = document.getElementById('training-progress-bar');
+    if (bar) {
+      bar.style.width = `${Math.min(percent, 100)}%`;
+    }
+  },
+
+  // ── Canvas-Based Loss Chart ─────────────────────────────────────────
+  addLossPoint(epoch: number, loss: number): void {
+    this.lossData.push({ epoch, loss });
+    if (this.lossData.length > 300) this.lossData.shift();
+    this.drawLossChart();
+  },
+
+  drawLossChart(): void {
+    const canvas = document.getElementById('loss-chart') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const rect = canvas.parentElement!.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+
+    const data = this.lossData;
+    if (data.length < 2) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'var(--text-muted)';
+      ctx.font = '11px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Live metrics chart will plot loss automatically...', canvas.width / 2, canvas.height / 2);
+      return;
+    }
+
+    const pad = { l: 40, r: 10, t: 10, b: 15 };
+    const w = canvas.width - pad.l - pad.r;
+    const h = canvas.height - pad.t - pad.b;
+
+    const maxLoss = Math.max(...data.map(d => d.loss)) * 1.1;
+    const minLoss = Math.min(0, Math.min(...data.map(d => d.loss)));
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#252526';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 3; i++) {
+      const y = pad.t + (h / 3) * i;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(pad.l + w, y);
+      ctx.stroke();
+      
+      ctx.fillStyle = 'var(--text-muted)';
+      ctx.font = '9px "JetBrains Mono"';
+      ctx.textAlign = 'right';
+      ctx.fillText((maxLoss - (maxLoss - minLoss) * i / 3).toFixed(4), pad.l - 6, y + 3);
+    }
+
+    const grad = ctx.createLinearGradient(pad.l, 0, pad.l + w, 0);
+    grad.addColorStop(0, 'var(--green)');
+    grad.addColorStop(1, 'var(--accent)');
+    
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    data.forEach((d, i) => {
+      const x = pad.l + (i / (data.length - 1)) * w;
+      const y = pad.t + h - ((d.loss - minLoss) / (maxLoss - minLoss)) * h;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    const areaGrad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
+    areaGrad.addColorStop(0, 'rgba(88, 101, 242, 0.12)');
+    areaGrad.addColorStop(1, 'rgba(88, 101, 242, 0)');
+    ctx.lineTo(pad.l + w, pad.t + h);
+    ctx.lineTo(pad.l, pad.t + h);
+    ctx.closePath();
+    ctx.fillStyle = areaGrad;
+    ctx.fill();
+  },
+
+  // ── Terminal Console Manager ────────────────────────────────────────
+  bindConsoleInput(): void {
+    const input = document.getElementById('console-input') as HTMLInputElement | null;
+    if (input) {
+      input.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          const cmd = input.value.trim();
+          if (!cmd) return;
+          this.logRaw(`❯ ${cmd}`, 'cmd');
+          this.api('POST', '/terminal', { command: cmd });
+          input.value = '';
+        }
+      });
+    }
+  },
+
+  log(level: string, message: string): void {
+    const cls = { INFO: 'info', SUCCESS: 'success', WARN: 'warn', ERROR: 'error' }[level] || 'stdout';
+    const prefix = { INFO: 'ℹ', SUCCESS: '✓', WARN: '⚠', ERROR: '✕' }[level] || '';
+    this.appendConsole(`${prefix} ${message}`, cls);
+  },
+
+  logRaw(text: string, cls?: string): void {
+    this.appendConsole(text, cls || 'stdout');
+  },
+
+  appendConsole(text: string, cls?: string): void {
+    const output = document.getElementById('console-output');
+    if (!output) return;
+    const line = document.createElement('div');
+    line.className = `t-line ${cls || ''}`;
+    line.textContent = text;
+    output.appendChild(line);
+    output.scrollTop = output.scrollHeight;
+    
+    this._consoleLines++;
+    const countEl = document.getElementById('console-count');
+    if (countEl) countEl.textContent = `(${this._consoleLines} lines)`;
+  },
+
+  // ── Terminal UI Controls & Resizing ─────────────────────────────────
+  bindResizers(): void {
+    const termHandle = document.getElementById('terminal-drag-handle');
+    const termArea = document.getElementById('bottom-dock-container') || document.getElementById('terminal-area');
+    
+    if (termHandle && termArea) {
+      let isResizing = false;
+      let startY = 0;
+      let startHeight = 0;
+ 
+      termHandle.addEventListener('mousedown', (e: MouseEvent) => {
+        isResizing = true;
+        termArea.style.transition = 'none'; // Disable transition completely during active dragging
+        startY = e.clientY;
+        startHeight = termArea.getBoundingClientRect().height;
+        document.body.style.cursor = 'ns-resize';
+      });
+ 
+      document.addEventListener('mousemove', (e: MouseEvent) => {
+        if (!isResizing) return;
+        const delta = startY - e.clientY;
+        let newHeight = startHeight + delta;
+        if (newHeight < 40) newHeight = 40;
+        if (newHeight > window.innerHeight * 0.8) newHeight = window.innerHeight * 0.8;
+        termArea.style.height = newHeight + 'px';
+      });
+ 
+      document.addEventListener('mouseup', () => {
+        if (isResizing) {
+          isResizing = false;
+          document.body.style.cursor = 'default';
+          setTimeout(() => this.drawLossChart(), 100);
+        }
+      });
+    }
+
+    // Load cameras dock width and open/close state from localStorage
+    this.lastCamerasWidth = localStorage.getItem('orchiday_last_cameras_width') || '520px';
+    const isOpen = localStorage.getItem('orchiday_cameras_dock_open') !== 'false';
+    const dock = document.getElementById('docked-cameras-area');
+    const camerasHandle = document.getElementById('cameras-drag-handle');
+    
+    if (dock) {
+      if (isOpen) {
+        dock.style.width = this.lastCamerasWidth;
+        dock.style.opacity = '1';
+        dock.style.borderLeft = '1px solid var(--border)';
+        if (camerasHandle) camerasHandle.style.display = 'block';
+      } else {
+        dock.style.width = '0px';
+        dock.style.opacity = '0';
+        dock.style.borderLeft = 'none';
+        if (camerasHandle) camerasHandle.style.display = 'none';
+      }
+    }
+
+    if (camerasHandle && dock) {
+      let isResizing = false;
+      let startX = 0;
+      let startWidth = 0;
+
+      camerasHandle.addEventListener('mousedown', (e: MouseEvent) => {
+        isResizing = true;
+        dock.style.transition = 'none'; // Disable transition completely during active dragging
+        startX = e.clientX;
+        startWidth = dock.getBoundingClientRect().width;
+        document.body.style.cursor = 'ew-resize';
+        e.preventDefault(); // Prevent text selection
+      });
+
+      document.addEventListener('mousemove', (e: MouseEvent) => {
+        if (!isResizing) return;
+        const deltaX = startX - e.clientX; // Moving left increases right panel width
+        let newWidth = startWidth + deltaX;
+        
+        // Limits: min 150px, max window.innerWidth - 100px
+        if (newWidth < 150) newWidth = 150;
+        const maxWidth = window.innerWidth - 100;
+        if (newWidth > maxWidth) newWidth = maxWidth;
+
+        dock.style.width = newWidth + 'px';
+        this.lastCamerasWidth = newWidth + 'px';
+        localStorage.setItem('orchiday_last_cameras_width', this.lastCamerasWidth);
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (isResizing) {
+          isResizing = false;
+          dock.style.transition = ''; // Restore transition
+          document.body.style.cursor = 'default';
+        }
+      });
+    }
+  },
+ 
+  toggleTerminal(): void {
+    const term = document.getElementById('bottom-dock-container') || document.getElementById('terminal-area');
+    if (!term) return;
+    term.style.transition = 'height 0.15s ease-out'; // Smooth anim only when toggling via button
+    if (term.style.height === '40px' || term.style.height === '') {
+      term.style.height = '38vh';
+    } else {
+      term.style.height = '40px';
+    }
+    setTimeout(() => this.drawLossChart(), 300);
+  },
+
+  toggleCamerasDock(): void {
+    const dock = document.getElementById('docked-cameras-area');
+    const handle = document.getElementById('cameras-drag-handle');
+    if (!dock) return;
+    
+    dock.style.transition = 'width 0.2s ease, opacity 0.2s ease';
+    
+    if (dock.style.width === '0px' || dock.style.width === '') {
+      const targetWidth = this.lastCamerasWidth || '520px';
+      dock.style.width = targetWidth;
+      dock.style.opacity = '1';
+      dock.style.borderLeft = '1px solid var(--border)';
+      if (handle) handle.style.display = 'block';
+      localStorage.setItem('orchiday_cameras_dock_open', 'true');
+      this.startAllProjectCameras();
+    } else {
+      if (dock.style.width && dock.style.width !== '0px') {
+        this.lastCamerasWidth = dock.style.width;
+        localStorage.setItem('orchiday_last_cameras_width', this.lastCamerasWidth);
+      }
+      dock.style.width = '0px';
+      dock.style.opacity = '0';
+      dock.style.borderLeft = 'none';
+      if (handle) handle.style.display = 'none';
+      localStorage.setItem('orchiday_cameras_dock_open', 'false');
+    }
+  },
+
+  clearTerminal(): void {
+    const output = document.getElementById('console-output');
+    if (output) output.innerHTML = '';
+    this._consoleLines = 0;
+    const countEl = document.getElementById('console-count');
+    if (countEl) countEl.textContent = `(0 lines)`;
+  },
+
+  // ── Emergency Stop ──────────────────────────────────────────────────
+  async emergencyStop(): Promise<void> {
+    this.log('WARN', 'EMERGENCY STOP requested! Killing all LeRobot actions.');
+    await this.api('POST', '/emergency-stop');
+  },
+
+  // ── Modal Helper API ────────────────────────────────────────────────
+  openModal(id: string): void { 
+    const el = document.getElementById(id);
+    if (el) el.classList.add('open'); 
+  },
+  closeModal(id: string): void { 
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('open'); 
+  },
+  openSettings(): void { this.openModal('modal-settings'); },
+
+  bindAutoSlug(): void {
+    const pairs = [
+      ['new-project-name', 'new-project-slug'],
+      ['new-skill-name', 'new-skill-slug'],
+    ];
+    pairs.forEach(([nameId, slugId]) => {
+      const nameEl = document.getElementById(nameId) as HTMLInputElement | null;
+      const slugEl = document.getElementById(slugId) as HTMLInputElement | null;
+      if (nameEl && slugEl) {
+        nameEl.addEventListener('input', () => {
+          slugEl.value = nameEl.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        });
+      }
+    });
+  },
+
+  initTaggingWizard(): void {
+    const s = this.activeSkill;
+    if (!s) return;
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+
+    const wizard = document.getElementById('rec-tagging-wizard');
+    const stepsContainer = document.getElementById('rec-tagging-steps');
+    
+    if (subSkills.length > 0 && wizard && stepsContainer) {
+      wizard.style.display = 'flex';
+      
+      this.taggingStartTime = Date.now();
+      this.taggingActiveIndex = 0;
+      this.taggingPoints = [];
+      
+      this.renderTaggingSteps(subSkills);
+      
+      const timerEl = document.getElementById('rec-tagging-timer');
+      const frameEl = document.getElementById('rec-tagging-frame');
+      const pointsEl = document.getElementById('rec-tagging-points');
+      if (timerEl) timerEl.textContent = '0.0s';
+      if (frameEl) frameEl.textContent = '0';
+      if (pointsEl) pointsEl.textContent = '[]';
+      
+      if (this.taggingInterval) {
+        clearInterval(this.taggingInterval);
+      }
+      
+      const btnNext = document.getElementById('btn-tagging-next') as HTMLButtonElement | null;
+      if (btnNext) {
+        btnNext.disabled = false;
+        btnNext.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle; margin-right:4px;"><polyline points="9 18 15 12 9 6"></polyline></svg> [MEZERNÍK / 2] Označit konec fáze`;
+      }
+
+      this.taggingInterval = setInterval(() => {
+        const elapsedMs = Date.now() - this.taggingStartTime;
+        const elapsedSecs = (elapsedMs / 1000).toFixed(1);
+        const frameIdx = Math.round((elapsedMs / 1000) * 30);
+        
+        const tEl = document.getElementById('rec-tagging-timer');
+        const fEl = document.getElementById('rec-tagging-frame');
+        if (tEl) tEl.textContent = `${elapsedSecs}s`;
+        if (fEl) fEl.textContent = `${frameIdx}`;
+      }, 100);
+      
+      this.log('SUCCESS', `Aktivní fázování spuštěno pro '${s}' (${subSkills.length} sub-skillů).`);
+    } else if (wizard) {
+      wizard.style.display = 'none';
+    }
+  },
+
+  renderTaggingSteps(subSkills: string[]): void {
+    const stepsContainer = document.getElementById('rec-tagging-steps');
+    if (!stepsContainer) return;
+    
+    const details = this.project?.skills_details || {};
+    
+    stepsContainer.innerHTML = subSkills.map((sub, idx) => {
+      const isCompleted = idx < this.taggingActiveIndex;
+      const isActive = idx === this.taggingActiveIndex;
+      
+      let badgeCls = 'bg-syntax-type/20 text-syntax-type';
+      let stateLabel = 'Čeká';
+      
+      if (isCompleted) {
+        badgeCls = 'bg-green-500/20 text-green';
+        stateLabel = 'Hotovo';
+      } else if (isActive) {
+        badgeCls = 'bg-cyan-500/20 text-cyan font-bold';
+        stateLabel = 'AKTIVNÍ';
+      }
+      
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:4px; border:1px solid ${isActive ? 'var(--cyan)' : 'rgba(255,255,255,0.04)'};" class="${isActive ? 'pulse-light-cyan' : ''}">
+          <span style="font-size:11px; ${isActive ? 'color:var(--text-white); font-weight:700;' : 'color:var(--text-light);'}">
+            ${idx + 1}. ${this.esc(details[sub]?.name || sub)}
+          </span>
+          <span class="tag ${badgeCls}" style="font-size:9.5px; text-transform:uppercase; font-weight:700;">${stateLabel}</span>
+        </div>
+      `;
+    }).join('');
+  },
+
+  taggingNextStep(): void {
+    const s = this.activeSkill;
+    if (!s) return;
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+    
+    if (this.taggingActiveIndex >= subSkills.length - 1) {
+      this.log('WARN', 'Všechny fáze fázování byly již označeny!');
+      return;
+    }
+    
+    const elapsedMs = Date.now() - this.taggingStartTime;
+    const frameIdx = Math.round((elapsedMs / 1000) * 30);
+    
+    this.taggingPoints.push(frameIdx);
+    this.taggingActiveIndex++;
+    
+    const pointsEl = document.getElementById('rec-tagging-points');
+    if (pointsEl) {
+      pointsEl.textContent = JSON.stringify(this.taggingPoints);
+    }
+    
+    this.renderTaggingSteps(subSkills);
+    this.log('SUCCESS', `Fáze '${subSkills[this.taggingActiveIndex - 1]}' uložena na framu ${frameIdx}. Aktivní fáze: '${subSkills[this.taggingActiveIndex]}'.`);
+    
+    const btnNext = document.getElementById('btn-tagging-next') as HTMLButtonElement | null;
+    if (this.taggingActiveIndex === subSkills.length - 1 && btnNext) {
+      btnNext.disabled = true;
+      btnNext.style.background = 'rgba(255,255,255,0.03)';
+      btnNext.style.color = 'var(--text-muted)';
+      btnNext.style.borderColor = 'rgba(255,255,255,0.06)';
+      btnNext.textContent = 'Všechny fáze označeny';
+    }
+  },
+
+  async finishTaggingPostProcess(): Promise<void> {
+    if (this.taggingInterval) {
+      clearInterval(this.taggingInterval);
+      this.taggingInterval = null;
+    }
+    
+    const s = this.activeSkill;
+    if (!s) return;
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+    
+    if (subSkills.length === 0 || this.taggingPoints.length === 0) {
+      const wizard = document.getElementById('rec-tagging-wizard');
+      if (wizard) wizard.style.display = 'none';
+      return;
+    }
+    
+    this.log('INFO', 'Nahrávání epizody dokončeno. Zahajuji post-processing Parquet souboru datasetu...');
+    
+    try {
+      const res = await this.api('POST', '/recording/tag_episode', {
+        dataset_name: `local/${s}`,
+        macro_task: s,
+        sub_skills: subSkills,
+        transition_points: this.taggingPoints
+      });
+      
+      if (res && res.ok) {
+        this.log('SUCCESS', `✓ Dataset Tagging úspěšný! Vloženo ${res.frames} framů do souboru ${res.file}.`);
+      } else {
+        this.log('ERROR', 'Dataset Tagging selhal: ' + (res.error || 'Neznámá chyba'));
+      }
+    } catch (err: any) {
+      this.log('ERROR', 'Chyba při Dataset Tagging post-processingu: ' + err.message);
+    }
+    
+    const wizard = document.getElementById('rec-tagging-wizard');
+    if (wizard) wizard.style.display = 'none';
+    
+    this.selectSkill(s);
+  },
+
+  initPersistentInferenceUI(): void {
+    const s = this.activeSkill;
+    if (!s) return;
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+
+    const panel = document.getElementById('infer-persistent-panel');
+    if (panel) {
+      panel.style.display = 'flex';
+    }
+
+    this.updateInferenceDaemonStatus('WAITING');
+
+    const settleEl = document.getElementById('infer-settle-frames');
+    const loadEl = document.getElementById('infer-gripper-load');
+    const deltaEl = document.getElementById('infer-max-delta');
+    if (settleEl) settleEl.textContent = '0/5';
+    if (loadEl) loadEl.textContent = '0.0 mA';
+    if (deltaEl) deltaEl.textContent = '0.0000';
+
+    this.renderInferenceSubtasks(subSkills);
+  },
+
+  renderInferenceSubtasks(subSkills: string[]): void {
+    const container = document.getElementById('infer-subtasks-container');
+    if (!container) return;
+
+    if (subSkills.length === 0) {
+      container.innerHTML = `
+        <div style="font-size:10px; color:var(--text-muted); text-align:center; padding:6px; border:1px dashed var(--border); border-radius:4px;">
+          Tento úkol nemá žádné definované sub-skilly (fáze).
+        </div>
+      `;
+      return;
+    }
+
+    const details = this.project?.skills_details || {};
+
+    container.innerHTML = subSkills.map((sub, idx) => {
+      const name = details[sub]?.name || sub;
+      return `
+        <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px;" id="infer-row-${sub}">
+          <span style="font-size:10px; color:var(--text-light); flex:1;">
+            ${idx + 1}. ${this.esc(name)}
+          </span>
+          <button class="btn btn-xs btn-primary" onclick="App.triggerInferenceSubtask('${sub}')" style="padding:2px 8px; font-size:9.5px; font-weight:700; border-radius:3px;">
+            Spustit
+          </button>
+        </div>
+      `;
+    }).join('');
+  },
+
+  async triggerInferenceSubtask(subSkill: string): Promise<void> {
+    const s = this.activeSkill;
+    if (!s) return;
+    
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+    
+    subSkills.forEach(sub => {
+      const row = document.getElementById(`infer-row-${sub}`);
+      if (row) {
+        row.style.borderColor = 'rgba(255,255,255,0.03)';
+        row.style.background = 'rgba(255,255,255,0.01)';
+        row.classList.remove('pulse-light-cyan');
+        const btn = row.querySelector('button');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Spustit';
+          btn.className = 'btn btn-xs btn-primary';
+        }
+      }
+    });
+
+    const activeRow = document.getElementById(`infer-row-${subSkill}`);
+    if (activeRow) {
+      activeRow.style.borderColor = 'var(--cyan)';
+      activeRow.style.background = 'rgba(0,255,242,0.02)';
+      activeRow.classList.add('pulse-light-cyan');
+      const btn = activeRow.querySelector('button');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Běží...';
+        btn.className = 'btn btn-xs btn-success';
+      }
+    }
+
+    this.updateInferenceDaemonStatus('RUNNING');
+    this.log('INFO', `Posílám příkaz ke spuštění fáze: '${subSkill}' přes stdin...`);
+    
+    await this.api('POST', '/inference/command', {
+      skill_slug: s,
+      command: `SET_TASK:${s}__${subSkill}`
+    });
+  },
+
+  async sendInferenceStopSignal(): Promise<void> {
+    const s = this.activeSkill;
+    if (!s) return;
+    
+    this.updateInferenceDaemonStatus('WAITING');
+    this.log('WARN', 'Nouzové zastavení: Posílám příkaz STOP přes stdin.');
+    
+    await this.api('POST', '/inference/command', {
+      skill_slug: s,
+      command: 'STOP'
+    });
+
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+    subSkills.forEach(sub => {
+      const row = document.getElementById(`infer-row-${sub}`);
+      if (row) {
+        row.style.borderColor = 'rgba(255,255,255,0.03)';
+        row.style.background = 'rgba(255,255,255,0.01)';
+        row.classList.remove('pulse-light-cyan');
+        const btn = row.querySelector('button');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Spustit';
+          btn.className = 'btn btn-xs btn-primary';
+        }
+      }
+    });
+  },
+
+  updateInferenceDaemonStatus(status: 'WAITING' | 'RUNNING'): void {
+    const el = document.getElementById('infer-daemon-status');
+    if (!el) return;
+    el.textContent = status;
+    if (status === 'RUNNING') {
+      el.className = 'tag bg-green-500/20 text-green';
+      const banner = document.getElementById('task-latch-card-banner');
+      if (banner) {
+        banner.className = 'task-latch-banner locked';
+        const title = document.getElementById('task-latch-title-text');
+        const desc = document.getElementById('task-latch-desc-text');
+        if (title) title.textContent = 'Task Latch: UZAMČENO';
+        if (desc) desc.textContent = 'Model autonomně provádí pohyby. Telemetrie aktivní.';
+      }
+    } else {
+      el.className = 'tag bg-yellow-500/20 text-yellow';
+      const banner = document.getElementById('task-latch-card-banner');
+      if (banner) {
+        banner.className = 'task-latch-banner unlocked';
+        const title = document.getElementById('task-latch-title-text');
+        const desc = document.getElementById('task-latch-desc-text');
+        if (title) title.textContent = 'Task Latch: ODEMČENO';
+        if (desc) desc.textContent = 'Motor dojel. VLM inspektor je aktivní na hranicích sub-tasků.';
+      }
+    }
+  },
+
+  handleInferenceTelemetry(line: string): void {
+    if (line.includes('[TELEMETRY]')) {
+      const jointsMatch = line.match(/joints:([0-9\.\-,\s]+)/);
+      const targetMatch = line.match(/target:([0-9\.\-,\s]+)/);
+      const loadMatch = line.match(/load:([\d\.\-]+)/);
+      const settleMatch = line.match(/settle:(\d+\/\d+)/);
+      const deltaMatch = line.match(/max_delta:([\d\.\-]+)/);
+
+      const updateEl = (id: string, text: string, color?: string) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.textContent = text;
+          if (color) {
+            el.style.color = color;
+          } else {
+            el.style.color = '';
+          }
+        }
+      };
+
+      if (settleMatch) {
+        updateEl('infer-settle-frames', settleMatch[1]);
+        updateEl('tele-infer-settle-frames', settleMatch[1]);
+      }
+      if (loadMatch) {
+        const val = parseFloat(loadMatch[1]);
+        const text = `${val.toFixed(1)} mA`;
+        let color = 'var(--green)';
+        if (val > 220) {
+          color = 'var(--red)';
+        } else if (val > 100) {
+          color = 'var(--yellow)';
+        }
+        updateEl('infer-gripper-load', text, color);
+        updateEl('tele-infer-gripper-load', text, color);
+      }
+      if (deltaMatch) {
+        const text = `${parseFloat(deltaMatch[1]).toFixed(4)} rad`;
+        updateEl('infer-max-delta', text);
+        updateEl('tele-infer-max-delta', text);
+      }
+
+      // Update joints J1 to J6
+      if (jointsMatch) {
+        const joints = jointsMatch[1].split(',').map(x => parseFloat(x.trim()));
+        joints.forEach((val, idx) => {
+          updateEl(`joint-val-${idx}`, val.toFixed(4));
+          updateEl(`tele-joint-val-${idx}`, val.toFixed(4));
+        });
+      }
+
+      if (targetMatch) {
+        const targets = targetMatch[1].split(',').map(x => parseFloat(x.trim()));
+        targets.forEach((val, idx) => {
+          updateEl(`joint-tgt-${idx}`, val.toFixed(4));
+          updateEl(`tele-joint-tgt-${idx}`, val.toFixed(4));
+          
+          const checkDiff = (valId: string) => {
+            const valEl = document.getElementById(valId);
+            if (valEl) {
+              const actualVal = parseFloat(valEl.textContent || '0');
+              const diff = Math.abs(val - actualVal);
+              const parentBox = valEl.parentElement;
+              if (parentBox) {
+                if (diff > 0.05) {
+                  parentBox.style.borderColor = 'rgba(239,83,80,0.3)';
+                  parentBox.style.background = 'rgba(239,83,80,0.03)';
+                } else if (diff > 0.005) {
+                  parentBox.style.borderColor = 'rgba(255,167,38,0.3)';
+                  parentBox.style.background = 'rgba(255,167,38,0.03)';
+                } else {
+                  parentBox.style.borderColor = 'rgba(76,175,80,0.3)';
+                  parentBox.style.background = 'rgba(76,175,80,0.03)';
+                }
+              }
+            }
+          };
+          checkDiff(`joint-val-${idx}`);
+          checkDiff(`tele-joint-val-${idx}`);
+        });
+      }
+    } else if (line.includes('Settled Frames:') && line.includes('Gripper Load:')) {
+      const settleMatch = line.match(/Settled Frames:\s*(\d+\/\d+)/);
+      const loadMatch = line.match(/Gripper Load:\s*([\d\.]+)\s*mA/);
+      const deltaMatch = line.match(/Max Delta:\s*([\d\.\-]+)/);
+
+      const updateEl = (id: string, text: string) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      };
+
+      if (settleMatch) {
+        updateEl('infer-settle-frames', settleMatch[1]);
+        updateEl('tele-infer-settle-frames', settleMatch[1]);
+      }
+      if (loadMatch) {
+        const text = `${loadMatch[1]} mA`;
+        updateEl('infer-gripper-load', text);
+        updateEl('tele-infer-gripper-load', text);
+      }
+      if (deltaMatch) {
+        const text = deltaMatch[1];
+        updateEl('infer-max-delta', text);
+        updateEl('tele-infer-max-delta', text);
+      }
+    }
+
+    if (line.includes('[STATUS] TASK_DONE')) {
+      const doneMatch = line.match(/\[STATUS\] TASK_DONE:\s*([^\s\|]+)/);
+      if (doneMatch) {
+        const fullTask = doneMatch[1];
+        const parts = fullTask.split('__');
+        const subSkill = parts.length > 1 ? parts[1] : parts[0];
+        
+        const row = document.getElementById(`infer-row-${subSkill}`);
+        if (row) {
+          row.style.borderColor = 'var(--green)';
+          row.style.background = 'rgba(46,125,50,0.05)';
+          row.classList.remove('pulse-light-cyan');
+          const btn = row.querySelector('button');
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'HOTOVO';
+            btn.className = 'btn btn-xs btn-success';
+            btn.style.background = 'rgba(46,125,50,0.2)';
+            btn.style.borderColor = 'var(--green)';
+            btn.style.color = 'var(--green)';
+          }
+        }
+        
+        this.updateInferenceDaemonStatus('WAITING');
+        this.log('SUCCESS', `✓ Sub-task '${subSkill}' byl úspěšně dokončen (detekováno dynamické ukončení!).`);
+      }
+    }
+  },
+
+  // ── Setup Wizard ───────────────────────────────────────────────────
+  showSetupWizard(mode: 'initial' | 'quick' = 'initial'): void {
+    this.wizardMode = mode;
+    const overlay = document.getElementById('setup-wizard-overlay');
+    if (overlay) {
+      overlay.style.display = 'flex';
+    }
+    this.wizardActivePage = 1;
+    this.wizardLeaderPort = '';
+    this.wizardLeaderDeviceId = '';
+    this.wizardFollowerPort = '';
+    this.wizardFollowerDeviceId = '';
+    this.wizardLeaderSubStep = 1;
+    this.wizardFollowerSubStep = 1;
+    this.wizardLeRobotParentDir = '';
+    this.wizardCameras = [];
+    this.wizardFoundLeRobotPath = '';
+    this.wizardStopCameraPreview();
+
+    // Toggle close button and bottom skip button depending on mode
+    const closeBtn = document.getElementById('wizard-close-button');
+    const skipContainer = document.querySelector('.skip-setup-container') as HTMLElement;
+    const welcomeTextEl = document.querySelector('#wizard-page-1 .welcome-text');
+
+    if (mode === 'quick') {
+      if (closeBtn) closeBtn.style.display = 'block';
+      if (skipContainer) skipContainer.style.display = 'none';
+      if (welcomeTextEl) welcomeTextEl.textContent = 'QUICK SETUP';
+    } else {
+      if (closeBtn) closeBtn.style.display = 'none';
+      if (skipContainer) skipContainer.style.display = 'flex';
+      if (welcomeTextEl) welcomeTextEl.textContent = 'WELCOME TO';
+    }
+
+    // Toggle dots 2 & 3 in quick setup mode
+    const dot2 = document.getElementById('wizard-dot-2');
+    const dot3 = document.getElementById('wizard-dot-3');
+    if (dot2 && dot3) {
+      if (mode === 'quick') {
+        dot2.style.display = 'none';
+        dot3.style.display = 'none';
+      } else {
+        dot2.style.display = 'inline-block';
+        dot3.style.display = 'inline-block';
+      }
+    }
+
+    this.wizardUpdatePageVisibility();
+  },
+
+  startSetupWizard(): void {
+    this.showSetupWizard('initial');
+  },
+
+  wizardUpdatePageVisibility(): void {
+    // Hide all pages
+    document.querySelectorAll('.wizard-page').forEach(page => {
+      page.classList.remove('active');
+    });
+    
+    // Show active page
+    const activePageEl = document.getElementById(`wizard-page-${this.wizardActivePage}`);
+    if (activePageEl) {
+      activePageEl.classList.add('active');
+    }
+
+    // Stop camera preview if we are not on page 6
+    if (this.wizardActivePage !== 6) {
+      this.wizardStopCameraPreview();
+    }
+
+    // Update dots (now 7 pages)
+    for (let i = 1; i <= 7; i++) {
+      const dot = document.getElementById(`wizard-dot-${i}`);
+      if (dot) {
+        if (i === this.wizardActivePage) {
+          dot.classList.add('active');
+        } else {
+          dot.classList.remove('active');
+        }
+      }
+    }
+
+    // Update sub-steps for Page 4 (Leader)
+    if (this.wizardActivePage === 4) {
+      for (let s = 1; s <= 3; s++) {
+        const stepEl = document.getElementById(`wizard-leader-step-${s}`);
+        if (stepEl) {
+          stepEl.style.display = (s === this.wizardLeaderSubStep) ? 'block' : 'none';
+        }
+      }
+      const nextBtn = document.getElementById('wizard-leader-next-btn') as HTMLButtonElement;
+      if (nextBtn) {
+        if (this.wizardLeaderSubStep === 3) {
+          nextBtn.textContent = 'Next ➔';
+          nextBtn.disabled = false;
+          nextBtn.style.opacity = '1';
+        } else {
+          nextBtn.textContent = 'Skip ➔';
+          nextBtn.disabled = false;
+          nextBtn.style.opacity = '1';
+        }
+      }
+    }
+
+    // Update sub-steps for Page 5 (Follower)
+    if (this.wizardActivePage === 5) {
+      for (let s = 1; s <= 3; s++) {
+        const stepEl = document.getElementById(`wizard-follower-step-${s}`);
+        if (stepEl) {
+          stepEl.style.display = (s === this.wizardFollowerSubStep) ? 'block' : 'none';
+        }
+      }
+      const finishBtn = document.getElementById('wizard-follower-finish-btn') as HTMLButtonElement;
+      if (finishBtn) {
+        if (this.wizardFollowerSubStep === 3) {
+          finishBtn.textContent = 'Next ➔';
+          finishBtn.disabled = false;
+          finishBtn.style.opacity = '1';
+        } else {
+          finishBtn.textContent = 'Skip ➔';
+          finishBtn.disabled = false;
+          finishBtn.style.opacity = '1';
+        }
+      }
+    }
+
+    // Scan cameras when entering Page 6
+    if (this.wizardActivePage === 6) {
+      this.wizardScanCamerasForSelect();
+    }
+  },
+
+  async wizardCheckLeRobotOnDisk(): Promise<void> {
+    const titleEl = document.getElementById('wizard-page-2-title');
+    const descEl = document.getElementById('wizard-page-2-desc');
+    const optionsContainer = document.getElementById('wizard-page-2-options-container');
+    const nextBtn = document.getElementById('wizard-page-2-next-btn') as HTMLButtonElement;
+    const checklistEl = document.getElementById('wizard-requirements-checklist');
+    
+    if (!titleEl || !descEl || !optionsContainer || !nextBtn) return;
+    
+    titleEl.innerHTML = 'Ověřování <span class="highlight-yellow">systémových požadavků</span>...';
+    descEl.textContent = 'Kontrolujeme Git, Conda prostředí a složku LeRobot...';
+    optionsContainer.innerHTML = '';
+    nextBtn.disabled = true;
+    nextBtn.style.opacity = '0.5';
+    if (checklistEl) {
+      checklistEl.style.display = 'none';
+      checklistEl.innerHTML = '';
+    }
+    
+    try {
+      const res = await this.api('GET', '/setup/system-status');
+      nextBtn.disabled = false;
+      nextBtn.style.opacity = '1';
+      
+      const gitOk = res.git_installed;
+      const condaOk = res.conda_installed;
+      const envOk = res.env_exists;
+      const repoOk = res.lerobot_found;
+      
+      if (checklistEl) {
+        checklistEl.style.display = 'flex';
+        checklistEl.innerHTML = `
+          <div style="font-weight: 700; margin-bottom: 4px; color: var(--text-light); font-size: 11px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+            Stav systémových požadavků:
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color: ${gitOk ? 'var(--green)' : 'var(--red)'}; font-weight: bold; font-size: 14px;">${gitOk ? '✓' : '✗'}</span>
+            <span>Git: ${gitOk ? 'Nainstalován' : 'Chybí (doporučeno nainstalovat)'}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color: ${condaOk ? 'var(--green)' : 'var(--red)'}; font-weight: bold; font-size: 14px;">${condaOk ? '✓' : '✗'}</span>
+            <span>Conda: ${condaOk ? 'Nainstalována' : 'Chybí (bude automaticky stažena a nainstalována)'}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color: ${envOk ? 'var(--green)' : 'var(--red)'}; font-weight: bold; font-size: 14px;">${envOk ? '✓' : '✗'}</span>
+            <span>Conda prostředí 'lerobot': ${envOk ? 'Nainstalováno' : 'Chybí (bude vytvořeno s Python 3.10)'}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color: ${repoOk ? 'var(--green)' : 'var(--red)'}; font-weight: bold; font-size: 14px;">${repoOk ? '✓' : '✗'}</span>
+            <span>Repozitář LeRobot: ${repoOk ? `Nalezen v <code>${res.lerobot_path}</code>` : 'Chybí (bude stažen z GitHubu)'}</span>
+          </div>
+        `;
+      }
+      
+      if (res.ok && res.lerobot_found && res.lerobot_path) {
+        this.wizardFoundLeRobotPath = res.lerobot_path;
+        this.wizardSelectedOption = 'found-confirm';
+        
+        const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+        if (pathInput) pathInput.value = res.lerobot_path;
+        
+        titleEl.innerHTML = 'Nalezli jsme repozitář <span class="highlight-yellow">LeRobot</span>!';
+        descEl.innerHTML = `V systému byl detekován existující repozitář v:<br><code class="highlight-path" style="display:inline-block; margin-top:6px; padding:2px 6px; background:var(--bg-sidebar); border:1px solid var(--border); border-radius:4px; font-size:11px; word-break:break-all;">${res.lerobot_path}</code>.<br><br>Chcete použít tuto složku, vybrat jinou, nebo provést novou instalaci?`;
+        
+        optionsContainer.innerHTML = `
+          <button id="wizard-opt-found-confirm" class="btn-white-pill active" onclick="App.wizardSelectOption('found-confirm')">Použít detekovanou složku</button>
+          <button id="wizard-opt-found-browse" class="btn-white-pill" onclick="App.wizardSelectOption('found-browse')">Vybrat jinou složku</button>
+          <button id="wizard-opt-found-install" class="btn-white-pill" onclick="App.wizardSelectOption('found-install')">Nová instalace (stažení všeho)</button>
+        `;
+      } else {
+        this.wizardFoundLeRobotPath = '';
+        this.wizardSelectedOption = 'install';
+        
+        titleEl.innerHTML = `Nenašli jsme repozitář <span class="highlight-yellow">LeRobot</span>.`;
+        descEl.textContent = 'Chcete provést plně automatickou instalaci (Miniconda, Conda env, LeRobot repozitář a závislosti), nebo se připojit k existujícímu ručně?';
+        
+        optionsContainer.innerHTML = `
+          <button id="wizard-opt-new-installation" class="btn-white-pill active" onclick="App.wizardSelectOption('install')">Nová automatická instalace</button>
+          <button id="wizard-opt-connect" class="btn-white-pill" onclick="App.wizardSelectOption('connect')">Připojit ručně</button>
+        `;
+      }
+    } catch (err) {
+      this.log('ERROR', 'Chyba při kontrole LeRobot na disku: ' + err);
+      this.wizardFoundLeRobotPath = '';
+      this.wizardSelectedOption = 'install';
+      titleEl.innerHTML = `Nenašli jsme repozitář <span class="highlight-yellow">LeRobot</span>.`;
+      descEl.textContent = 'Chcete provést plně automatickou instalaci (Miniconda, Conda env, LeRobot repozitář a závislosti), nebo se připojit k existujícímu ručně?';
+      optionsContainer.innerHTML = `
+        <button id="wizard-opt-new-installation" class="btn-white-pill active" onclick="App.wizardSelectOption('install')">Nová automatická instalace</button>
+        <button id="wizard-opt-connect" class="btn-white-pill" onclick="App.wizardSelectOption('connect')">Připojit ručně</button>
+      `;
+      nextBtn.disabled = false;
+      nextBtn.style.opacity = '1';
+    }
+  },
+
+  async wizardBrowseDifferentLeRobot(): Promise<void> {
+    try {
+      const res = await this.api('POST', '/utils/browse_directory');
+      if (res.ok && res.path) {
+        const verifyRes = await this.api('POST', '/setup/verify-lerobot-path', { path: res.path });
+        if (verifyRes.ok) {
+          const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+          if (pathInput) pathInput.value = res.path;
+          this.wizardFoundLeRobotPath = res.path;
+          this.wizardSelectedOption = 'found-confirm';
+          
+          this.wizardActivePage = 4;
+          this.wizardLeaderSubStep = 1;
+          this.wizardUpdatePageVisibility();
+          this.log('SUCCESS', `Ověřena vybraná složka LeRobot: ${res.path}`);
+        } else {
+          alert(verifyRes.error || 'Složka neobsahuje platnou instalaci LeRobot.');
+        }
+      }
+    } catch (err) {
+      alert(`Chyba při otevírání průzkumníku: ${err}`);
+    }
+  },
+
+  async wizardBrowseLeRobotPath(): Promise<void> {
+    try {
+      const res = await this.api('POST', '/utils/browse_directory');
+      if (res.ok && res.path) {
+        const verifyRes = await this.api('POST', '/setup/verify-lerobot-path', { path: res.path });
+        if (verifyRes.ok) {
+          const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+          if (pathInput) pathInput.value = res.path;
+          this.log('SUCCESS', `Složka LeRobot vybrána a ověřena: ${res.path}`);
+        } else {
+          alert(verifyRes.error || 'Složka neobsahuje platnou instalaci LeRobot.');
+        }
+      }
+    } catch (err) {
+      alert(`Chyba při výběru složky: ${err}`);
+    }
+  },
+
+  async wizardNextPage(): Promise<void> {
+    if (this.wizardActivePage === 1) {
+      const nameInput = document.getElementById('wizard-project-name') as HTMLInputElement;
+      if (!nameInput || !nameInput.value.trim()) {
+        alert('Prosím, zadejte název projektu.');
+        return;
+      }
+      if (this.wizardMode === 'quick') {
+        this.wizardActivePage = 4;
+        this.wizardLeaderSubStep = 1;
+        this.wizardUpdatePageVisibility();
+      } else {
+        this.wizardActivePage = 2;
+        this.wizardUpdatePageVisibility();
+        this.wizardCheckLeRobotOnDisk();
+      }
+    } else if (this.wizardActivePage === 2) {
+      if (this.wizardSelectedOption === 'found-confirm') {
+        const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+        if (pathInput) pathInput.value = this.wizardFoundLeRobotPath;
+        this.wizardActivePage = 4;
+        this.wizardLeaderSubStep = 1;
+        this.wizardUpdatePageVisibility();
+      } else if (this.wizardSelectedOption === 'found-browse') {
+        this.wizardBrowseDifferentLeRobot();
+      } else if (this.wizardSelectedOption === 'install' || this.wizardSelectedOption === 'found-install') {
+        // Prompt for installation target directory
+        try {
+          const res = await this.api('POST', '/utils/browse_directory');
+          if (res.ok && res.path) {
+            this.wizardLeRobotParentDir = res.path;
+            
+            // Go to Page 3 (install progress)
+            this.wizardActivePage = 3;
+            this.wizardUpdatePageVisibility();
+            
+            const titleEl = document.getElementById('wizard-page-3-title');
+            const connectSec = document.getElementById('wizard-connect-section');
+            const installSec = document.getElementById('wizard-install-section');
+            const finishBtn = document.getElementById('wizard-btn-finish') as HTMLButtonElement;
+
+            if (titleEl) titleEl.innerHTML = 'Installing <span class="highlight-yellow">LeRobot</span> repository...';
+            if (connectSec) connectSec.style.display = 'none';
+            if (installSec) installSec.style.display = 'block';
+            if (finishBtn) {
+              finishBtn.disabled = true;
+              finishBtn.style.opacity = '0.5';
+            }
+            this.runSimulatedInstall();
+          }
+        } catch (err) {
+          alert(`Chyba při otevírání průzkumníku: ${err}`);
+        }
+      } else {
+        // Connect option
+        this.wizardActivePage = 3;
+        this.wizardUpdatePageVisibility();
+        
+        const titleEl = document.getElementById('wizard-page-3-title');
+        const connectSec = document.getElementById('wizard-connect-section');
+        const installSec = document.getElementById('wizard-install-section');
+        const finishBtn = document.getElementById('wizard-btn-finish') as HTMLButtonElement;
+
+        if (titleEl) titleEl.innerHTML = 'Connect your <span class="highlight-yellow">LeRobot</span> repository.';
+        if (connectSec) connectSec.style.display = 'block';
+        if (installSec) installSec.style.display = 'none';
+        if (finishBtn) {
+          finishBtn.disabled = false;
+          finishBtn.style.opacity = '1';
+        }
+      }
+    } else if (this.wizardActivePage === 3) {
+      if (this.wizardSelectedOption === 'connect') {
+        const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+        const path = pathInput ? pathInput.value.trim() : '';
+        if (!path) {
+          alert('Zadejte prosím cestu k LeRobot.');
+          return;
+        }
+        try {
+          const verifyRes = await this.api('POST', '/setup/verify-lerobot-path', { path });
+          if (!verifyRes.ok) {
+            alert(verifyRes.error || 'Složka neobsahuje platnou instalaci LeRobot.');
+            return;
+          }
+        } catch (err) {
+          alert(`Chyba při ověřování cesty: ${err}`);
+          return;
+        }
+      }
+      this.wizardActivePage = 4;
+      this.wizardLeaderSubStep = 1;
+      this.wizardUpdatePageVisibility();
+    } else if (this.wizardActivePage === 4) {
+      this.wizardActivePage = 5;
+      this.wizardFollowerSubStep = 1;
+      this.wizardUpdatePageVisibility();
+    } else if (this.wizardActivePage === 5) {
+      this.wizardActivePage = 6;
+      this.wizardUpdatePageVisibility();
+    } else if (this.wizardActivePage === 6) {
+      this.wizardActivePage = 7;
+      this.wizardUpdatePageVisibility();
+    }
+  },
+
+  wizardPrevPage(): void {
+    if (this.wizardActivePage > 1) {
+      if (this.wizardActivePage === 4 && this.wizardMode === 'quick') {
+        this.wizardActivePage = 1;
+      } else {
+        this.wizardActivePage--;
+      }
+      this.wizardUpdatePageVisibility();
+    }
+  },
+
+  wizardSelectOption(opt: string): void {
+    this.wizardSelectedOption = opt;
+    const btnInstall = document.getElementById('wizard-opt-new-installation');
+    const btnConnect = document.getElementById('wizard-opt-connect');
+    const btnFoundConfirm = document.getElementById('wizard-opt-found-confirm');
+    const btnFoundBrowse = document.getElementById('wizard-opt-found-browse');
+    const btnFoundInstall = document.getElementById('wizard-opt-found-install');
+
+    if (btnInstall) btnInstall.classList.remove('active');
+    if (btnConnect) btnConnect.classList.remove('active');
+    if (btnFoundConfirm) btnFoundConfirm.classList.remove('active');
+    if (btnFoundBrowse) btnFoundBrowse.classList.remove('active');
+    if (btnFoundInstall) btnFoundInstall.classList.remove('active');
+
+    if (opt === 'install' && btnInstall) btnInstall.classList.add('active');
+    if (opt === 'connect' && btnConnect) btnConnect.classList.add('active');
+    if (opt === 'found-confirm' && btnFoundConfirm) btnFoundConfirm.classList.add('active');
+    if (opt === 'found-browse' && btnFoundBrowse) btnFoundBrowse.classList.add('active');
+    if (opt === 'found-install' && btnFoundInstall) btnFoundInstall.classList.add('active');
+  },
+
+  async runSimulatedInstall(): Promise<void> {
+    const terminal = document.getElementById('wizard-log-terminal');
+    const progress = document.getElementById('wizard-progress-bar');
+    const finishBtn = document.getElementById('wizard-btn-finish') as HTMLButtonElement;
+    const backBtn = document.getElementById('wizard-page-3-back') as HTMLButtonElement;
+
+    if (!terminal || !progress) return;
+
+    terminal.textContent = '';
+    progress.style.width = '0%';
+    if (backBtn) backBtn.disabled = true;
+
+    try {
+      const res = await this.api('POST', '/setup/install-lerobot', {
+        parent_dir: this.wizardLeRobotParentDir || '/home/verlyba/robotics'
+      });
+      const logs = res.logs || [];
+      const finalPath = res.path || '/home/verlyba/robotics/lerobot';
+      
+      const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+      if (pathInput) pathInput.value = finalPath;
+
+      // Print logs step by step to simulate installation animation
+      let currentLogIdx = 0;
+      const printNextLog = () => {
+        if (currentLogIdx < logs.length) {
+          terminal.textContent += logs[currentLogIdx] + '\n';
+          terminal.scrollTop = terminal.scrollHeight;
+          
+          currentLogIdx++;
+          const pct = Math.round((currentLogIdx / logs.length) * 100);
+          progress.style.width = `${pct}%`;
+          
+          setTimeout(printNextLog, 600);
+        } else {
+          // Finished
+          if (finishBtn) {
+            finishBtn.disabled = false;
+            finishBtn.style.opacity = '1';
+          }
+          if (backBtn) backBtn.disabled = false;
+        }
+      };
+      
+      setTimeout(printNextLog, 200);
+
+    } catch (err) {
+      terminal.textContent += 'Chyba při instalaci LeRobot: ' + err + '\n';
+      if (finishBtn) {
+        finishBtn.disabled = false;
+        finishBtn.style.opacity = '1';
+      }
+      if (backBtn) backBtn.disabled = false;
+    }
+  },
+
+  openAutoDetectPortsModal(): void {
+    this.log('INFO', 'Otevírám průvodce detekcí portů.');
+    this.autoDetectActiveArm = 'leader';
+    this.autoDetectLeaderStep = 1;
+    this.autoDetectFollowerStep = 1;
+    this.autoDetectUpdateUI();
+    this.openModal('modal-detect-ports');
+  },
+
+  async autoDetectStart(role: 'leader' | 'follower'): Promise<void> {
+    const btn = document.getElementById(`btn-detect-${role}-scan`) as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Skenování...';
+    }
+    try {
+      this.log('INFO', `Spouštím skenování portů pro ${role} rameno...`);
+      const res = await this.api('POST', '/setup/detect-arms/start');
+      if (res.ok) {
+        if (role === 'leader') {
+          this.autoDetectLeaderStep = 2;
+        } else {
+          this.autoDetectFollowerStep = 2;
+        }
+        this.autoDetectUpdateUI();
+      } else {
+        alert(`Chyba při zahájení detekce: ${res.error || 'neznámá chyba'}`);
+      }
+    } catch (err) {
+      alert(`Chyba při zahájení detekce: ${err}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Skenovat připojená zařízení';
+      }
+    }
+  },
+
+  async autoDetectConfirmUnplug(role: 'leader' | 'follower'): Promise<void> {
+    const btn = document.getElementById(`btn-detect-${role}-confirm`) as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Ověřování...';
+    }
+    try {
+      this.log('INFO', `Ověřuji odpojení USB pro ${role} rameno...`);
+      const res = await this.api('POST', '/setup/detect-arms/unplugged');
+      if (res.ok && res.device) {
+        this.log('SUCCESS', `Detekováno ${role} rameno na portu ${res.device} (ID: ${res.persistent_id})`);
+        
+        // Update main page dropdown
+        const select = document.getElementById(`tele-${role}-port`) as HTMLSelectElement | null;
+        if (select) {
+          let opt = select.querySelector(`option[value="${res.device}"]`) as HTMLOptionElement | null;
+          if (!opt) {
+            opt = document.createElement('option');
+            opt.value = res.device;
+            opt.textContent = `${res.device} (${res.friendly_name || res.persistent_id})`;
+            select.insertBefore(opt, select.lastElementChild);
+          }
+          select.value = res.device;
+          select.setAttribute('data-last-val', res.device);
+        }
+
+        // Update main page ID input
+        const idInput = document.getElementById(`tele-${role}-id`) as HTMLInputElement | null;
+        if (idInput) {
+          idInput.value = res.persistent_id;
+        }
+
+        // Trigger onTelePortChange to update state
+        this.onTelePortChange(role);
+
+        // Auto-save by calling saveModelConfig (as it writes leader_port and follower_port to settings API)
+        await this.saveModelConfig();
+
+        // Update step representation text
+        const textEl = document.getElementById(`detect-${role}-detected-text`);
+        if (textEl) {
+          textEl.innerHTML = `Port: <strong>${res.device}</strong> (ID: <code style="font-family: var(--font-mono); color: var(--cyan);">${res.persistent_id}</code>)`;
+        }
+
+        if (role === 'leader') {
+          this.autoDetectLeaderStep = 3;
+        } else {
+          this.autoDetectFollowerStep = 3;
+        }
+        this.autoDetectUpdateUI();
+      } else {
+        alert(res.error || 'Zařízení nebylo detekováno. Ujistěte se, že jste odpojili správný USB kabel.');
+      }
+    } catch (err) {
+      alert(`Chyba při potvrzení odpojení: ${err}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Potvrdit odpojení kabelu';
+      }
+    }
+  },
+
+  autoDetectGoToNextStep(): void {
+    if (this.autoDetectActiveArm === 'leader') {
+      this.autoDetectActiveArm = 'follower';
+      this.autoDetectUpdateUI();
+    }
+  },
+
+  autoDetectPrevStep(): void {
+    if (this.autoDetectActiveArm === 'follower') {
+      this.autoDetectActiveArm = 'leader';
+      this.autoDetectUpdateUI();
+    }
+  },
+
+  autoDetectUpdateUI(): void {
+    // Show/hide main sections
+    const leaderSec = document.getElementById('detect-leader-section');
+    const followerSec = document.getElementById('detect-follower-section');
+    if (leaderSec) leaderSec.style.display = this.autoDetectActiveArm === 'leader' ? 'block' : 'none';
+    if (followerSec) followerSec.style.display = this.autoDetectActiveArm === 'follower' ? 'block' : 'none';
+
+    // Show/hide sub-steps of Leader
+    for (let i = 1; i <= 3; i++) {
+      const el = document.getElementById(`detect-leader-step-${i}`);
+      if (el) el.style.display = (this.autoDetectLeaderStep === i) ? 'block' : 'none';
+    }
+
+    // Show/hide sub-steps of Follower
+    for (let i = 1; i <= 3; i++) {
+      const el = document.getElementById(`detect-follower-step-${i}`);
+      if (el) el.style.display = (this.autoDetectFollowerStep === i) ? 'block' : 'none';
+    }
+
+    // Update Step Indicators at the top
+    const indLeader = document.getElementById('detect-step-indicator-leader');
+    const indFollower = document.getElementById('detect-step-indicator-follower');
+    const badgeLeader = document.getElementById('detect-step-badge-leader');
+    const badgeFollower = document.getElementById('detect-step-badge-follower');
+
+    if (indLeader && indFollower && badgeLeader && badgeFollower) {
+      if (this.autoDetectActiveArm === 'leader') {
+        indLeader.style.color = 'var(--cyan)';
+        badgeLeader.style.background = 'rgba(0, 188, 212, 0.15)';
+        badgeLeader.style.borderColor = 'var(--cyan)';
+
+        indFollower.style.color = 'var(--text-muted)';
+        badgeFollower.style.background = 'rgba(255, 255, 255, 0.05)';
+        badgeFollower.style.borderColor = 'var(--border)';
+      } else {
+        indLeader.style.color = 'var(--text-muted)';
+        badgeLeader.style.background = 'rgba(255, 255, 255, 0.05)';
+        badgeLeader.style.borderColor = 'var(--border)';
+
+        indFollower.style.color = 'var(--cyan)';
+        badgeFollower.style.background = 'rgba(0, 188, 212, 0.15)';
+        badgeFollower.style.borderColor = 'var(--cyan)';
+      }
+    }
+
+    // Toggle Back button
+    const backBtn = document.getElementById('detect-ports-back-btn');
+    if (backBtn) {
+      backBtn.style.visibility = this.autoDetectActiveArm === 'follower' ? 'visible' : 'hidden';
+    }
+  },
+
+  async wizardStartDetectArm(role: 'leader' | 'follower'): Promise<void> {
+    try {
+      this.log('INFO', `Spouštím skenování portů pro detekci ${role} ramene...`);
+      const res = await this.api('POST', '/setup/detect-arms/start');
+      if (res.ok) {
+        if (role === 'leader') {
+          this.wizardLeaderSubStep = 2;
+        } else {
+          this.wizardFollowerSubStep = 2;
+        }
+        this.wizardUpdatePageVisibility();
+      }
+    } catch (err) {
+      alert(`Chyba při zahájení detekce: ${err}`);
+    }
+  },
+
+  async wizardConfirmUnplugArm(role: 'leader' | 'follower'): Promise<void> {
+    try {
+      this.log('INFO', `Ověřuji odpojené zařízení pro ${role} rameno...`);
+      const res = await this.api('POST', '/setup/detect-arms/unplugged');
+      if (res.ok && res.device) {
+        if (role === 'leader') {
+          this.wizardLeaderPort = res.device;
+          this.wizardLeaderDeviceId = res.persistent_id;
+          this.wizardLeaderSubStep = 3;
+          
+          const textEl = document.getElementById('wizard-leader-detected-text');
+          if (textEl) textEl.textContent = `Great! Leader arm detected at ${res.device} (${res.persistent_id}).`;
+        } else {
+          this.wizardFollowerPort = res.device;
+          this.wizardFollowerDeviceId = res.persistent_id;
+          this.wizardFollowerSubStep = 3;
+          
+          const textEl = document.getElementById('wizard-follower-detected-text');
+          if (textEl) textEl.textContent = `Great! Follower arm detected at ${res.device} (${res.persistent_id}).`;
+        }
+        this.wizardUpdatePageVisibility();
+        this.log('SUCCESS', `Úspěšně detekováno ${role} rameno na portu ${res.device} s ID ${res.persistent_id}`);
+      } else {
+        alert(res.error || 'Zařízení nebylo detekováno.');
+      }
+    } catch (err) {
+      alert(`Chyba při dokončení detekce: ${err}`);
+    }
+  },
+
+  // ── Cameras Configuration (Page 6) ──────────────────────────────────
+  async wizardScanCamerasForSelect(): Promise<void> {
+    const portSelect = document.getElementById('wizard-camera-port-select') as HTMLSelectElement;
+    if (!portSelect) return;
+
+    portSelect.innerHTML = '<option value="">Scanning cameras...</option>';
+
+    try {
+      const res = await this.api('GET', '/hardware/scan');
+      portSelect.innerHTML = '';
+
+      const cameras = res.cameras || [];
+      if (cameras.length === 0) {
+        portSelect.innerHTML = '<option value="">-- No cameras detected --</option>';
+        this.wizardStopCameraPreview();
+        return;
+      }
+
+      cameras.forEach((cam: any) => {
+        const opt = document.createElement('option');
+        opt.value = cam.index.toString();
+        opt.setAttribute('data-persistent-id', cam.persistent_id);
+        opt.textContent = cam.friendly_name;
+        portSelect.appendChild(opt);
+      });
+
+      // Automatically trigger change event for the first camera
+      this.wizardOnCameraPortChange();
+    } catch (err) {
+      this.log('ERROR', 'Chyba při skenování kamer: ' + err);
+      portSelect.innerHTML = '<option value="">-- Error scanning cameras --</option>';
+      this.wizardStopCameraPreview();
+    }
+  },
+
+  wizardOnCameraPortChange(): void {
+    const portSelect = document.getElementById('wizard-camera-port-select') as HTMLSelectElement;
+    const previewImg = document.getElementById('wizard-camera-preview-img') as HTMLImageElement;
+    const placeholder = document.getElementById('wizard-camera-preview-placeholder');
+    
+    if (!portSelect || !previewImg || !placeholder) return;
+    
+    const sourceVal = portSelect.value;
+    if (!sourceVal) {
+      this.wizardStopCameraPreview();
+      return;
+    }
+    
+    // Set preview source to live feed
+    previewImg.src = `/api/setup/camera-preview/feed?source=${sourceVal}`;
+    previewImg.style.display = 'block';
+    placeholder.style.display = 'none';
+  },
+
+  wizardStopCameraPreview(): void {
+    const previewImg = document.getElementById('wizard-camera-preview-img') as HTMLImageElement;
+    const placeholder = document.getElementById('wizard-camera-preview-placeholder');
+    if (previewImg) {
+      previewImg.src = '';
+      previewImg.style.display = 'none';
+    }
+    if (placeholder) {
+      placeholder.style.display = 'block';
+    }
+  },
+
+  wizardAddCamera(): void {
+    const portSelect = document.getElementById('wizard-camera-port-select') as HTMLSelectElement;
+    const roleSelect = document.getElementById('wizard-camera-role-select') as HTMLSelectElement;
+    if (!portSelect || !roleSelect) return;
+    
+    const sourceVal = portSelect.value;
+    if (!sourceVal) {
+      alert('Vyberte prosím platný port kamery.');
+      return;
+    }
+    
+    const selectedOption = portSelect.options[portSelect.selectedIndex];
+    const persistentId = selectedOption.getAttribute('data-persistent-id') || `camera-index-${sourceVal}`;
+    const role = roleSelect.value;
+    
+    let count = 1;
+    let camId = `cam_${role}`;
+    while (this.wizardCameras.some(c => c.id === camId)) {
+      count++;
+      camId = `cam_${role}_${count}`;
+    }
+    
+    if (this.wizardCameras.some(c => String(c.source) === String(sourceVal))) {
+      alert('Tento port kamery již byl přidán.');
+      return;
+    }
+    
+    const newCam = {
+      id: camId,
+      source: isNaN(Number(sourceVal)) ? sourceVal : parseInt(sourceVal),
+      device_id: persistentId,
+      role: role
+    };
+    
+    this.wizardCameras.push(newCam);
+    this.wizardRenderCamerasList();
+    this.log('INFO', `Přidána kamera: ${camId} na portu ${sourceVal}`);
+
+    // Reset input fields
+    portSelect.value = '';
+    this.wizardOnCameraPortChange();
+  },
+
+  wizardRemoveCamera(id: string): void {
+    this.wizardCameras = this.wizardCameras.filter(c => c.id !== id);
+    this.wizardRenderCamerasList();
+    this.log('INFO', `Odebrána kamera: ${id}`);
+  },
+
+  wizardClearCameras(): void {
+    this.wizardCameras = [];
+    this.wizardRenderCamerasList();
+    this.log('INFO', 'Všechny kamery odebrány.');
+  },
+
+  wizardRenderCamerasList(): void {
+    const listEl = document.getElementById('wizard-camera-list');
+    if (!listEl) return;
+    if (this.wizardCameras.length === 0) {
+      listEl.innerHTML = '<div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 4px;">Žádné přidané kamery.</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    this.wizardCameras.forEach(cam => {
+      const item = document.createElement('div');
+      item.style.display = 'flex';
+      item.style.justifyContent = 'space-between';
+      item.style.alignItems = 'center';
+      item.style.background = 'rgba(255, 255, 255, 0.02)';
+      item.style.padding = '6px 10px';
+      item.style.borderRadius = 'var(--radius)';
+      item.style.border = '1px solid var(--border)';
+      item.style.fontSize = '11px';
+      item.style.marginBottom = '4px';
+      
+      const roleText = cam.role === 'overhead' ? 'Overhead (Scéna)' : 'Wrist (Kleště)';
+      
+      item.innerHTML = `
+        <span style="color: var(--text-light); font-weight: 500;">
+          [${roleText}] Port: ${cam.source} (${cam.id})
+        </span>
+        <button onclick="App.wizardRemoveCamera('${cam.id}')" style="background: transparent; border: none; color: #f44336; cursor: pointer; padding: 0 4px; font-weight: bold; font-size: 12px; line-height: 1;">✕</button>
+      `;
+      listEl.appendChild(item);
+    });
+  },
+
+  async wizardFinish(): Promise<void> {
+    const nameInput = document.getElementById('wizard-project-name') as HTMLInputElement;
+    const robotSelect = document.getElementById('wizard-robot-select') as HTMLSelectElement;
+    const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
+
+    const name = nameInput ? nameInput.value.trim() : 'Pepe';
+    const robot = robotSelect ? robotSelect.value : 'SO-ARM 101';
+    const path = pathInput ? pathInput.value.trim() : '/home/verlyba/robotics/lerobot';
+
+    // Map wizardSelectedOption to 'connect' or 'install' expected by backend
+    let lerobotOpt = 'connect';
+    if (this.wizardSelectedOption === 'install' || this.wizardSelectedOption === 'found-install') {
+      lerobotOpt = 'install';
+    }
+
+    try {
+      this.wizardStopCameraPreview();
+      const res = await this.api('POST', '/setup/finish', {
+        project_name: name,
+        robot_type: robot,
+        lerobot_option: lerobotOpt,
+        lerobot_path: path,
+        leader_port: this.wizardLeaderPort || '',
+        leader_device_id: this.wizardLeaderDeviceId || '',
+        follower_port: this.wizardFollowerPort || '',
+        follower_device_id: this.wizardFollowerDeviceId || '',
+        cameras: this.wizardCameras
+      });
+
+      if (res.ok) {
+        localStorage.setItem('orchiday_setup_completed', 'true');
+        
+        const overlay = document.getElementById('setup-wizard-overlay');
+        if (overlay) overlay.style.display = 'none';
+
+        if (res.project) {
+          this.onProjectOpened(res.project);
+          this.loadProjects();
+        }
+        
+        this.log('SUCCESS', 'Setup wizard dokončen! Projekt ' + name + ' byl vytvořen.');
+      } else {
+        alert('Chyba při dokončení setupu: ' + (res.error || 'neznámá chyba'));
+      }
+    } catch (err) {
+      alert('Chyba při odesílání setupu: ' + err);
+    }
+  },
+
+  wizardSkip(): void {
+    const msg = this.wizardMode === 'quick' 
+      ? 'Opravdu chcete zrušit rychlé nastavení nového projektu?' 
+      : 'Opravdu chcete přeskočit průvodce nastavením? Můžete jej dokončit později nebo nastavit projekt ručně.';
+    if (confirm(msg)) {
+      this.wizardStopCameraPreview();
+      if (this.wizardMode !== 'quick') {
+        localStorage.setItem('orchiday_setup_completed', 'true');
+      }
+      const overlay = document.getElementById('setup-wizard-overlay');
+      if (overlay) overlay.style.display = 'none';
+      this.log('INFO', this.wizardMode === 'quick' ? 'Vytváření projektu zrušeno.' : 'Průvodce nastavením přeskočen.');
+      this.loadProjects();
+    }
+  },
+
+  esc(s: string): string {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  },
+};
+
+// Bind to window to allow HTML inline event handlers to execute successfully!
+(window as any).App = App;
+
+// ── Boot ───────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => App.init());
