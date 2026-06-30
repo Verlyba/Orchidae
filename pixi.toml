@@ -24,5 +24,6 @@ keyboard = "*"
 lerobot = { version = ">=0.5.1", extras = ["feetech"] }
 
 [tasks]
-orchiday = "python -m orchiday.main"
+orchiday = "python -m orchiday.server"
 orchiday-web = "python -m orchiday.server"
+

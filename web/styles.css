@@ -2225,6 +2225,11 @@ input[readonly] {
     display: flex;
 }
 
+/* Lock background scroll while any popup is open */
+body.modal-open {
+    overflow: hidden;
+}
+
 .modal-container {
     background: var(--bg-sidebar);
     border: 1px solid var(--border);

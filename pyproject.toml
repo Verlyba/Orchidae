@@ -13,7 +13,8 @@ authors = [
 ]
 
 [project.scripts]
-orchiday = "orchiday.main:main"
+orchiday = "orchiday.server:main"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -200,6 +200,7 @@ const App = {
     this.loadProjects();
     this.bindResizers();
     this.bindColumnResizers();
+    this.bindModals();
 
     // Default tab
     this.changeTab('projects');
@@ -3802,31 +3803,86 @@ const App = {
   },
 
   // ── Modal Helper API ────────────────────────────────────────────────
-  _modalReturnFocus: null as HTMLElement | null,
+  // Stack of open modal ids (supports nested modals) + the element to refocus
+  // when each was opened, so closing restores focus to the right trigger.
+  _modalStack: [] as string[],
+  _modalReturnFocus: {} as Record<string, HTMLElement | null>,
+  _modalsBound: false,
+
+  _focusableSelector:
+    'a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+
+  /** Bind the shared modal listeners once (backdrop click, focus trap). */
+  bindModals(): void {
+    if (this._modalsBound) return;
+    this._modalsBound = true;
+
+    // Backdrop click: close when the click lands on the overlay itself (not its
+    // content) and the dialog is not marked [data-static] (multi-step flows).
+    document.addEventListener('mousedown', (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.classList.contains('modal-overlay')) return;
+      if (!target.classList.contains('open')) return;
+      if (target.hasAttribute('data-static')) return;
+      this.closeModal(target.id);
+    });
+
+    // Focus trap: keep Tab focus inside the topmost open modal.
+    document.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || this._modalStack.length === 0) return;
+      const top = document.getElementById(this._modalStack[this._modalStack.length - 1]);
+      if (!top) return;
+      const items = [...top.querySelectorAll<HTMLElement>(this._focusableSelector)]
+        .filter(el => el.offsetParent !== null);
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement;
+      if (e.shiftKey && (active === first || !top.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+  },
+
   openModal(id: string): void {
     const el = document.getElementById(id);
     if (!el) return;
-    this._modalReturnFocus = document.activeElement as HTMLElement | null;
+    this.bindModals();
+    this._modalReturnFocus[id] = document.activeElement as HTMLElement | null;
     el.classList.add('open');
+    if (!this._modalStack.includes(id)) this._modalStack.push(id);
+    // Lock background scroll while any modal is open
+    document.body.classList.add('modal-open');
     // Move keyboard focus into the dialog for screen readers / keyboard users
     const focusable = el.querySelector<HTMLElement>(
-      'input:not([type=hidden]):not([readonly]), select, textarea, button:not(.modal-close-btn)'
+      'input:not([type=hidden]):not([readonly]):not([disabled]), select, textarea, button:not(.modal-close-btn)'
     );
     setTimeout(() => (focusable || el).focus(), 30);
   },
+
   closeModal(id: string): void {
     const el = document.getElementById(id);
     if (el) el.classList.remove('open');
-    if (this._modalReturnFocus) {
-      this._modalReturnFocus.focus();
-      this._modalReturnFocus = null;
-    }
+    this._modalStack = this._modalStack.filter(m => m !== id);
+    if (this._modalStack.length === 0) document.body.classList.remove('modal-open');
+    const ret = this._modalReturnFocus[id];
+    if (ret && typeof ret.focus === 'function') ret.focus();
+    delete this._modalReturnFocus[id];
   },
+
   closeTopModal(): boolean {
+    if (this._modalStack.length) {
+      this.closeModal(this._modalStack[this._modalStack.length - 1]);
+      return true;
+    }
+    // Fallback: any open overlay not tracked in the stack
     const open = document.querySelectorAll('.modal-overlay.open');
     if (open.length === 0) return false;
-    const top = open[open.length - 1] as HTMLElement;
-    this.closeModal(top.id);
+    this.closeModal((open[open.length - 1] as HTMLElement).id);
     return true;
   },
   openSettings(): void { this.openModal('modal-settings'); },
