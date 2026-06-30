@@ -30,8 +30,9 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "auto_connect_robot": False,
     "auto_start_cameras": True,
     "window_state": {},
-    "lerobot_dir": "/home/verlyba/robotics/lerobot",
-    "python_path": "/home/verlyba/miniconda3/envs/lerobot/bin/python",
+    # Empty by default — auto-detected at runtime (LeRobotBridge) or set by the user in Settings.
+    "lerobot_dir": "",
+    "python_path": "",
 }
 
 

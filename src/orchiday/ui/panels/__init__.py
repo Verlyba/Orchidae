@@ -8,9 +8,10 @@ from orchiday.ui.panels.skill_panel import SkillPanel
 from orchiday.ui.panels.orchestration_panel import OrchestrationPanel
 from orchiday.ui.panels.console_panel import ConsolePanel
 from orchiday.ui.panels.dashboard_panel import DashboardPanel
+from orchiday.ui.panels.calibration_panel import CalibrationPanel
 
 __all__ = [
     "ProjectPanel", "RobotPanel", "CameraPanel",
     "ModelPanel", "SkillPanel", "OrchestrationPanel", "ConsolePanel",
-    "DashboardPanel",
+    "DashboardPanel", "CalibrationPanel",
 ]

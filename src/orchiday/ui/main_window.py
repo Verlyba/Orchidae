@@ -17,6 +17,7 @@ from orchiday.ui import (
 )
 from orchiday.ui.panels.project_panel import ProjectPanel
 from orchiday.ui.panels.dashboard_panel import DashboardPanel
+from orchiday.ui.panels.calibration_panel import CalibrationPanel
 from orchiday.ui.panels.console_panel import ConsolePanel
 from orchiday.ui.dialogs.settings_dialog import SettingsDialog
 from orchiday.ui.widgets import StatusIndicator
@@ -28,6 +29,7 @@ class MainWindow(QMainWindow):
     NAV_ITEMS = [
         ("Home", 0),
         ("Robot Dashboard", 1),
+        ("Calibration & Config", 2),
     ]
 
     def __init__(self):
@@ -141,6 +143,10 @@ class MainWindow(QMainWindow):
         # Panel 1: Unified Robot Dashboard
         self._dashboard_panel = DashboardPanel(self._pm)
         self._stack.addWidget(self._dashboard_panel)
+
+        # Panel 2: Calibration & Config Panel
+        self._calibration_panel = CalibrationPanel(self._pm)
+        self._stack.addWidget(self._calibration_panel)
 
         splitter.addWidget(self._stack)
 

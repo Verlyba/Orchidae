@@ -68,9 +68,13 @@ interface WSMessage {
   data: any;
 }
 
+declare const I18N: Record<string, Record<string, string>>;
+
 const App = {
   ws: null as WebSocket | null,
   project: null as Project | null,
+  // UI language ('cs' default; falls back to Czech for any untranslated key)
+  lang: ((typeof localStorage !== 'undefined' && localStorage.getItem('orchiday_lang')) || 'cs') as 'cs' | 'en',
   lossData: [] as LossPoint[],
   pipelineTasks: [] as string[],
   _consoleLines: 0,
@@ -78,6 +82,9 @@ const App = {
   activeSkill: null as string | null,
   activeTrainingSkill: null as string | null,
   trainingQueue: [] as string[],
+  _trainTotalSteps: 0,
+  // Running LeRobot subprocesses: key -> kind (teleop/record/train/infer/calibrate/replay/eval/dataset_edit)
+  runningProcs: {} as Record<string, string>,
   activeCameras: [] as string[],
   availablePorts: [] as any[],
   availableCameras: [] as any[],
@@ -112,14 +119,88 @@ const App = {
   skillWizardEditSlug: '',
   skillWizardPrefilledParent: '',
 
+  // ── Internationalization (i18n) ─────────────────────────────────────
+  /**
+   * Translate a key for the current language, falling back to Czech then the key.
+   * Optional `params` substitutes `{name}` placeholders in the translated string.
+   */
+  t(key: string, params?: Record<string, string | number>): string {
+    const dict = (typeof I18N !== 'undefined' && I18N) || {};
+    let s = (dict[this.lang] && dict[this.lang][key]) || (dict.cs && dict.cs[key]) || key;
+    if (params) {
+      for (const p in params) s = s.replace(new RegExp('\\{' + p + '\\}', 'g'), String(params[p]));
+    }
+    return s;
+  },
+
+  /** Apply translations to every tagged element under `root`. */
+  applyI18n(root: Document | HTMLElement = document): void {
+    root.querySelectorAll<HTMLElement>('[data-i18n]').forEach(el => {
+      const k = el.getAttribute('data-i18n');
+      if (k) el.textContent = this.t(k);
+    });
+    root.querySelectorAll<HTMLElement>('[data-i18n-html]').forEach(el => {
+      const k = el.getAttribute('data-i18n-html');
+      if (k) el.innerHTML = this.t(k);
+    });
+    root.querySelectorAll<HTMLInputElement>('[data-i18n-ph]').forEach(el => {
+      const k = el.getAttribute('data-i18n-ph');
+      if (k) el.placeholder = this.t(k);
+    });
+    root.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach(el => {
+      const k = el.getAttribute('data-i18n-title');
+      if (k) el.title = this.t(k);
+    });
+    document.documentElement.lang = this.lang;
+    // Keep the language toggle in sync with the active language
+    document.querySelectorAll<HTMLElement>('.lang-toggle [data-lang]').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-lang') === this.lang);
+    });
+  },
+
+  /** Switch language, persist it, and re-render translatable surfaces. */
+  setLang(lang: 'cs' | 'en'): void {
+    if (lang !== 'cs' && lang !== 'en') return;
+    this.lang = lang;
+    try { localStorage.setItem('orchiday_lang', lang); } catch (_) {}
+    this.applyI18n();
+    // Reflect the choice in the language toggle buttons
+    document.querySelectorAll<HTMLElement>('.lang-toggle [data-lang]').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+    });
+    // Re-render dynamically-built surfaces — they bake t() at render time, so
+    // they must be rebuilt for the new language (skill trees, robots, cameras…).
+    this.rerenderDynamic();
+    // Persist server-side (best effort; ignored if no project is open)
+    this.api('POST', '/settings', { language: lang }).catch(() => {});
+  },
+
+  /** Rebuild all JS-rendered content so it reflects the current language. */
+  rerenderDynamic(): void {
+    try {
+      if (this.project) {
+        this.renderSkillsFull();
+        this.renderTrainingSkillsTree();
+        this.renderRobots();
+        this.renderCameras();
+      }
+      const dsPage = document.getElementById('page-datasets');
+      if (dsPage && dsPage.classList.contains('active-page')) this.dsRefreshList();
+      const advPage = document.getElementById('page-advancedtraining');
+      if (advPage && advPage.classList.contains('active-page')) this.advPopulateResumeSkills();
+    } catch (_) { /* renders are best-effort */ }
+  },
+
   // ── Init ────────────────────────────────────────────────────────────
   init(): void {
+    this.applyI18n();
     this.connectWS();
     this.bindConsoleInput();
     this.bindAutoSlug();
     this.loadProjects();
     this.bindResizers();
-    
+    this.bindColumnResizers();
+
     // Default tab
     this.changeTab('projects');
 
@@ -160,7 +241,8 @@ const App = {
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       const liveControls = document.getElementById('rec-live-controls');
       const taggingWizard = document.getElementById('rec-tagging-wizard');
-      if (liveControls && liveControls.style.display === 'flex') {
+      const recordingActive = liveControls && liveControls.style.display === 'flex';
+      if (recordingActive) {
         if (e.key === 'ArrowRight') {
           e.preventDefault();
           this.sendRecordingAction('next');
@@ -178,6 +260,10 @@ const App = {
           this.taggingNextStep();
         }
       }
+      // Escape closes the topmost modal dialog (unless a recording session owns the key)
+      if (e.key === 'Escape' && !recordingActive) {
+        if (this.closeTopModal()) e.preventDefault();
+      }
     });
   },
 
@@ -191,6 +277,8 @@ const App = {
       const el = document.getElementById('status-ws');
       if (el) el.className = 'status-dot connected';
       this.log('SUCCESS', 'Connected to Orchiday server');
+      // Re-sync subprocess state after every (re)connect so button gating is accurate
+      this.syncRunningProcesses();
     };
 
     this.ws.onclose = () => {
@@ -217,6 +305,14 @@ const App = {
     switch (event) {
       case 'log_message':
         this.log(data.level, data.message);
+        break;
+      case 'process_started':
+        this.runningProcs[data.key] = data.kind;
+        this.updateActionButtonStates();
+        break;
+      case 'process_finished':
+        delete this.runningProcs[data.key];
+        this.updateActionButtonStates();
         break;
       case 'console_output':
         if (data.startsWith('[TELEMETRY]')) {
@@ -290,26 +386,26 @@ const App = {
         this.refreshProject();
         break;
       case 'training_started':
-        this.log('INFO', `Trénování spuštěno pro krok: ${data}`);
+        this.log('INFO', this.t('log.trainStarted', {s: data}));
         this.activeTrainingSkill = data;
         if (this.trainingQueue) {
           this.trainingQueue = this.trainingQueue.filter(s => s !== data);
         }
         this.renderTrainingSkillsTree();
-        this.updateTrainingStatus(`Trénování kroku '${data}'...`, 'var(--cyan)');
+        this.updateTrainingStatus(this.t('status.trainingStep', {s: data}), 'var(--cyan)');
         break;
       case 'training_progress':
         this.addLossPoint(data.epoch, data.loss);
         this.updateTrainingProgress(data.epoch, data.loss, data.skill);
         break;
       case 'training_finished':
-        this.log('SUCCESS', `Trénování úspěšně dokončeno pro: ${data.skill}`);
-        this.updateTrainingStatus(`Trénování dokončeno! Uložen checkpoint.`, 'var(--green)');
+        this.log('SUCCESS', this.t('log.trainDone', {s: data.skill}));
+        this.updateTrainingStatus(this.t('status.trainDoneCkpt'), 'var(--green)');
         if (data.skill) {
           const fill = document.getElementById(`train-progress-fill-${data.skill}`);
           if (fill) fill.style.width = `100%`;
           const txt = document.getElementById(`train-progress-text-${data.skill}`);
-          if (txt) txt.textContent = `Dokončeno`;
+          if (txt) txt.textContent = this.t('status.done');
         }
         if (this.activeTrainingSkill === data.skill) {
           this.activeTrainingSkill = null;
@@ -317,7 +413,7 @@ const App = {
         this.refreshProject();
         break;
       case 'training_error':
-        this.log('ERROR', `Chyba trénování u kroku '${data.skill}': ${data.error}`);
+        this.log('ERROR', this.t('log.trainErr', {s: data.skill, e: data.error}));
         this.updateTrainingStatus(`Chyba: ${data.error}`, 'var(--red)');
         if (data.skill) {
           const txt = document.getElementById(`train-progress-text-${data.skill}`);
@@ -404,10 +500,96 @@ const App = {
   },
 
   // ── Tab Router (Upgraded for dynamically changing Sidebar content) ────
+  // Maps a tab id to its parent navigation category (two-level nav)
+  _navCategoryOf(tabId: string): string | null {
+    const map: Record<string, string> = {
+      hardware: 'hardware', hwtools: 'hardware',
+      datacollection: 'datasets', datasets: 'datasets',
+      learning: 'learning', advancedtraining: 'learning',
+      modelrun: 'orchestration', orchestration: 'orchestration',
+    };
+    return map[tabId] || null;
+  },
+
+  // ── Process-aware button gating ─────────────────────────────────────
+  hasRunning(kind: string): boolean {
+    return Object.values(this.runningProcs).includes(kind);
+  },
+
+  async syncRunningProcesses(): Promise<void> {
+    try {
+      const res = await this.api('GET', '/processes');
+      this.runningProcs = res?.processes || {};
+    } catch (_) {
+      this.runningProcs = {};
+    }
+    this.updateActionButtonStates();
+  },
+
+  /**
+   * Enable/disable workflow action buttons based on what is actually running.
+   * Stop buttons are only active while their process runs; start buttons are
+   * blocked while the serial bus is occupied by another robot process.
+   */
+  updateActionButtonStates(): void {
+    const teleopRunning = this.hasRunning('teleop');
+    const recordRunning = this.hasRunning('record');
+    const trainRunning = this.hasRunning('train');
+    const inferRunning = this.hasRunning('infer');
+    const calibrating = this.hasRunning('calibrate');
+    const replayRunning = this.hasRunning('replay');
+    // Any process holding the robot's serial bus blocks other hardware actions
+    const busBusy = teleopRunning || recordRunning || inferRunning || calibrating || replayRunning;
+
+    const setDisabled = (id: string, disabled: boolean, title?: string) => {
+      const el = document.getElementById(id) as HTMLButtonElement | null;
+      if (!el) return;
+      el.disabled = disabled;
+      el.classList.toggle('btn-busy-locked', disabled && busBusy);
+      if (title !== undefined) el.title = title;
+    };
+
+    // Teleoperation
+    setDisabled('btn-stop-teleop', !teleopRunning,
+      teleopRunning ? this.t('tip.stopTeleop') : this.t('tip.teleopNotRunning'));
+    if (busBusy) {
+      setDisabled('btn-start-teleop', true,
+        teleopRunning ? this.t('tip.teleopAlready') : this.t('tip.busBusy'));
+    }
+
+    // Recording (any bus-holding process blocks a new recording)
+    setDisabled('btn-start-record', busBusy,
+      recordRunning ? this.t('tip.recordAlready') : (busBusy ? this.t('tip.busBusy') : this.t('tip.startsRecord')));
+    setDisabled('btn-stop-record', !recordRunning,
+      recordRunning ? this.t('tip.stopsRecord') : this.t('tip.recordNotRunning'));
+
+    // Training (GPU-bound, not bus-bound)
+    setDisabled('btn-start-training', trainRunning,
+      trainRunning ? this.t('tip.trainAlready') : this.t('tip.startsTrain'));
+    setDisabled('btn-stop-training', !trainRunning,
+      trainRunning ? this.t('tip.stopsTrain') : this.t('tip.trainNotRunning'));
+
+    // Inference / deployment (any bus-holding process blocks a new deployment)
+    setDisabled('btn-deploy-policy', busBusy,
+      inferRunning ? this.t('tip.inferAlready') : (busBusy ? this.t('tip.busBusy') : this.t('tip.deploysPolicy')));
+    setDisabled('btn-stop-inference', !inferRunning,
+      inferRunning ? this.t('tip.stopsInfer') : this.t('tip.inferNotRunning'));
+
+    // Calibration buttons: block while the bus is in use, otherwise port logic applies
+    if (busBusy) {
+      setDisabled('btn-calibrate-leader', true, this.t('tip.busBusyShort'));
+      setDisabled('btn-calibrate-follower', true, this.t('tip.busBusyShort'));
+    }
+
+    // Live status pulse on the teleop indicator (if present)
+    const teleBadge = document.getElementById('tele-running-badge');
+    if (teleBadge) teleBadge.style.display = teleopRunning ? 'inline-flex' : 'none';
+  },
+
   changeTab(tabId: string): void {
     // Guard: Must have active project to select tabs other than 'projects'
     if (tabId !== 'projects' && !this.project) {
-      alert('Nejprve prosím otevřete nebo vytvořte projekt na záložce Projekty.');
+      alert(this.t('alert.openProjectFirst'));
       this.changeTab('projects');
       return;
     }
@@ -417,19 +599,27 @@ const App = {
       this.hwStopCameraPreview();
     }
 
-    // 1. Toggles activitybar buttons active state
+    // 1. Toggles activitybar buttons active state (+ a11y current marker)
     document.querySelectorAll('.activitybar .activity-btn').forEach(btn => {
-      btn.classList.remove('active');
+      btn.classList.remove('active', 'active-parent');
+      btn.removeAttribute('aria-current');
     });
     const activeBtn = document.getElementById(`btn-${tabId}`);
-    if (activeBtn) activeBtn.classList.add('active');
+    if (activeBtn) {
+      activeBtn.classList.add('active');
+      activeBtn.setAttribute('aria-current', 'page');
+    }
 
     // 2. Toggles workspace page visibility
     document.querySelectorAll('.workspace .editor-area').forEach(page => {
       page.classList.remove('active-page');
     });
     const activePage = document.getElementById(`page-${tabId}`);
-    if (activePage) activePage.classList.add('active-page');
+    if (activePage) {
+      activePage.classList.add('active-page');
+      // Blocks now have real widths — wire up column splitters for this page
+      this.initColumnResizers(activePage);
+    }
 
     // 3. Update breadcrumbs trail dynamically
     const bcSection = document.getElementById('breadcrumb-section');
@@ -437,25 +627,33 @@ const App = {
     if (bcSection) {
       if (tabId === 'projects') bcSection.textContent = 'projects';
       else if (tabId === 'hardware') bcSection.textContent = 'hardware';
+      else if (tabId === 'hwtools') bcSection.textContent = 'hardware_tools';
       else if (tabId === 'teleoperation') bcSection.textContent = 'teleoperation';
       else if (tabId === 'orchestration') bcSection.textContent = 'orchestration';
       else if (tabId === 'datacollection') bcSection.textContent = 'data_collection';
+      else if (tabId === 'datasets') bcSection.textContent = 'dataset_tools';
       else if (tabId === 'learning') bcSection.textContent = 'learning';
+      else if (tabId === 'advancedtraining') bcSection.textContent = 'advanced_training';
       else if (tabId === 'modelrun') bcSection.textContent = 'model_run';
       else if (tabId === 'settings') bcSection.textContent = 'settings';
     }
     if (bcFile) {
       if (tabId === 'projects') bcFile.textContent = 'projects.json';
       else if (tabId === 'hardware') bcFile.textContent = 'hardware_config.json';
+      else if (tabId === 'hwtools') bcFile.textContent = 'lerobot_cli_tools';
       else if (tabId === 'teleoperation') bcFile.textContent = 'teleoperation.json';
       else if (tabId === 'orchestration') bcFile.textContent = 'orchestration.json';
       else if (tabId === 'datacollection') bcFile.textContent = this.activeSkill || 'pick_cube';
+      else if (tabId === 'datasets') bcFile.textContent = 'edit_dataset';
       else if (tabId === 'learning') bcFile.textContent = 'policy_training.json';
+      else if (tabId === 'advancedtraining') bcFile.textContent = 'eval_and_resume';
       else if (tabId === 'modelrun') bcFile.textContent = 'ceo_execution.json';
       else if (tabId === 'settings') bcFile.textContent = 'config.json';
     }
 
     if (tabId === 'learning') {
+      // Sync the policy picker cards with the project's stored architecture
+      this.syncPolicyCards();
       // Force chart redraw to fill container
       setTimeout(() => this.drawLossChart(), 100);
       this.api('GET', '/training/status')
@@ -470,6 +668,281 @@ const App = {
         });
     } else if (tabId === 'settings') {
       this.loadSysInfo();
+    } else if (tabId === 'datasets') {
+      this.dsRefreshList();
+    } else if (tabId === 'advancedtraining') {
+      this.advPopulateResumeSkills();
+    }
+  },
+
+  // ── Policy architecture picker (learning page) ──────────────────────
+  selectPolicyCard(value: string): void {
+    const select = document.getElementById('train-policy-type') as HTMLSelectElement | null;
+    if (select) select.value = value;
+    document.querySelectorAll('.policy-pick-card').forEach(card => {
+      const active = card.getAttribute('data-value') === value;
+      card.classList.toggle('active', active);
+      card.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+  },
+
+  syncPolicyCards(): void {
+    const stored = this.project?.policy_architecture
+      || (document.getElementById('train-policy-type') as HTMLSelectElement | null)?.value
+      || 'act';
+    // Only adopt architectures that have a card; otherwise keep the select value as-is
+    if (document.querySelector(`.policy-pick-card[data-value="${stored}"]`)) {
+      this.selectPolicyCard(stored);
+    }
+  },
+
+  // ── Hardware Tools page (LeRobot CLI utilities) ─────────────────────
+  async runHwTool(tool: string): Promise<void> {
+    const robot = this.project?.robots?.[0] as any;
+    const args: string[] = [];
+
+    if (tool === 'find_cameras') {
+      const backend = (document.getElementById('tool-cam-backend') as HTMLSelectElement | null)?.value;
+      if (backend) args.push(backend);
+    } else if (tool === 'setup_motors') {
+      const arm = (document.getElementById('tool-motors-arm') as HTMLSelectElement | null)?.value || 'follower';
+      if (arm === 'leader') {
+        const lType = robot?.leader_type || 'so100_leader';
+        const lPort = robot?.leader_port || this.project?.leader_port || '';
+        if (!lPort) { alert(this.t('alert.noLeaderPort')); return; }
+        args.push(`--teleop.type=${lType}`, `--teleop.port=${lPort}`);
+      } else {
+        const rType = robot?.follower_type || robot?.type || 'so100_follower';
+        const rPort = robot?.follower_port || robot?.port || '';
+        if (!rPort) { alert(this.t('alert.noFollowerPort')); return; }
+        args.push(`--robot.type=${rType}`, `--robot.port=${rPort}`);
+      }
+    } else if (tool === 'find_joint_limits') {
+      const rType = robot?.follower_type || robot?.type || 'so100_follower';
+      const rPort = robot?.follower_port || robot?.port || '';
+      const lType = robot?.leader_type || 'so100_leader';
+      const lPort = robot?.leader_port || this.project?.leader_port || '';
+      if (!rPort || !lPort) { alert(this.t('alert.needBothPorts')); return; }
+      args.push(`--robot.type=${rType}`, `--robot.port=${rPort}`,
+                `--teleop.type=${lType}`, `--teleop.port=${lPort}`);
+    }
+
+    this.log('INFO', `Spouštím LeRobot nástroj '${tool}' — výstup v terminálu dole.`);
+    this.toggleTerminalOpen();
+    const res = await this.api('POST', '/tools/run', { tool, args });
+    if (res && res.ok === false) {
+      this.log('ERROR', `Nástroj selhal: ${res.error}`);
+    }
+  },
+
+  async hfLogin(): Promise<void> {
+    const tokenEl = document.getElementById('tool-hf-token') as HTMLInputElement | null;
+    const token = tokenEl?.value.trim() || '';
+    if (!token) { alert(this.t('alert.enterHfToken')); return; }
+    const res = await this.api('POST', '/tools/hf-login', { token });
+    if (res && res.ok) {
+      this.log('SUCCESS', 'Přihlášení k Hugging Face Hub proběhlo úspěšně.');
+      if (tokenEl) tokenEl.value = '';
+    } else {
+      this.log('ERROR', `HF přihlášení selhalo: ${res?.error || 'neznámá chyba'}`);
+      alert(`Přihlášení selhalo: ${res?.error || 'neznámá chyba'}`);
+    }
+  },
+
+  // Ensure the bottom terminal is visible when a tool writes into it
+  toggleTerminalOpen(): void {
+    const dock = document.getElementById('bottom-dock-container') || document.getElementById('terminal-area');
+    if (dock && dock.style.height === '40px') {
+      this.toggleTerminal();
+    }
+  },
+
+  // ── Dataset Management page ─────────────────────────────────────────
+  _dsList: [] as any[],
+
+  async dsRefreshList(): Promise<void> {
+    const res = await this.api('GET', '/datasets/list');
+    this._dsList = res?.datasets || [];
+    const sel = document.getElementById('ds-select') as HTMLSelectElement | null;
+    const mergeSel = document.getElementById('ds-merge-source') as HTMLSelectElement | null;
+    if (!sel) return;
+    const prev = sel.value;
+    const opts = this._dsList.map((d: any) =>
+      `<option value="${this.esc(d.repo_id)}" data-skill="${this.esc(d.skill)}">${this.esc(d.name)} — ${this.esc(d.repo_id)}${d.exists ? '' : ' (zatím nenahráno)'}</option>`
+    ).join('');
+    sel.innerHTML = opts || '<option value="">-- Žádné datasety v projektu --</option>';
+    if (mergeSel) mergeSel.innerHTML = '<option value="">-- Vyberte druhý dataset --</option>' + opts;
+    if (prev && this._dsList.some((d: any) => d.repo_id === prev)) sel.value = prev;
+    this.dsOnSelect();
+  },
+
+  dsSelectedRepo(): string {
+    return (document.getElementById('ds-select') as HTMLSelectElement | null)?.value || '';
+  },
+
+  dsSelectedSkill(): string {
+    const sel = document.getElementById('ds-select') as HTMLSelectElement | null;
+    return sel?.selectedOptions[0]?.getAttribute('data-skill') || '';
+  },
+
+  async dsOnSelect(): Promise<void> {
+    const skill = this.dsSelectedSkill();
+    const setVal = (id: string, v: string) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = v;
+    };
+    // Dataset operations only make sense for a dataset that exists on disk
+    const setOpsEnabled = (enabled: boolean) => {
+      ['ds-btn-viz', 'ds-btn-info', 'ds-btn-stats', 'ds-btn-push',
+       'ds-btn-del', 'ds-btn-task', 'ds-btn-split', 'ds-btn-merge'].forEach(id => {
+        const btn = document.getElementById(id) as HTMLButtonElement | null;
+        if (btn) {
+          btn.disabled = !enabled;
+          btn.title = enabled ? '' : 'Dataset zatím není nahraný na disku — nejprve nahrajte demonstrace (Sběr dat).';
+        }
+      });
+    };
+    if (!skill) {
+      ['ds-info-exists', 'ds-info-episodes', 'ds-info-fps', 'ds-info-size'].forEach(id => setVal(id, '—'));
+      setOpsEnabled(false);
+      return;
+    }
+    const info = await this.api('GET', `/skills/${skill}/dataset_info`);
+    setVal('ds-info-exists', info?.exists ? 'Na disku ✓' : 'Nenalezen');
+    setVal('ds-info-episodes', info?.exists ? String(info.num_episodes) : '—');
+    setVal('ds-info-fps', info?.exists ? String(info.fps) : '—');
+    setVal('ds-info-size', info?.exists ? `${info.size_mb} MB` : '—');
+    setOpsEnabled(!!info?.exists);
+  },
+
+  async dsRunOp(operation: string, params: any = {}, newRepoId: string = ''): Promise<void> {
+    const repo = this.dsSelectedRepo();
+    if (!repo && operation !== 'merge') { alert('Nejprve vyberte dataset.'); return; }
+    this.toggleTerminalOpen();
+    const res = await this.api('POST', '/datasets/edit', {
+      operation, repo_id: operation === 'merge' ? '' : repo, new_repo_id: newRepoId, params
+    });
+    if (res && res.ok === false) {
+      this.log('ERROR', `Operace '${operation}' selhala: ${res.error}`);
+    } else {
+      this.log('INFO', `Operace '${operation}' spuštěna — průběh v terminálu.`);
+    }
+  },
+
+  dsDeleteEpisodes(): void {
+    const raw = (document.getElementById('ds-del-indices') as HTMLInputElement | null)?.value.trim() || '';
+    const indices = raw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 0);
+    if (indices.length === 0) { alert(this.t('alert.enterEpIndices')); return; }
+    if (!confirm(`Opravdu smazat epizody [${indices.join(', ')}] z datasetu '${this.dsSelectedRepo()}'? LeRobot vytvoří zálohu.`)) return;
+    this.dsRunOp('delete_episodes', { episode_indices: indices });
+  },
+
+  dsModifyTask(): void {
+    const task = (document.getElementById('ds-newtask') as HTMLInputElement | null)?.value.trim() || '';
+    if (!task) { alert(this.t('alert.enterTask')); return; }
+    this.dsRunOp('modify_tasks', { new_task: task });
+  },
+
+  dsSplit(): void {
+    const train = parseFloat((document.getElementById('ds-split-train') as HTMLInputElement | null)?.value || '0.8');
+    if (isNaN(train) || train <= 0 || train >= 1) { alert(this.t('alert.trainSplitRange')); return; }
+    const val = Math.round((1 - train) * 100) / 100;
+    this.dsRunOp('split', { splits: { train: train, val: val } });
+  },
+
+  dsMerge(): void {
+    const source = this.dsSelectedRepo();
+    const other = (document.getElementById('ds-merge-source') as HTMLSelectElement | null)?.value || '';
+    const target = (document.getElementById('ds-merge-target') as HTMLInputElement | null)?.value.trim() || '';
+    if (!source || !other) { alert(this.t('alert.selectBothDs')); return; }
+    if (source === other) { alert(this.t('alert.selectTwoDiff')); return; }
+    if (!target) { alert(this.t('alert.enterMergeRepo')); return; }
+    this.dsRunOp('merge', { repo_ids: [source, other] }, target);
+  },
+
+  async dsPush(): Promise<void> {
+    const repo = this.dsSelectedRepo();
+    const hubId = (document.getElementById('ds-hub-id') as HTMLInputElement | null)?.value.trim() || '';
+    const priv = (document.getElementById('ds-hub-private') as HTMLInputElement | null)?.checked ?? true;
+    if (!repo) { alert('Nejprve vyberte dataset.'); return; }
+    if (!hubId.includes('/')) { alert(this.t('alert.hubIdFormat')); return; }
+    this.toggleTerminalOpen();
+    const res = await this.api('POST', '/datasets/push', { repo_id: repo, hub_id: hubId, private: priv });
+    if (res && res.ok === false) this.log('ERROR', `Push selhal: ${res.error}`);
+    else this.log('INFO', `Nahrávání datasetu na Hub spuštěno — průběh v terminálu.`);
+  },
+
+  dsVisualize(): void {
+    const repo = this.dsSelectedRepo();
+    if (!repo) { alert('Nejprve vyberte dataset.'); return; }
+    const ep = parseInt((document.getElementById('ds-viz-episode') as HTMLInputElement | null)?.value || '0', 10) || 0;
+    this.toggleTerminalOpen();
+    this.api('POST', '/tools/run', { tool: 'dataset_viz', args: [`--repo-id`, repo, `--episode-index`, String(ep)] });
+    this.log('INFO', `Spouštím Rerun vizualizaci datasetu ${repo}, epizoda ${ep}...`);
+  },
+
+  // ── Advanced Training & Evaluation page ─────────────────────────────
+  advPopulateResumeSkills(): void {
+    const sel = document.getElementById('adv-resume-skill') as HTMLSelectElement | null;
+    if (!sel) return;
+    const skills = this.project?.skills || [];
+    const details = this.project?.skills_details || {};
+    const prev = sel.value;
+    sel.innerHTML = skills.length
+      ? skills.map(s => `<option value="${this.esc(s)}">${this.esc(details[s]?.name || s)} (${this.esc(s)})</option>`).join('')
+      : '<option value="">-- Žádné dovednosti v projektu --</option>';
+    if (prev && skills.includes(prev)) sel.value = prev;
+  },
+
+  async advResumeTraining(): Promise<void> {
+    const skill = (document.getElementById('adv-resume-skill') as HTMLSelectElement | null)?.value || '';
+    if (!skill) { alert('Vyberte dovednost.'); return; }
+    const policy = this.project?.policy_architecture || 'act';
+    this.toggleTerminalOpen();
+    this.log('INFO', `Pokračuji v tréninku dovednosti '${skill}' (poslední checkpoint, policy=${policy})...`);
+    const res = await this.api('POST', '/training/start', { skills: [skill], policy_type: policy });
+    if (res && res.ok === false) this.log('ERROR', `Resume selhal: ${res.error}`);
+  },
+
+  async advStartEval(): Promise<void> {
+    const policyPath = (document.getElementById('adv-eval-policy') as HTMLInputElement | null)?.value.trim() || '';
+    const envType = (document.getElementById('adv-eval-env') as HTMLSelectElement | null)?.value || 'pusht';
+    const episodes = parseInt((document.getElementById('adv-eval-episodes') as HTMLInputElement | null)?.value || '10', 10) || 10;
+    const device = (document.getElementById('adv-eval-device') as HTMLSelectElement | null)?.value || 'cuda';
+    if (!policyPath) { alert('Zadejte cestu k policy checkpointu nebo Hub id.'); return; }
+    this.toggleTerminalOpen();
+    const res = await this.api('POST', '/eval/start', {
+      policy_path: policyPath, env_type: envType, n_episodes: episodes, batch_size: Math.min(episodes, 10), device
+    });
+    if (res && res.ok === false) this.log('ERROR', `Evaluace selhala: ${res.error}`);
+    else this.log('INFO', `Simulační evaluace v '${envType}' spuštěna — metriky v terminálu.`);
+  },
+
+  advInsertTemplate(kind: string): void {
+    const templates: Record<string, string> = {
+      peft: '--peft.type=lora --peft.r=16 --peft.lora_alpha=32',
+      multigpu: 'accelerate launch --num_processes=2 -m lerobot.scripts.lerobot_train --dataset.repo_id=local/SKILL --policy.type=act --policy.push_to_hub=false',
+      rl: 'python -m lerobot.scripts.lerobot_train --policy.type=sac --env.type=gym_hil --policy.push_to_hub=false',
+      tokenizer: 'python -m lerobot.scripts.lerobot_train_tokenizer --dataset.repo_id=local/SKILL',
+    };
+    const tpl = templates[kind];
+    if (!tpl) return;
+    if (kind === 'peft') {
+      // PEFT flags belong in the training extra-args field
+      const extra = document.getElementById('train-extra-args') as HTMLInputElement | null;
+      if (extra) {
+        extra.value = (extra.value ? extra.value + ' ' : '') + tpl;
+        this.log('INFO', 'PEFT/LoRA argumenty vloženy do pole „Vlastní CLI argumenty“ na stránce Imitační učení.');
+        this.changeTab('learning');
+        return;
+      }
+    }
+    this.toggleTerminalOpen();
+    const input = document.getElementById('console-input') as HTMLInputElement | null;
+    if (input) {
+      input.value = tpl;
+      input.focus();
+      this.log('INFO', 'Šablona příkazu vložena do terminálu — upravte SKILL/parametry a potvrďte Enterem.');
     }
   },
 
@@ -486,19 +959,20 @@ const App = {
         if (lerobotDirInput) lerobotDirInput.value = sysinfo.lerobot_dir || '';
         
         const storageDirInput = document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null;
-        if (storageDirInput && this.project) {
-          storageDirInput.value = this.project.dataset_storage_dir || '';
-        }
+        const recStorageDirInput = document.getElementById('rec-dataset-storage-dir') as HTMLInputElement | null;
+        const val = this.project?.dataset_storage_dir || '';
+        if (storageDirInput) storageDirInput.value = val;
+        if (recStorageDirInput) recStorageDirInput.value = val;
 
         // Populate diagnostic labels
         const lblPyVersion = document.getElementById('diag-python-version');
-        if (lblPyVersion) lblPyVersion.textContent = sysinfo.python_version || 'Neznámá';
+        if (lblPyVersion) lblPyVersion.textContent = sysinfo.python_version || this.t('val.unknownF');
 
         const lblLeRobotVersion = document.getElementById('diag-lerobot-version');
         if (lblLeRobotVersion) lblLeRobotVersion.textContent = sysinfo.lerobot_version || 'Nenalezeno';
 
         const lblCondaEnv = document.getElementById('diag-conda-env');
-        if (lblCondaEnv) lblCondaEnv.textContent = sysinfo.conda_env || 'Neznámé';
+        if (lblCondaEnv) lblCondaEnv.textContent = sysinfo.conda_env || this.t('val.unknownN');
 
         const lblMinicondaPath = document.getElementById('diag-miniconda-path');
         if (lblMinicondaPath) lblMinicondaPath.textContent = sysinfo.miniconda_path || 'Nenalezeno';
@@ -566,7 +1040,7 @@ const App = {
         
         // Determine robot type from config
         const robot = (p.robots && p.robots.length > 0) ? p.robots[0] : null;
-        let robotLabel = 'Nekonfigurován';
+        let robotLabel = this.t('val.notConfigured');
         let robotClass = 'none';
         
         if (robot) {
@@ -599,8 +1073,8 @@ const App = {
         }
 
         return `
-          <div class="project-card fade-in ${isActive ? 'active' : ''}" onclick="App.openProject('${p._path || ''}')">
-            <button class="project-delete-btn" onclick="App.deleteProject('${p._path || ''}', event)" title="Smazat projekt">✕</button>
+          <div class="project-card fade-in ${isActive ? 'active' : ''}" onclick="App.openProject(this.dataset.path)" data-path="${this.esc(p._path || '')}">
+            <button class="project-delete-btn" onclick="App.deleteProject(this.closest('.project-card').dataset.path, event)" title="Smazat projekt">✕</button>
             ${isActive ? `
               <div class="project-active-check">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -637,12 +1111,12 @@ const App = {
     const sideEl = document.getElementById('sidebar-projects-list-container');
     if (sideEl) {
       if (!all.length) {
-        sideEl.innerHTML = `<div style="font-size: 10px; color: var(--text-muted);">Žádné projekty.</div>`;
+         sideEl.innerHTML = `<div style="font-size: 10px; color: var(--text-muted);">${App.t('hint.noProjects')}</div>`;
       } else {
         sideEl.innerHTML = all.map(p => {
           const isActive = this.project && this.project.path === p._path;
           return `
-            <div class="sidebar-project-item ${isActive ? 'active' : ''}" onclick="App.openProject('${p._path || ''}')">
+            <div class="sidebar-project-item ${isActive ? 'active' : ''}" onclick="App.openProject(this.dataset.path)" data-path="${this.esc(p._path || '')}">
               <div class="name">${this.esc(p.name)}</div>
               <div class="meta">${p.slug || ''}</div>
             </div>
@@ -663,7 +1137,7 @@ const App = {
     const detailsForm = document.getElementById('new-project-details-form');
     const footer = document.getElementById('new-project-modal-footer');
     
-    if (title) title.textContent = 'Vytvořit Nový Projekt';
+    if (title) title.textContent = this.t('modal.newProjectTitle');
     if (selection) selection.style.display = 'block';
     if (detailsForm) detailsForm.style.display = 'none';
     if (footer) footer.style.display = 'none';
@@ -680,7 +1154,7 @@ const App = {
       const detailsForm = document.getElementById('new-project-details-form');
       const footer = document.getElementById('new-project-modal-footer');
       
-      if (title) title.textContent = 'Název a nastavení prostého projektu';
+      if (title) title.textContent = this.t('modal.plainProjectTitle');
       if (selection) selection.style.display = 'none';
       if (detailsForm) detailsForm.style.display = 'flex';
       if (footer) footer.style.display = 'flex';
@@ -717,7 +1191,7 @@ const App = {
 
   async deleteProject(path: string, event: Event): Promise<void> {
     event.stopPropagation();
-    if (!confirm('Opravdu chcete tento projekt smazat? Všechna data projektu budou trvale smazána.')) {
+    if (!confirm(this.t('confirm.deleteProject'))) {
       return;
     }
     const r = await this.api('POST', '/projects/delete', { path });
@@ -781,7 +1255,7 @@ const App = {
     // Reset global workspace badge in Title bar
     const titleBarActive = document.getElementById('title-active-project');
     if (titleBarActive) {
-      titleBarActive.textContent = 'Žádný projekt';
+      titleBarActive.textContent = this.t('title.noProject');
     }
 
     // Reset unified global project badges across all tabs!
@@ -799,9 +1273,7 @@ const App = {
 
     // Update main project grid cards
     document.querySelectorAll('#project-list .project-card:not(.empty-project-card)').forEach(card => {
-      const onclick = card.getAttribute('onclick') || '';
-      const match = onclick.match(/App\.openProject\('([^']*)'\)/);
-      const cardPath = match ? match[1] : '';
+      const cardPath = (card as HTMLElement).dataset.path || '';
       const isActive = !!(activePath && cardPath === activePath);
 
       card.classList.toggle('active', isActive);
@@ -820,9 +1292,7 @@ const App = {
 
     // Update sidebar project shortcuts
     document.querySelectorAll('#sidebar-projects-list-container .sidebar-project-item').forEach(item => {
-      const onclick = item.getAttribute('onclick') || '';
-      const match = onclick.match(/App\.openProject\('([^']*)'\)/);
-      const itemPath = match ? match[1] : '';
+      const itemPath = (item as HTMLElement).dataset.path || '';
       item.classList.toggle('active', !!(activePath && itemPath === activePath));
     });
   },
@@ -955,7 +1425,7 @@ const App = {
   onRobotPortSelectChange(): void {
     const select = document.getElementById('robot-port') as HTMLSelectElement | null;
     if (select && select.value === '__custom__') {
-      const val = prompt('Zadejte ručně cestu k portu robota:', select.getAttribute('data-last-val') || '/dev/ttyUSB0');
+      const val = prompt(this.t('prompt.robotPort'), select.getAttribute('data-last-val') || '/dev/ttyUSB0');
       if (val && val.trim()) {
         let opt = select.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
         if (!opt) {
@@ -977,7 +1447,7 @@ const App = {
   onCameraSourceSelectChange(): void {
     const select = document.getElementById('camera-source') as HTMLSelectElement | null;
     if (select && select.value === '__custom__') {
-      const val = prompt('Zadejte index kamery (např. 0, 1) nebo video stream URL:', select.getAttribute('data-last-val') || '0');
+      const val = prompt(this.t('prompt.cameraIndex'), select.getAttribute('data-last-val') || '0');
       if (val && val.trim()) {
         let opt = select.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
         if (!opt) {
@@ -1065,15 +1535,20 @@ const App = {
 
     if (btnStartTele) {
       const canStart = !!leaderPort && !!followerPort;
-      
+
       if (canStart) {
         btnStartTele.className = 'btn btn-xs btn-primary';
         (btnStartTele as HTMLButtonElement).disabled = false;
+        btnStartTele.title = this.t('tip.startsTeleop');
       } else {
         btnStartTele.className = 'btn btn-xs btn-secondary';
         (btnStartTele as HTMLButtonElement).disabled = true;
+        btnStartTele.title = 'Nejprve vyberte leader i follower port (Hardware → Konfigurace)';
       }
     }
+
+    // Re-apply running-process gating on top of the port-based logic
+    this.updateActionButtonStates();
   },
 
   // ── Hardware Page Auto-detection & Cameras ───────────────────────
@@ -1146,7 +1621,7 @@ const App = {
           }
         }
       } else {
-        alert(res.error || 'Nepodařilo se detekovat odpojené zařízení. Zkuste to znovu.');
+        alert(res.error || this.t('alert.detectFailed'));
       }
     } catch (err) {
       alert(`Chyba při detekci odpojení: ${err}`);
@@ -1170,7 +1645,7 @@ const App = {
     if (!portSelect || !previewImg || !placeholder) return;
 
     if (portSelect.value === '__custom__') {
-      const val = prompt('Zadejte index kamery (např. 0, 1) nebo video stream URL:', portSelect.getAttribute('data-last-val') || '0');
+      const val = prompt(this.t('prompt.cameraIndex'), portSelect.getAttribute('data-last-val') || '0');
       if (val && val.trim()) {
         let opt = portSelect.querySelector(`option[value="${val.trim()}"]`) as HTMLOptionElement | null;
         if (!opt) {
@@ -1218,7 +1693,7 @@ const App = {
     
     let source: string = portSelect.value;
     if (!source) {
-      alert('Vyberte prosím platný port kamery.');
+      alert(this.t('alert.selectCamPort'));
       return;
     }
     
@@ -1251,7 +1726,7 @@ const App = {
   async hwClearCameras(): Promise<void> {
     const cams = this.project?.cameras || [];
     if (!cams.length) return;
-    this.log('INFO', 'Odebírám všechny kamery...');
+    this.log('INFO', this.t('log.removingAllCams'));
     for (const c of cams) {
       await this.api('DELETE', `/cameras/${c.id}`);
     }
@@ -1264,7 +1739,7 @@ const App = {
     if (!el) return;
     const robots = this.project?.robots || [];
     if (!robots.length) {
-      el.innerHTML = `<div class="empty-state-text">Žádný robot nenakonfigurován.</div>`;
+      el.innerHTML = `<div class="empty-state-text">${App.t('hint.noRobot')}</div>`;
       return;
     }
     el.innerHTML = robots.map(r => `
@@ -1401,7 +1876,7 @@ const App = {
                 Nenastaveno
               </span>
               <div id="tele-cam-feed-placeholder-${i + 1}" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-                <span style="font-size: 9px; color: var(--text-muted);">Žádná kamera v projektu</span>
+                <span style="font-size: 9px; color: var(--text-muted);">${App.t('hint.noCamInProject')}</span>
               </div>
             </div>
           `;
@@ -1414,12 +1889,12 @@ const App = {
     if (!el) return;
 
     if (!cams.length) {
-      el.innerHTML = '<div class="empty-state-text">Žádné kamery nenakonfigurovány.</div>';
-      
+      el.innerHTML = '<div class="empty-state-text">' + this.t('hint.noCamsConfigured') + '</div>';
+
       const placeholder1 = document.getElementById('cam-feed-placeholder-1');
-      if (placeholder1) placeholder1.innerHTML = '<span>Žádná kamera v projektu</span>';
+      if (placeholder1) placeholder1.innerHTML = '<span>' + this.t('hint.noCamInProject') + '</span>';
       const placeholder2 = document.getElementById('cam-feed-placeholder-2');
-      if (placeholder2) placeholder2.innerHTML = '<span>Žádná kamera v projektu</span>';
+      if (placeholder2) placeholder2.innerHTML = '<span>' + this.t('hint.noCamInProject') + '</span>';
       return;
     }
     const host = location.host || 'localhost:8000';
@@ -1429,19 +1904,19 @@ const App = {
       const isActive = (this.activeCameras || []).includes(c.id);
       return `
         <div class="camera-card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <strong>${this.esc(c.id)}</strong> <span style="font-size:10px; opacity:0.6;">(${c.role})</span> — Source: ${c.source}</span>
-            <div style="display:flex; gap:4px;">
-              ${isActive 
+          <div class="camera-card-head">
+            <span class="camera-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <strong>${this.esc(c.id)}</strong> <span class="camera-card-role">(${c.role})</span> — Source: ${c.source}</span>
+            <div class="camera-card-actions">
+              ${isActive
                 ? '<button class="btn btn-xs btn-secondary" onclick="App.stopCamera(\'' + c.id + '\')">Stop</button>'
                 : '<button class="btn btn-xs btn-success" onclick="App.startCamera(\'' + c.id + '\')">Start</button>'
               }
-              <button class="btn btn-xs btn-danger" onclick="App.removeCamera(\'' + c.id + '\')">✕</button>
+              <button class="btn btn-xs btn-danger btn-icon" onclick="App.removeCamera(\'' + c.id + '\')" title="${App.t('btn.delete')}">✕</button>
             </div>
           </div>
-          ${isActive 
-            ? '<div class="camera-feed-container"><img src="/api/cameras/' + c.id + '/feed" class="camera-feed-img" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';" /><div style="display:none; align-items:center; justify-content:center; width:100%; height:100%; font-size:9px; color:var(--text-muted);">Stream načítání selhalo</div></div>'
-            : '<div class="camera-offline">Kamera je offline. Klikněte na Start pro spuštění.</div>'
+          ${isActive
+            ? '<div class="camera-feed-container"><img src="/api/cameras/' + c.id + '/feed" class="camera-feed-img" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';" /><div style="display:none; align-items:center; justify-content:center; width:100%; height:100%; font-size:9px; color:var(--text-muted);">' + App.t('hint.streamFailed') + '</div></div>'
+            : '<div class="camera-offline">' + App.t('hint.camOffline') + '</div>'
           }
         </div>
       `;
@@ -1672,11 +2147,15 @@ const App = {
   // ── Step 2: Teleoperated Record ─────────────────────────────────────
   async startWorkflowRecord(): Promise<void> {
     const robots = this.project?.robots || [];
-    const rType = robots[0]?.type || 'so100';
+    const rType = robots[0]?.type || 'so100_follower';
     const rPort = robots[0]?.port || '';
     const repo = (document.getElementById('rec-repo-id') as HTMLInputElement | null)?.value.trim();
     const eps = parseInt((document.getElementById('rec-episodes') as HTMLInputElement | null)?.value || '50', 10);
     const fps = 30; // Native LeRobot FPS target
+    const taskDesc = (document.getElementById('rec-task-desc') as HTMLInputElement | null)?.value.trim() || '';
+    const episodeTime = parseFloat((document.getElementById('rec-duration') as HTMLInputElement | null)?.value || '60') || 60;
+    const pushHub = (document.getElementById('rec-push-hub') as HTMLInputElement | null)?.checked || false;
+    const resume = (document.getElementById('rec-resume') as HTMLInputElement | null)?.checked || false;
 
     if (!repo) {
       const msg = "Dataset Repo ID cannot be empty!";
@@ -1691,17 +2170,16 @@ const App = {
       alert(msg);
       return;
     }
-    
-    // Show interactive UI guide for LeRobot keys
+
+    // Show interactive UI guide for LeRobot keys (matches lerobot-record >= 0.4)
     const guide = document.getElementById('rec-keys-guide');
     if (guide) {
       guide.style.display = 'block';
       guide.innerHTML = `
         <strong>Nahrávání aktivní!</strong><br>
-        1. Přepni se do okna kamer (Pygame).<br>
-        2. <strong>MEZERNÍK</strong> = Start / Stop epizody<br>
-        3. <strong>Pravý SHIFT</strong> = Smazat nepovedenou epizodu<br>
-        4. <strong>ESC</strong> = Ukončit sběr dat
+        1. <strong>ŠIPKA VPRAVO (→)</strong> = Uložit epizodu a pokračovat<br>
+        2. <strong>ŠIPKA VLEVO (←)</strong> = Zahodit a natočit znovu<br>
+        3. <strong>ESC</strong> = Dokončit a uložit dataset
       `;
     }
 
@@ -1710,7 +2188,7 @@ const App = {
       liveControls.style.display = 'flex';
     }
 
-    this.log('INFO', `Requesting Record for ${repo} (${eps} eps @ ${fps}fps)`);
+    this.log('INFO', `Requesting Record for ${repo} (${eps} eps @ ${fps}fps, task="${taskDesc || this.activeSkill}")`);
     const extraArgs = (document.getElementById('rec-extra-args') as HTMLInputElement | null)?.value.trim() || '';
     const res = await this.api('POST', '/recording/start', {
       robot_type: rType,
@@ -1719,6 +2197,10 @@ const App = {
       num_episodes: eps,
       fps: fps,
       port: rPort,
+      single_task: taskDesc,
+      episode_time_s: episodeTime,
+      push_to_hub: pushHub,
+      resume: resume,
       extra_args_str: extraArgs
     });
     
@@ -1792,17 +2274,19 @@ const App = {
     });
 
     if (checkedSkills.length === 0) {
-      const msg = "Vyberte prosím alespoň jeden krok (dovednost) ze seznamu pro trénování.";
+      const msg = this.t('alert.selectStepToTrain');
       this.log('ERROR', `Validation Failed: ${msg}`);
       alert(msg);
       return;
     }
 
     const policy = (document.getElementById('train-policy-type') as HTMLSelectElement).value;
-    const epochs = parseInt((document.getElementById('train-epochs') as HTMLInputElement).value, 10) || 100;
+    const steps = parseInt((document.getElementById('train-steps') as HTMLInputElement).value, 10) || 10000;
+    const batchSize = parseInt((document.getElementById('train-batch-size') as HTMLInputElement | null)?.value || '8', 10) || 8;
 
     this.trainingQueue = [...checkedSkills];
     this.lossData = [];
+    this._trainTotalSteps = steps;
     this.setProgressPercent(0);
     this.drawLossChart();
 
@@ -1810,13 +2294,14 @@ const App = {
     const wandb = (document.getElementById('train-wandb') as HTMLInputElement | null)?.checked || false;
     const extraArgs = (document.getElementById('train-extra-args') as HTMLInputElement | null)?.value.trim() || '';
 
-    this.log('INFO', `Spouštění sekvenčního trénování pro: ${checkedSkills.join(', ')}...`);
+    this.log('INFO', `Spouštění sekvenčního trénování pro: ${checkedSkills.join(', ')} (${steps} kroků, batch ${batchSize})...`);
     this.renderTrainingSkillsTree();
 
     await this.api('POST', '/training/start', {
       skills: checkedSkills,
       policy_type: policy,
-      epochs: epochs,
+      steps: steps,
+      batch_size: batchSize,
       device: device,
       use_wandb: wandb,
       extra_args_str: extraArgs
@@ -1890,6 +2375,16 @@ const App = {
     this.onRobotTypeChange();
 
     // Dynamically auto-save configuration in active project config in real time
+    this.saveSettingsState();
+  },
+
+  syncDatasetStorageDir(sourceId: string): void {
+    const src = document.getElementById(sourceId) as HTMLInputElement | null;
+    const targetId = sourceId === 'settings-dataset-storage-dir' ? 'rec-dataset-storage-dir' : 'settings-dataset-storage-dir';
+    const target = document.getElementById(targetId) as HTMLInputElement | null;
+    if (src && target) {
+      target.value = src.value;
+    }
     this.saveSettingsState();
   },
 
@@ -1972,7 +2467,10 @@ const App = {
     this.onRobotTypeChange();
 
     const settingsDs = document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null;
-    if (settingsDs) settingsDs.value = this.project.dataset_storage_dir || '';
+    const recDs = document.getElementById('rec-dataset-storage-dir') as HTMLInputElement | null;
+    const val = this.project.dataset_storage_dir || '';
+    if (settingsDs) settingsDs.value = val;
+    if (recDs) recDs.value = val;
 
     const llmEp = document.getElementById('llm-endpoint') as HTMLInputElement | null;
     const vlmEp = document.getElementById('vlm-endpoint') as HTMLInputElement | null;
@@ -2039,16 +2537,16 @@ const App = {
     const input = document.getElementById(inputId) as HTMLInputElement | null;
     if (!input) return;
     try {
-      this.log('INFO', 'Otevírám průzkumník souborů pro výběr složky...');
+      this.log('INFO', this.t('log.openingFileBrowser'));
       const res = await this.api('POST', '/utils/browse_directory');
       if (res && res.ok && res.path) {
         input.value = res.path;
         this.log('SUCCESS', `Složka vybrána: ${res.path}`);
         this.saveSettingsState();
       } else if (res && !res.path) {
-        this.log('INFO', 'Výběr složky byl zrušen.');
+        this.log('INFO', this.t('log.folderCancelled'));
       } else {
-        this.log('ERROR', 'Nepodařilo se vybrat složku.');
+        this.log('ERROR', this.t('log.folderFailed'));
       }
     } catch (err) {
       this.log('ERROR', 'Chyba při otevírání průzkumníku: ' + err);
@@ -2075,7 +2573,7 @@ const App = {
         sideSkills.innerHTML = `
           <div class="empty-state" style="padding: 12px;">
             <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
-            <div class="empty-state-text">Vytvořte první Dovednost (Hlavní cíl) tlačítkem níže.</div>
+            <div class="empty-state-text">${App.t('hint.createFirstSkill')}</div>
           </div>`;
         return;
       }
@@ -2102,14 +2600,14 @@ const App = {
                 <span class="count-badge" style="background: rgba(0, 188, 212, 0.1); color: var(--cyan); border-radius: 10px; font-size: 9px; padding: 1px 6px; font-weight: 600; margin-left: auto;">${subSkills.length}</span>
               </button>
               <div style="display: flex; align-items: center; gap: 4px;">
-                <button class="action-btn-edit" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="Upravit dovednost" 
+                <button class="action-btn-edit" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="${App.t('tip.editSkill')}" 
                   style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-light); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; padding: 0;"
                   onmouseover="this.style.background='rgba(255, 255, 255, 0.15)'" 
                   onmouseout="this.style.background='rgba(255, 255, 255, 0.05)'"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
-                <button class="action-btn-plus" onclick="event.stopPropagation(); App.showNewSubSkillModal('${m}')" title="Přidat krok (Sub-skill)" 
+                <button class="action-btn-plus" onclick="event.stopPropagation(); App.showNewSubSkillModal('${m}')" title="${App.t('tip.addStep')}" 
                   style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.2); color: var(--cyan); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; padding: 0;"
                   onmouseover="this.style.background='rgba(0, 188, 212, 0.2)'; this.style.borderColor='var(--cyan)';" 
                   onmouseout="this.style.background='rgba(0, 188, 212, 0.08)'; this.style.borderColor='rgba(0, 188, 212, 0.2)';"
@@ -2122,7 +2620,7 @@ const App = {
         if (!subSkills.length) {
           html += `
             <li style="padding: 6px 12px 6px 10px; font-size:11px; color:var(--text-muted); font-style:italic;">
-              Žádné kroky. Přidejte první krok kliknutím na [+] nahoře.
+              ${App.t('hint.noSteps')}
             </li>
           `;
         } else {
@@ -2145,14 +2643,14 @@ const App = {
                   <span class="ep-badge" id="ep-badge-${s}">...</span>
                 </button>
                 <div style="display: flex; align-items: center;">
-                  <button class="action-btn-edit-sub" onclick="event.stopPropagation(); App.showEditSkillModal('${s}')" title="Upravit krok" 
+                  <button class="action-btn-edit-sub" onclick="event.stopPropagation(); App.showEditSkillModal('${s}')" title="${App.t('tip.editStep')}" 
                     style="background: transparent; border: none; color: var(--text-muted); padding: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s;"
                     onmouseover="this.style.color='var(--cyan)';"
                     onmouseout="this.style.color='var(--text-muted)';"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 11px; height: 11px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
-                  <button class="action-btn-edit-episodes" onclick="event.stopPropagation(); App.openManageEpisodesModal('${s}')" title="Správa epizod kroku" 
+                  <button class="action-btn-edit-episodes" onclick="event.stopPropagation(); App.openManageEpisodesModal('${s}')" title="${App.t('tip.manageEpisodes')}" 
                     style="background: transparent; border: none; color: var(--text-muted); padding: 4px 6px; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; margin-left: 4px;"
                     onmouseover="this.style.color='var(--cyan)';"
                     onmouseout="this.style.color='var(--text-muted)';"
@@ -2212,7 +2710,7 @@ const App = {
     if (!skills.length) {
       container.innerHTML = `
         <div class="empty-state" style="padding: 12px; text-align: center;">
-          <div class="empty-state-text" style="color: var(--text-muted); font-size: 12px;">Žádné dovednosti k dispozici. Vytvořte dovednosti na stránce sběru dat.</div>
+          <div class="empty-state-text" style="color: var(--text-muted); font-size: 12px;">${App.t('hint.noSkillsAvail')}</div>
         </div>`;
       return;
     }
@@ -2240,13 +2738,13 @@ const App = {
       if (!subSkills.length) {
         html += `
           <li style="padding: 4px 0; font-size: 11px; color: var(--text-muted); font-style: italic;">
-            Žádné kroky k učení.
+            ${App.t('hint.noStepsToLearn')}
           </li>
         `;
       } else {
         subSkills.forEach(sub => {
           const meta = details[sub]?.model_metadata;
-          let metaHtml = '<span style="color: var(--text-muted); font-style: italic; font-size: 9px;">Nenaučeno</span>';
+          let metaHtml = '<span style="color: var(--text-muted); font-style: italic; font-size: 9px;">' + App.t('val.notLearned') + '</span>';
           if (meta) {
             const formattedParams = meta.param_count ? (meta.param_count >= 1000000 ? (meta.param_count / 1000000).toFixed(1) + 'M' : (meta.param_count / 1000).toFixed(0) + 'k') : 'N/A';
             metaHtml = `
@@ -2261,14 +2759,14 @@ const App = {
 
           let progressStyle = 'display: none;';
           let progressVal = 0;
-          let progressText = 'Čeká...';
+          let progressText = this.t('val.waiting');
 
           if (isActive) {
             progressStyle = 'display: block;';
-            progressText = 'Trénování...';
+            progressText = this.t('val.training');
           } else if (isQueued) {
             progressStyle = 'display: block;';
-            progressText = 'Čeká ve frontě...';
+            progressText = this.t('val.queued');
           }
 
           html += `
@@ -2420,10 +2918,10 @@ const App = {
           const trainStatusEl = document.getElementById('active-skill-training');
           if (trainStatusEl) {
             if (res.exists) {
-              trainStatusEl.textContent = 'Natrénováno';
+              trainStatusEl.textContent = this.t('val.trained');
               trainStatusEl.style.color = 'var(--green)';
             } else {
-              trainStatusEl.textContent = 'Není natrénováno';
+              trainStatusEl.textContent = this.t('val.notTrained');
               trainStatusEl.style.color = 'var(--yellow)';
             }
           }
@@ -2431,7 +2929,7 @@ const App = {
         .catch(() => {
           const trainStatusEl = document.getElementById('active-skill-training');
           if (trainStatusEl) {
-            trainStatusEl.textContent = 'Neznámý stav';
+            trainStatusEl.textContent = this.t('val.unknownState');
             trainStatusEl.style.color = 'var(--text-muted)';
           }
         });
@@ -2455,11 +2953,11 @@ const App = {
       if (warnEl) warnEl.style.display = 'block';
       let errorMsg = '';
       if (!hasPort && !hasCameras) {
-        errorMsg = 'Není nakonfigurován port Followera ani přiřazeny žádné kamery.';
+        errorMsg = this.t('rec.errNoPortNoCams');
       } else if (!hasPort) {
-        errorMsg = 'Není nakonfigurován sériový port Followera.';
+        errorMsg = this.t('rec.errNoPort');
       } else {
-        errorMsg = 'K Followerovi nejsou přiřazeny žádné kamery (přiřaďte je v Nastavení).';
+        errorMsg = this.t('rec.errNoCams');
       }
       if (warnText) warnText.textContent = errorMsg;
       if (btnStart) btnStart.disabled = true;
@@ -2479,12 +2977,12 @@ const App = {
 
   showNewSubSkillModal(parentSlug?: string): void {
     if (!this.project) {
-      alert("Žádný projekt není otevřen. Přejděte prosím nejprve na kartu 'Nastavení' a otevřete nebo vytvořte projekt!");
+      alert(this.t('alert.noProjectOpen'));
       return;
     }
     const parent = parentSlug || this.getCurrentParentSlug();
     if (!parent) {
-      alert("Nejprve prosím vyberte (kliknutím) dovednost ze seznamu vlevo, abych věděl, pod kterou dovednost chcete krok přidat!");
+      alert(this.t('alert.selectSkillFirst'));
       return;
     }
     this.showNewSkillModal(parent);
@@ -2492,7 +2990,7 @@ const App = {
 
   showNewSkillModal(parentSlug: string = ''): void { 
     if (!this.project) {
-      alert("Žádný projekt není otevřen. Přejděte prosím nejprve na kartu 'Nastavení' a otevřete nebo vytvořte projekt!");
+      alert(this.t('alert.noProjectOpen'));
       return;
     }
     this.openModal('modal-new-skill');
@@ -2555,7 +3053,7 @@ const App = {
     
     const titleEl = document.getElementById('modal-new-skill-title');
     if (titleEl) {
-      titleEl.textContent = this.skillWizardIsEdit ? 'Upravit Dovednost nebo Krok' : 'Vytvořit novou Dovednost nebo Krok';
+      titleEl.textContent = this.skillWizardIsEdit ? this.t('modal.editSkill') : this.t('modal.newSkill');
     }
     this.selectSkillWizardType(this.skillWizardType);
   },
@@ -2569,9 +3067,9 @@ const App = {
     const titleEl = document.getElementById('modal-new-skill-title');
     if (titleEl) {
       if (this.skillWizardIsEdit) {
-        titleEl.textContent = this.skillWizardType === 'main' ? 'Upravit Hlavní Dovednost' : 'Upravit Motorický Krok';
+        titleEl.textContent = this.skillWizardType === 'main' ? this.t('modal.editMainSkill') : this.t('modal.editMotorStep');
       } else {
-        titleEl.textContent = this.skillWizardType === 'main' ? 'Vytvořit Hlavní Dovednost' : 'Vytvořit Motorický Krok';
+        titleEl.textContent = this.skillWizardType === 'main' ? this.t('modal.createMainSkill') : this.t('modal.createMotorStep');
       }
     }
 
@@ -2596,25 +3094,25 @@ const App = {
     }
 
     if (submitBtn) {
-      submitBtn.textContent = this.skillWizardIsEdit ? 'Uložit změny' : 'Vytvořit';
+      submitBtn.textContent = this.skillWizardIsEdit ? this.t('btn.saveChanges') : 'Vytvořit';
     }
 
     if (this.skillWizardType === 'main') {
-      if (nameLabel) nameLabel.textContent = 'Název dovednosti (Hlavní cíl)';
-      if (nameInput) nameInput.placeholder = 'např. Uklidit stůl';
-      if (descLabel) descLabel.textContent = 'Popis a instrukce pro plánování (LLM)';
+      if (nameLabel) nameLabel.textContent = this.t('wiz.skillNameLabel');
+      if (nameInput) nameInput.placeholder = this.t('wiz.skillNamePh');
+      if (descLabel) descLabel.textContent = this.t('wiz.skillDescLabel');
       if (descHint) {
-        descHint.textContent = 'Uveďte detailní popis výchozího stavu scény, co je cílem úkolu a za jakých podmínek má Velký Model (např. Gemma) tuto dovednost zvolit.';
+        descHint.textContent = this.t('wiz.skillDescHint');
       }
-      if (descTextarea) descTextarea.placeholder = 'např. Stůl je neuklizený a jsou na něm poházené kostky. Spusťte tuto dovednost pro roztřídění kostek do misky...';
+      if (descTextarea) descTextarea.placeholder = this.t('wiz.skillDescPh');
     } else {
-      if (nameLabel) nameLabel.textContent = 'Název motorického kroku (Akce)';
-      if (nameInput) nameInput.placeholder = 'např. Najet k modré kostce';
-      if (descLabel) descLabel.textContent = 'Popis a instrukce pro vizuální ověření (VLM)';
+      if (nameLabel) nameLabel.textContent = this.t('wiz.stepNameLabel');
+      if (nameInput) nameInput.placeholder = this.t('wiz.stepNamePh');
+      if (descLabel) descLabel.textContent = this.t('wiz.stepDescLabel');
       if (descHint) {
-        descHint.textContent = 'Uveďte podrobný popis toho, co přesně tento krok dělá, jaké jsou podmínky spuštění a jak VLM ověří, že krok úspěšně proběhl.';
+        descHint.textContent = this.t('wiz.stepDescHint');
       }
-      if (descTextarea) descTextarea.placeholder = 'např. Robot sjede s kleštěmi dolů nad kostku, dokud se jí nedotkne, a pak kleště pevně sevře. VLM ověří, že kostka je v gripperu.';
+      if (descTextarea) descTextarea.placeholder = this.t('wiz.stepDescPh');
     }
 
     // Auto-slug generation binding
@@ -2645,7 +3143,7 @@ const App = {
 
   showEditSkillModal(slug: string): void {
     if (!this.project) {
-      alert("Žádný projekt není otevřen. Přejděte prosím nejprve na kartu 'Nastavení' a otevřete nebo vytvořte projekt!");
+      alert(this.t('alert.noProjectOpen'));
       return;
     }
     const details = this.project?.skills_details || {};
@@ -2929,21 +3427,23 @@ const App = {
     }
   },
 
-  updateTrainingProgress(epoch: number, loss: number, skill_slug?: string): void {
+  updateTrainingProgress(step: number, loss: number, skill_slug?: string): void {
     const activeSkill = skill_slug || this.activeTrainingSkill || this.activeSkill;
-    this.updateTrainingStatus(`Training: Epoch ${epoch} — Loss: ${loss.toFixed(5)}`, 'var(--yellow)');
-    
-    const totalEpochs = parseInt((document.getElementById('train-epochs') as HTMLInputElement).value, 10) || 100;
-    const percent = Math.min(100, Math.round((epoch / totalEpochs) * 100));
+    this.updateTrainingStatus(`Trénink: Krok ${step} — Loss: ${loss.toFixed(5)}`, 'var(--yellow)');
+
+    const totalSteps = this._trainTotalSteps
+      || parseInt((document.getElementById('train-steps') as HTMLInputElement | null)?.value || '10000', 10)
+      || 10000;
+    const percent = Math.min(100, Math.round((step / totalSteps) * 100));
     this.setProgressPercent(percent);
-    
+
     if (activeSkill) {
       const wrapper = document.getElementById(`train-progress-wrapper-${activeSkill}`);
       if (wrapper) wrapper.style.display = 'block';
       const fill = document.getElementById(`train-progress-fill-${activeSkill}`);
       if (fill) fill.style.width = `${percent}%`;
       const txt = document.getElementById(`train-progress-text-${activeSkill}`);
-      if (txt) txt.textContent = `Epocha ${epoch}/${totalEpochs}`;
+      if (txt) txt.textContent = `Krok ${step}/${totalSteps}`;
       const lossEl = document.getElementById(`train-progress-loss-${activeSkill}`);
       if (lossEl) lossEl.textContent = `Loss: ${loss.toFixed(4)}`;
     }
@@ -3072,6 +3572,83 @@ const App = {
   },
 
   // ── Terminal UI Controls & Resizing ─────────────────────────────────
+  // ── Draggable column splitters between page blocks ──────────────────
+  _colResize: null as null | { left: HTMLElement; right: HTMLElement; startX: number; lw: number; rw: number },
+
+  /** Bind the single document-level drag listeners (called once from init). */
+  bindColumnResizers(): void {
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      const c = this._colResize;
+      if (!c) return;
+      const total = c.lw + c.rw;
+      const MIN = 180;
+      let nl = c.lw + (e.clientX - c.startX);
+      if (nl < MIN) nl = MIN;
+      if (nl > total - MIN) nl = total - MIN;
+      c.left.style.flexGrow = String(nl);
+      c.right.style.flexGrow = String(total - nl);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (this._colResize) {
+        this._colResize = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        setTimeout(() => this.drawLossChart(), 50);
+      }
+    });
+  },
+
+  /**
+   * Insert drag handles between the side-by-side blocks of a page so panels
+   * can be resized horizontally — same interaction as the terminal/cameras
+   * docks. Idempotent: a section is only wired once.
+   */
+  initColumnResizers(pageEl: HTMLElement): void {
+    const sections = pageEl.querySelectorAll<HTMLElement>('.setup-section, .datacollection-grid');
+    sections.forEach(sec => {
+      if (sec.dataset.resizableInit) return;
+      const blocks = ([...sec.children] as HTMLElement[]).filter(
+        c => c.classList.contains('setup-block') || c.classList.contains('datacollection-block')
+      );
+      if (blocks.length < 2) return;
+
+      // Capture current widths, then switch to a flex split layout using those
+      // widths as flex-grow ratios so the layout looks unchanged until dragged.
+      const widths = blocks.map(b => b.getBoundingClientRect().width || 1);
+      sec.classList.add('has-col-resizers');
+      blocks.forEach((b, i) => {
+        b.style.flex = `${widths[i]} 1 0`;
+        b.style.minWidth = '0';
+      });
+
+      for (let i = 0; i < blocks.length - 1; i++) {
+        const rz = document.createElement('div');
+        rz.className = 'col-resizer';
+        rz.setAttribute('role', 'separator');
+        rz.setAttribute('aria-orientation', 'vertical');
+        rz.title = this.t('resizer.title');
+        blocks[i].after(rz);
+        rz.addEventListener('mousedown', (e: MouseEvent) => {
+          const left = rz.previousElementSibling as HTMLElement | null;
+          const right = rz.nextElementSibling as HTMLElement | null;
+          if (!left || !right) return;
+          this._colResize = {
+            left, right,
+            startX: e.clientX,
+            lw: left.getBoundingClientRect().width,
+            rw: right.getBoundingClientRect().width,
+          };
+          document.body.style.cursor = 'ew-resize';
+          document.body.style.userSelect = 'none';
+          e.preventDefault();
+        });
+      }
+
+      sec.dataset.resizableInit = '1';
+    });
+  },
+
   bindResizers(): void {
     const termHandle = document.getElementById('terminal-drag-handle');
     const termArea = document.getElementById('bottom-dock-container') || document.getElementById('terminal-area');
@@ -3084,6 +3661,7 @@ const App = {
       termHandle.addEventListener('mousedown', (e: MouseEvent) => {
         isResizing = true;
         termArea.style.transition = 'none'; // Disable transition completely during active dragging
+        document.body.classList.add('resizing');
         startY = e.clientY;
         startHeight = termArea.getBoundingClientRect().height;
         document.body.style.cursor = 'ns-resize';
@@ -3101,6 +3679,7 @@ const App = {
       document.addEventListener('mouseup', () => {
         if (isResizing) {
           isResizing = false;
+          document.body.classList.remove('resizing');
           document.body.style.cursor = 'default';
           setTimeout(() => this.drawLossChart(), 100);
         }
@@ -3135,6 +3714,7 @@ const App = {
       camerasHandle.addEventListener('mousedown', (e: MouseEvent) => {
         isResizing = true;
         dock.style.transition = 'none'; // Disable transition completely during active dragging
+        document.body.classList.add('resizing');
         startX = e.clientX;
         startWidth = dock.getBoundingClientRect().width;
         document.body.style.cursor = 'ew-resize';
@@ -3160,6 +3740,7 @@ const App = {
         if (isResizing) {
           isResizing = false;
           dock.style.transition = ''; // Restore transition
+          document.body.classList.remove('resizing');
           document.body.style.cursor = 'default';
         }
       });
@@ -3221,13 +3802,32 @@ const App = {
   },
 
   // ── Modal Helper API ────────────────────────────────────────────────
-  openModal(id: string): void { 
+  _modalReturnFocus: null as HTMLElement | null,
+  openModal(id: string): void {
     const el = document.getElementById(id);
-    if (el) el.classList.add('open'); 
+    if (!el) return;
+    this._modalReturnFocus = document.activeElement as HTMLElement | null;
+    el.classList.add('open');
+    // Move keyboard focus into the dialog for screen readers / keyboard users
+    const focusable = el.querySelector<HTMLElement>(
+      'input:not([type=hidden]):not([readonly]), select, textarea, button:not(.modal-close-btn)'
+    );
+    setTimeout(() => (focusable || el).focus(), 30);
   },
-  closeModal(id: string): void { 
+  closeModal(id: string): void {
     const el = document.getElementById(id);
-    if (el) el.classList.remove('open'); 
+    if (el) el.classList.remove('open');
+    if (this._modalReturnFocus) {
+      this._modalReturnFocus.focus();
+      this._modalReturnFocus = null;
+    }
+  },
+  closeTopModal(): boolean {
+    const open = document.querySelectorAll('.modal-overlay.open');
+    if (open.length === 0) return false;
+    const top = open[open.length - 1] as HTMLElement;
+    this.closeModal(top.id);
+    return true;
   },
   openSettings(): void { this.openModal('modal-settings'); },
 
@@ -3847,7 +4447,7 @@ const App = {
     if (!titleEl || !descEl || !optionsContainer || !nextBtn) return;
     
     titleEl.innerHTML = 'Ověřování <span class="highlight-yellow">systémových požadavků</span>...';
-    descEl.textContent = 'Kontrolujeme Git, Conda prostředí a složku LeRobot...';
+    descEl.textContent = this.t('wiz.checking');
     optionsContainer.innerHTML = '';
     nextBtn.disabled = true;
     nextBtn.style.opacity = '0.5';
@@ -3949,7 +4549,7 @@ const App = {
           this.wizardUpdatePageVisibility();
           this.log('SUCCESS', `Ověřena vybraná složka LeRobot: ${res.path}`);
         } else {
-          alert(verifyRes.error || 'Složka neobsahuje platnou instalaci LeRobot.');
+          alert(verifyRes.error || this.t('wiz.invalidLerobot'));
         }
       }
     } catch (err) {
@@ -3967,7 +4567,7 @@ const App = {
           if (pathInput) pathInput.value = res.path;
           this.log('SUCCESS', `Složka LeRobot vybrána a ověřena: ${res.path}`);
         } else {
-          alert(verifyRes.error || 'Složka neobsahuje platnou instalaci LeRobot.');
+          alert(verifyRes.error || this.t('wiz.invalidLerobot'));
         }
       }
     } catch (err) {
@@ -3979,7 +4579,7 @@ const App = {
     if (this.wizardActivePage === 1) {
       const nameInput = document.getElementById('wizard-project-name') as HTMLInputElement;
       if (!nameInput || !nameInput.value.trim()) {
-        alert('Prosím, zadejte název projektu.');
+        alert(this.t('wiz.enterProjectName'));
         return;
       }
       if (this.wizardMode === 'quick') {
@@ -4051,13 +4651,13 @@ const App = {
         const pathInput = document.getElementById('wizard-lerobot-path') as HTMLInputElement;
         const path = pathInput ? pathInput.value.trim() : '';
         if (!path) {
-          alert('Zadejte prosím cestu k LeRobot.');
+          alert(this.t('wiz.enterLerobotPath'));
           return;
         }
         try {
           const verifyRes = await this.api('POST', '/setup/verify-lerobot-path', { path });
           if (!verifyRes.ok) {
-            alert(verifyRes.error || 'Složka neobsahuje platnou instalaci LeRobot.');
+            alert(verifyRes.error || this.t('wiz.invalidLerobot'));
             return;
           }
         } catch (err) {
@@ -4170,7 +4770,7 @@ const App = {
   },
 
   openAutoDetectPortsModal(): void {
-    this.log('INFO', 'Otevírám průvodce detekcí portů.');
+    this.log('INFO', this.t('log.openingPortWizard'));
     this.autoDetectActiveArm = 'leader';
     this.autoDetectLeaderStep = 1;
     this.autoDetectFollowerStep = 1;
@@ -4182,7 +4782,7 @@ const App = {
     const btn = document.getElementById(`btn-detect-${role}-scan`) as HTMLButtonElement | null;
     if (btn) {
       btn.disabled = true;
-      btn.textContent = 'Skenování...';
+      btn.textContent = this.t('wiz.scanning');
     }
     try {
       this.log('INFO', `Spouštím skenování portů pro ${role} rameno...`);
@@ -4202,7 +4802,7 @@ const App = {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = 'Skenovat připojená zařízení';
+        btn.textContent = this.t('wiz.scanDevices');
       }
     }
   },
@@ -4211,7 +4811,7 @@ const App = {
     const btn = document.getElementById(`btn-detect-${role}-confirm`) as HTMLButtonElement | null;
     if (btn) {
       btn.disabled = true;
-      btn.textContent = 'Ověřování...';
+      btn.textContent = this.t('wiz.verifying');
     }
     try {
       this.log('INFO', `Ověřuji odpojení USB pro ${role} rameno...`);
@@ -4265,7 +4865,7 @@ const App = {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = 'Potvrdit odpojení kabelu';
+        btn.textContent = this.t('wiz.confirmUnplug');
       }
     }
   },
@@ -4412,7 +5012,7 @@ const App = {
       // Automatically trigger change event for the first camera
       this.wizardOnCameraPortChange();
     } catch (err) {
-      this.log('ERROR', 'Chyba při skenování kamer: ' + err);
+      this.log('ERROR', this.t('log.camScanErr') + err);
       portSelect.innerHTML = '<option value="">-- Error scanning cameras --</option>';
       this.wizardStopCameraPreview();
     }
@@ -4456,7 +5056,7 @@ const App = {
     
     const sourceVal = portSelect.value;
     if (!sourceVal) {
-      alert('Vyberte prosím platný port kamery.');
+      alert(this.t('alert.selectCamPort'));
       return;
     }
     
@@ -4472,7 +5072,7 @@ const App = {
     }
     
     if (this.wizardCameras.some(c => String(c.source) === String(sourceVal))) {
-      alert('Tento port kamery již byl přidán.');
+      alert(this.t('wiz.camAlreadyAdded'));
       return;
     }
     
@@ -4501,7 +5101,7 @@ const App = {
   wizardClearCameras(): void {
     this.wizardCameras = [];
     this.wizardRenderCamerasList();
-    this.log('INFO', 'Všechny kamery odebrány.');
+    this.log('INFO', this.t('log.allCamsRemoved'));
   },
 
   wizardRenderCamerasList(): void {

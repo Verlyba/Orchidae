@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 import cv2
-from PySide6.QtCore import Qt, QTimer, Slot, QProcess
+from PySide6.QtCore import Qt, QTimer, Slot, QProcess, QProcessEnvironment
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -283,7 +283,7 @@ class DatasetValidatorDialog(QDialog):
             f"ds.delete_episode({idx})"
         ]
 
-        env = QProcess.systemEnvironment()
+        env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("HF_HOME", "d:/Orchiday/data/huggingface")
         process.setProcessEnvironment(env)

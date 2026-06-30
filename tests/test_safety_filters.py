@@ -57,7 +57,7 @@ def test_slew_rate_limiter():
     """Slew rate limiter by měl ořezat prudké skoky."""
     srl = SlewRateLimiter(max_delta=0.05, num_axes=1)
 
-    result = srl.filter = srl.limit([0.0])
+    result = srl.limit([0.0])
     assert result == [0.0]
 
     # Skok o 0.5 — měl by být oříznut na 0.05

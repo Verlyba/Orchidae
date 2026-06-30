@@ -321,5 +321,7 @@ class OrchestrationPanel(QWidget):
         self._step_widgets.clear()
         while self._pipeline_layout.count():
             child = self._pipeline_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()

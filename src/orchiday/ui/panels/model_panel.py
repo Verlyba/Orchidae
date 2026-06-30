@@ -88,14 +88,13 @@ class ModelConfigCard(QWidget):
             self._model_input.setStyleSheet("font-size: 9px; padding: 3px; height: 16px;")
         form.addRow("Model:", self._model_input)
 
+        self._prompt_input: QPlainTextEdit | None = None
         if "system_prompt" in self._config:
             self._prompt_input = QPlainTextEdit(self._config.get("system_prompt", ""))
             self._prompt_input.setMaximumHeight(30 if self._compact else 80)
             if self._compact:
                 self._prompt_input.setStyleSheet("font-size: 9px; padding: 3px;")
             form.addRow("Prompt:" if self._compact else "System Prompt:", self._prompt_input)
-        else:
-            self._prompt_input = None
 
         layout.addLayout(form)
 
@@ -333,8 +332,10 @@ class ModelChatCard(QWidget):
         self._step_widgets.clear()
         while self._pipeline_layout.count():
             child = self._pipeline_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()
 
 
 class PolicyCard(QWidget):
@@ -431,8 +432,10 @@ class ModelPanel(QWidget):
 
         while target_layout.count():
             child = target_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()
 
         if self._pm.current_project is None:
             return

@@ -69,6 +69,7 @@ class ProjectManager:
         subdirs = [
             ROBOTS_DIR, "cameras", MODELS_DIR, POLICIES_DIR,
             SKILLS_DIR, ORCHESTRATION_DIR, LOGS_DIR,
+            "calibration", "calibration/robots", "calibration/teleoperators",
         ]
         for subdir in subdirs:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
@@ -139,6 +140,10 @@ class ProjectManager:
                             skills_details[p.name] = json.load(sf)
                     except Exception:
                         pass
+        # Ensure calibration subdirectories exist for backward compatibility
+        (project_dir / "calibration" / "robots").mkdir(parents=True, exist_ok=True)
+        (project_dir / "calibration" / "teleoperators").mkdir(parents=True, exist_ok=True)
+
         project_data["skills_details"] = skills_details
         project_data["path"] = str(project_dir)
         project_data["_path"] = str(project_dir)
@@ -220,6 +225,7 @@ class ProjectManager:
         """Add a robot to the current project. Works with ANY LeRobot robot type."""
         if self.current_project is None:
             raise RuntimeError("No project open")
+        assert self.current_path is not None
         self.current_project.setdefault("robots", []).append(robot_config)
         robot_dir = self.current_path / ROBOTS_DIR / robot_config["id"]
         robot_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +237,7 @@ class ProjectManager:
     def remove_robot(self, robot_id: str) -> None:
         if self.current_project is None:
             raise RuntimeError("No project open")
+        assert self.current_path is not None
         self.current_project["robots"] = [
             r for r in self.current_project.get("robots", []) if r.get("id") != robot_id
         ]
@@ -271,6 +278,7 @@ class ProjectManager:
     def add_skill(self, skill_slug: str, skill_data: dict[str, Any]) -> None:
         if self.current_project is None:
             raise RuntimeError("No project open")
+        assert self.current_path is not None
         skill_dir = self.current_path / SKILLS_DIR / skill_slug
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "dataset").mkdir(exist_ok=True)
@@ -313,6 +321,7 @@ class ProjectManager:
     def remove_skill(self, skill_slug: str) -> None:
         if self.current_project is None:
             raise RuntimeError("No project open")
+        assert self.current_path is not None
         self.current_project["skills"] = [
             s for s in self.current_project.get("skills", []) if s != skill_slug
         ]

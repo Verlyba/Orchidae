@@ -491,8 +491,10 @@ class SkillPanel(QWidget):
     def _refresh(self) -> None:
         while self._cards_layout.count():
             child = self._cards_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()
 
         if self._pm.current_project is None:
             return

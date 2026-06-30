@@ -70,7 +70,9 @@ class OrchidayController(QObject):
 
         # Managers & Bridges
         self.camera_manager = CameraManager()
-        self.lerobot_bridge = LeRobotBridge()
+        self.lerobot_bridge = LeRobotBridge(project_manager=project_manager)
+        from orchiday.core.calibration_manager import CalibrationManager
+        self.calibration_manager = CalibrationManager(self.pm)
 
         # AI clients & models (lazy-initialized when project opens)
         self.lm_client = None
@@ -104,10 +106,17 @@ class OrchidayController(QObject):
         event_bus.training_error.connect(self._on_training_error)
         event_bus.replay_requested.connect(self._on_replay_requested)
         event_bus.model_configured.connect(self._on_model_configured)
+        event_bus.robot_calibrated.connect(self._on_robot_calibrated)
 
     @Slot(dict)
     def _on_project_opened(self, project_data: dict) -> None:
         log.info("Controller: configuring AI models for project '%s'", project_data.get("name"))
+
+        # Deploy project calibration files to LeRobot cache
+        try:
+            self.calibration_manager.deploy_active_bindings()
+        except Exception as e:
+            log.warning("Failed to deploy project calibration bindings: %s", e)
 
         # Auto-detect and pair hardware devices on project load
         try:
@@ -426,7 +435,7 @@ class OrchidayController(QObject):
 
         robots = self.pm.current_project.get("robots", [])
         active_robot = robots[0] if robots else None
-        active_robot_type = active_robot.get("type", "so100") if active_robot else "so100"
+        active_robot_type = active_robot.get("type", "so100_follower") if active_robot else "so100_follower"
 
         skills = self.pm.current_project.get("skills", [])
         active_skill = skills[0] if skills else "pick_cube"
@@ -434,11 +443,12 @@ class OrchidayController(QObject):
         if cmd == "/stop":
             event_bus.log_message.emit("WARN", "Macro: Triggering Emergency STOP...")
             self.lerobot_bridge.kill_all()
-            
+
         elif cmd == "/vis":
-            dataset_repo_id = f"local/{active_robot_type}_{active_skill}"
-            cli_cmd = f"python lerobot/scripts/visualize_dataset.py --repo-id {dataset_repo_id}"
-            event_bus.log_message.emit("INFO", f"Macro: Launching visualization for {dataset_repo_id}...")
+            dataset_repo_id = f"local/{active_skill}"
+            python = self.lerobot_bridge._python
+            cli_cmd = f'"{python}" -m lerobot.scripts.lerobot_dataset_viz --repo-id {dataset_repo_id} --episode-index 0'
+            event_bus.log_message.emit("INFO", f"Macro: Launching Rerun visualization for {dataset_repo_id}...")
             self.lerobot_bridge.run_custom_command(cli_cmd)
             
         elif cmd == "/record":
@@ -467,15 +477,17 @@ class OrchidayController(QObject):
             return
 
         robot = robots[0]  # Use the active/first robot
-        robot_type = robot.get("type", "so100")
-        port = robot.get("port", "")
+        robot_type = robot.get("follower_type") or robot.get("type", "so100_follower")
+        port = robot.get("follower_port") or robot.get("port", "")
+        leader_port = robot.get("leader_port") or self.pm.current_project.get("leader_port", "")
+        leader_type = robot.get("leader_type") or robot_type.replace("_follower", "_leader")
         associated_cams = robot.get("cameras", [])
 
         # Vynucení lokálního názvu datasetu s ohledem na hierarchii dovedností
         parent_slug = ""
         skills_details = self.pm.current_project.get("skills_details", {})
-        if skill_slug in skills_details:
-            parent_slug = skills_details[skill_slug].get("parent_slug", "")
+        detail = skills_details.get(skill_slug, {})
+        parent_slug = detail.get("parent_slug", "") or ""
 
         if parent_slug:
             dataset_name = f"local/{parent_slug}/{skill_slug}"
@@ -485,18 +497,20 @@ class OrchidayController(QObject):
         cams_str = ", ".join(associated_cams) if associated_cams else "default"
         event_bus.log_message.emit("INFO", f"Recording dataset using cameras: {cams_str}")
 
-        # Set up camera parameters or arguments if necessary
-        extra_args = {}
-        if associated_cams:
-            extra_args["cameras"] = ",".join(associated_cams)
+        single_task = detail.get("description") or detail.get("name") or skill_slug.replace("_", " ")
 
         self.lerobot_bridge.start_recording(
             robot_type=robot_type,
             dataset_name=dataset_name,
             skill_slug=skill_slug,
             port=port,
+            robot_id=robot.get("follower_id") or robot.get("id") or "my_follower_arm",
+            teleop_type=leader_type,
+            teleop_port=leader_port,
+            teleop_id=robot.get("leader_id") or "my_leader_arm",
+            single_task=single_task,
+            camera_ids=associated_cams,
             resume=resume,
-            extra_args=extra_args,
         )
 
     @Slot(str)
@@ -525,7 +539,8 @@ class OrchidayController(QObject):
 
         # Read active training configuration
         train_cfg = self.pm.current_project.get("active_training_config", {})
-        epochs = train_cfg.get("epochs", 100)
+        steps = train_cfg.get("steps") or train_cfg.get("epochs", 100) * 100
+        batch_size = train_cfg.get("batch_size", 8)
         device = train_cfg.get("device", "cuda")
         use_wandb = train_cfg.get("use_wandb", False)
         extra_args_str = train_cfg.get("extra_args_str", "")
@@ -553,7 +568,8 @@ class OrchidayController(QObject):
             dataset_repo_id=dataset_repo_id,
             skill_slug=skill_slug,
             output_dir=output_dir,
-            num_epochs=epochs,
+            training_steps=steps,
+            batch_size=batch_size,
             device=device,
             use_wandb=use_wandb,
             extra_args_str=extra_args_str,
@@ -598,6 +614,34 @@ class OrchidayController(QObject):
         log.warning("Controller: training error for %s: %s", skill_slug, error_msg)
         if skill_slug == self._current_training_skill:
             self._process_next_in_training_queue()
+
+    @Slot(str)
+    def _on_robot_calibrated(self, arm_id: str) -> None:
+        """
+        Triggered when a leader or follower calibration finishes.
+        We scan the project's configured robots to find who matches this arm_id,
+        and automatically back up their newly written calibration to the project's local folder.
+        """
+        log.info("Controller: robot/teleop arm '%s' calibrated", arm_id)
+        if not self.pm.current_project:
+            return
+
+        for r in self.pm.current_project.get("robots", []):
+            setup_id = r.get("id")
+            if r.get("leader_id") == arm_id:
+                # This was a leader calibration
+                log.info("Auto-saving leader calibration for setup %s", setup_id)
+                new_file = self.calibration_manager.backup_active_calibration(setup_id, "teleoperators")
+                if new_file:
+                    event_bus.log_message.emit("SUCCESS", f"Auto-backed up leader calibration: {new_file}")
+                return
+            elif r.get("follower_id") == arm_id:
+                # This was a follower calibration
+                log.info("Auto-saving follower calibration for setup %s", setup_id)
+                new_file = self.calibration_manager.backup_active_calibration(setup_id, "robots")
+                if new_file:
+                    event_bus.log_message.emit("SUCCESS", f"Auto-backed up follower calibration: {new_file}")
+                return
 
     def _save_model_metadata(self, skill_slug: str, save_project: bool = True) -> None:
         if not self.pm.current_project:
@@ -646,6 +690,7 @@ class OrchidayController(QObject):
                 "param_count": param_count
             }
             try:
+                assert self.pm.current_path is not None
                 skill_dir = self.pm.current_path / "skills" / skill_slug
                 skill_file = skill_dir / "skill.json"
                 if skill_file.exists():
@@ -702,8 +747,8 @@ class OrchidayController(QObject):
             raise RuntimeError("No robot configured in project. Please add a robot first.")
 
         robot = robots[0]  # Use the first configured robot in v1
-        robot_type = robot.get("type", "soarm101")
-        port = robot.get("port", "")
+        robot_type = robot.get("follower_type") or robot.get("type", "so100_follower")
+        port = robot.get("follower_port") or robot.get("port", "")
 
         parent_slug = ""
         skills_details = self.pm.current_project.get("skills_details", {})
@@ -717,6 +762,17 @@ class OrchidayController(QObject):
         base_output = Path(custom_dir) if custom_dir else self._data_dir
         policy_path = str(base_output / "outputs" / "training" / f"{policy_slug}_{policy_type}")
 
+        # 1. Goal-conditioned mode: if a persistent daemon is already running,
+        #    just switch its active task over stdin instead of spawning a new process.
+        for key in self.lerobot_bridge.active_processes:
+            if key.startswith("infer_"):
+                running_slug = key[len("infer_"):]
+                if self.lerobot_bridge.send_inference_command(running_slug, f"SET_TASK:{task_name}"):
+                    event_bus.log_message.emit("INFO", f"Re-using running inference daemon — task switched to '{task_name}'.")
+                    return
+                # Stale daemon for another skill: stop it to free the serial port
+                self.lerobot_bridge.stop_inference(running_slug)
+
         log.info(
             "Controller: starting LeRobot inference for skill '%s' using %s robot",
             task_name,
@@ -724,11 +780,13 @@ class OrchidayController(QObject):
         )
         event_bus.log_message.emit("INFO", f"Starting robot inference: {task_name}...")
 
+        # 2. Cold start: spawn the daemon and auto-dispatch the task once it is ready
         self.lerobot_bridge.start_inference(
             robot_type=robot_type,
             policy_path=policy_path,
             skill_slug=task_name,
             port=port,
+            auto_task=task_name,
         )
 
     def _capture_scene_snapshot(self) -> str:

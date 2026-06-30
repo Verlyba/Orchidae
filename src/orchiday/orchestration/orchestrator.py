@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import inspect
 import logging
 from typing import Any, Callable, Awaitable
 
@@ -43,6 +44,7 @@ class TaskLatch:
         self._timeout = timeout_s
         self._locked = False
         self._completed = asyncio.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -178,7 +180,7 @@ class Orchestrator:
                 if self._execute_callback:
                     # POZOR: Callback spouští motor a okamžitě se vrací!
                     try:
-                        if asyncio.iscoroutinefunction(self._execute_callback):
+                        if inspect.iscoroutinefunction(self._execute_callback):
                             await self._execute_callback(task_name)
                         else:
                             self._execute_callback(task_name)
@@ -198,11 +200,13 @@ class Orchestrator:
                 if self._capture_callback and self._inspector:
                     try:
                         event_bus.log_message.emit("INFO", "Verifying task state with VLM...")
-                        if asyncio.iscoroutinefunction(self._capture_callback):
-                            image_b64 = await self._capture_callback()
+                        captured = None
+                        if inspect.iscoroutinefunction(self._capture_callback):
+                            captured = await self._capture_callback()
                         else:
-                            image_b64 = self._capture_callback()
+                            captured = self._capture_callback()
 
+                        image_b64 = str(captured) if captured is not None else ""
                         if image_b64:
                             event_bus.orchestration_vlm_snap.emit(image_b64)
                             success, error_tag = await self._inspector.verify_task_completion(task_name, image_b64)

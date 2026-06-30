@@ -30,6 +30,7 @@ class EventBus(QObject):
     robot_error = Signal(str, str)       # robot_id, error_message
     robot_calibrating = Signal(str)      # robot_id
     robot_calibrated = Signal(str)       # robot_id
+    calibration_list_changed = Signal()  # Emitted when project calibration list changes
 
     # ── Cameras ──────────────────────────────────────────────────────────
     camera_added = Signal(dict)          # {id, source, role, ...}
@@ -78,6 +79,10 @@ class EventBus(QObject):
     emergency_stop = Signal(str)         # robot_id
     watchdog_timeout = Signal(str)       # robot_id
     safety_telemetry = Signal(list, list)  # raw_angles, safe_angles
+
+    # ── Subprocess lifecycle (drives UI button states) ───────────────────
+    process_started = Signal(str, str)   # process_key, kind (teleop/record/train/infer/...)
+    process_finished = Signal(str, str)  # process_key, kind
 
     # ── Console / Logs ───────────────────────────────────────────────────
     log_message = Signal(str, str)       # level ("INFO"/"WARN"/"ERROR"), message

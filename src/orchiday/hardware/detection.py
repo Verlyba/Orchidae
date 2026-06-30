@@ -145,25 +145,27 @@ def detect_cameras() -> list[dict]:
         except Exception as e:
             log.warning("Linux sysfs camera scanning failed: %s. Falling back to OpenCV.", e)
 
-    # Fallback to standard OpenCV scanning if sysfs returned nothing (or on non-Linux)
+    # Fallback to standard OpenCV scanning if sysfs returned nothing (or on non-Linux).
+    # Uses the platform's native backend (DSHOW/AVFoundation/V4L2) — probing with
+    # OpenCV's default backend takes seconds per index on Windows.
     if not cameras:
+        from orchiday.hardware.camera_utils import open_capture, camera_device_label
         log.info("Sysfs scan empty, scanning OpenCV indexes 0-5...")
         for i in range(6):
             try:
-                cap = cv2.VideoCapture(i)
+                cap = open_capture(i)
                 if cap.isOpened():
                     ret, _ = cap.read()
                     if ret:
-                        persistent_id = f"camera-index-{i}"
-                        friendly_name = f"/dev/video{i} — OpenCV Webcam (index {i})"
+                        device = camera_device_label(i)
                         cameras.append({
                             "index": i,
-                            "device": f"/dev/video{i}",
+                            "device": device,
                             "model_name": "OpenCV Webcam",
                             "serial_number": None,
                             "location": None,
-                            "persistent_id": persistent_id,
-                            "friendly_name": friendly_name
+                            "persistent_id": f"camera-index-{i}",
+                            "friendly_name": f"{device} — OpenCV Webcam (index {i})"
                         })
                     cap.release()
             except Exception:

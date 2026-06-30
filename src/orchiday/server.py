@@ -74,10 +74,60 @@ def _get_data_dir() -> Path:
 
 
 DATA_DIR = _get_data_dir()
-LEROBOT_DIR = Path(os.environ.get("LEROBOT_DIR", "/home/verlyba/robotics/lerobot"))
+
+
+def _default_lerobot_dir() -> Path:
+    """Resolve the LeRobot checkout directory (env var > global config > common paths)."""
+    env_dir = os.environ.get("LEROBOT_DIR", "")
+    if env_dir:
+        return Path(env_dir)
+    try:
+        from orchiday.core.config import AppConfig
+        cfg_dir = AppConfig().get("lerobot_dir", "")
+        if cfg_dir:
+            return Path(cfg_dir)
+    except Exception:
+        pass
+    for d in (Path.home() / "robotics" / "lerobot", Path.home() / "lerobot"):
+        if d.exists():
+            return d
+    return Path.home() / "lerobot"
+
+
+LEROBOT_DIR = _default_lerobot_dir()
+
+# ── Qt event pump ────────────────────────────────────────────────────────
+# QProcess/QObject events MUST be processed on the thread that owns them —
+# the main thread, which uvicorn's asyncio loop occupies. Pumping Qt events
+# from inside that very loop is the only way subprocess output streaming,
+# finished-handlers and cross-thread signal delivery actually work.
+
+async def _qt_event_pump():
+    while True:
+        try:
+            _qt_app.processEvents()
+        except Exception:
+            pass
+        await asyncio.sleep(0.03)
+
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    loop = asyncio.get_running_loop()
+    # Give the WebSocket bridge the REAL running loop so broadcasts emitted
+    # from Qt callbacks and background threads are marshalled correctly.
+    web_bridge.set_loop(loop)
+    pump_task = asyncio.create_task(_qt_event_pump())
+    log.info("Qt event pump attached to the uvicorn asyncio loop.")
+    yield
+    pump_task.cancel()
+
 
 # ── FastAPI App ──────────────────────────────────────────────────────────
-app = FastAPI(title="Orchiday API", version="0.1.0")
+app = FastAPI(title="Orchiday API", version="0.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -155,8 +205,11 @@ class TrainingConfig(BaseModel):
     skill_slug: str | None = None
     skills: list[str] | None = None
     policy_type: str = "diffusion"
+    # Number of optimizer steps for lerobot-train (--steps). "epochs" kept as a
+    # backward-compatible alias from older frontends (multiplied by 100).
+    steps: int | None = None
     epochs: int = 100
-    batch_size: int = 32
+    batch_size: int = 8
     device: str = "cuda"
     use_wandb: bool = False
     extra_args_str: str = ""
@@ -207,6 +260,7 @@ class SettingsConfig(BaseModel):
     follower_port: str = ""
     leader_port: str = ""
     sequential_loop_interval: float | None = None
+    language: str | None = None
 
 
 
@@ -403,7 +457,7 @@ async def get_camera_feed(camera_id: str):
 # ── Hardware Detection & Pairing ─────────────────────────────────────────
 
 @app.get("/api/hardware/scan")
-async def scan_hardware():
+def scan_hardware():
     from orchiday.hardware.detection import detect_serial_ports, detect_cameras
     return {
         "ports": detect_serial_ports(),
@@ -412,7 +466,7 @@ async def scan_hardware():
 
 
 @app.post("/api/hardware/pair")
-async def pair_hardware():
+def pair_hardware():
     if not pm.current_project:
         return JSONResponse({"error": "No project open"}, status_code=404)
 
@@ -491,7 +545,10 @@ async def create_skill(body: SkillCreate):
 async def update_skill_endpoint(skill_slug: str, body: SkillUpdate):
     try:
         pm.update_skill(skill_slug, body.name, body.description, body.parent_slug)
-        skills_details = pm.current_project.get("skills_details", {})
+        project = pm.current_project
+        if project is None:
+            return JSONResponse({"ok": False, "error": "No project open"}, status_code=400)
+        skills_details = project.get("skills_details", {})
         return {"ok": True, "skill": skills_details.get(skill_slug)}
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
@@ -533,7 +590,7 @@ def _get_skill_slug_from_dataset(dataset_name: str) -> str:
 
 
 @app.get("/api/skills/{skill_slug:path}/dataset_info")
-async def get_skill_dataset_info(skill_slug: str):
+def get_skill_dataset_info(skill_slug: str):
     from pathlib import Path
     import json
     
@@ -621,7 +678,7 @@ async def get_skill_dataset_info(skill_slug: str):
 
 
 @app.get("/api/project/export_datasets")
-async def export_project_datasets(background_tasks: BackgroundTasks):
+def export_project_datasets(background_tasks: BackgroundTasks):
     from pathlib import Path
     import os
     import zipfile
@@ -738,44 +795,46 @@ async def get_skill_policy_status(skill_slug: str):
 
 
 @app.post("/api/skills/{skill_slug:path}/delete_episode")
-async def delete_skill_episode(skill_slug: str, body: dict):
+def delete_skill_episode(skill_slug: str, body: dict):
     episode_idx = body.get("episode_index", -1)
     if episode_idx < 0:
         return JSONResponse({"ok": False, "error": "Invalid episode index"}, status_code=400)
     
     import subprocess
-    import sys
-    
+
     dataset_id = f"local/{skill_slug}"
-    py_code = (
-        "try:\n"
-        "    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset\n"
-        f"    ds = LeRobotDataset('{dataset_id}')\n"
-        f"    ds.delete_episode({episode_idx})\n"
-        "    print('SUCCESS')\n"
-        "except Exception as e:\n"
-        "    print('ERROR:', e)\n"
-    )
-    
+    ctrl = _get_controller()
+    lerobot_python = ctrl.lerobot_bridge._python
+
     env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     if pm.current_project:
         custom_dir = pm.current_project.get("dataset_storage_dir")
         if custom_dir:
             env["HF_HOME"] = str(custom_dir)
 
+    # LeRobot >= 0.5 ships `lerobot-edit-dataset` for in-place episode deletion
+    cmd = [
+        lerobot_python, "-m", "lerobot.scripts.lerobot_edit_dataset",
+        f"--repo_id={dataset_id}",
+        "--operation.type=delete_episodes",
+        f"--operation.episode_indices=[{episode_idx}]",
+        "--push_to_hub=false",
+    ]
+
     try:
         res = subprocess.run(
-            [sys.executable, "-c", py_code],
+            cmd,
             capture_output=True,
             text=True,
             env=env,
-            timeout=15
+            timeout=120
         )
-        if "SUCCESS" in res.stdout:
+        if res.returncode == 0:
+            event_bus.log_message.emit("SUCCESS", f"Episode {episode_idx} deleted from {dataset_id}")
             return {"ok": True}
-        else:
-            err = res.stdout + "\n" + res.stderr
-            return JSONResponse({"ok": False, "error": f"Failed to delete: {err}"}, status_code=400)
+        err = (res.stdout or "") + "\n" + (res.stderr or "")
+        return JSONResponse({"ok": False, "error": f"Failed to delete: {err.strip()[-800:]}"}, status_code=400)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
@@ -821,11 +880,14 @@ async def start_replay(body: ReplayConfig):
     skill_slug = _get_skill_slug_from_dataset(body.dataset_name)
     pm.increment_skill_execution_count(skill_slug)
     
+    robots = pm.current_project.get("robots", []) if pm.current_project else []
+    robot = robots[0] if robots else {}
     ctrl.lerobot_bridge.start_replay(
         robot_type=body.robot_type,
         dataset_name=body.dataset_name,
         episode_index=body.episode_index,
-        port=body.port,
+        port=body.port or robot.get("follower_port") or robot.get("port", ""),
+        robot_id=robot.get("follower_id") or robot.get("id") or "my_follower_arm",
     )
     return {"ok": True}
 
@@ -877,56 +939,81 @@ class RecordingConfig(BaseModel):
     num_episodes: int = 50
     fps: int = 30
     port: str = ""
+    single_task: str = ""
+    episode_time_s: float = 60
+    reset_time_s: float = 10
+    push_to_hub: bool = False
+    display_data: bool = False
     resume: bool = False
     extra_args_str: str = ""
 
 @app.post("/api/recording/start")
 async def start_recording(body: RecordingConfig):
     ctrl = _get_controller()
-    
+
     # ── Strict HW Validations ──
     project = pm.current_project
     if not project:
         return {"ok": False, "error": "No active project"}
-        
+
     robots = project.get("robots", [])
     if not robots:
         return {"ok": False, "error": "No robots configured"}
-        
+
     robot = robots[0]
-    port = robot.get("port", "")
-    if not port:
+    follower_port = body.port or robot.get("follower_port") or robot.get("port", "")
+    if not follower_port:
         return {"ok": False, "error": "Follower robot port is missing"}
-        
+
+    leader_port = robot.get("leader_port") or project.get("leader_port", "")
+    if not leader_port:
+        return {"ok": False, "error": "Leader (teleop) port is missing — recording needs a teleoperator arm."}
+
     cameras = robot.get("cameras", [])
     if not cameras:
         return {"ok": False, "error": "No cameras assigned. You must assign at least one camera."}
-        
-    extra_args = {"cameras": ",".join(cameras)}
-    
+
+    robot_type = body.robot_type or robot.get("follower_type") or robot.get("type", "so100_follower")
+    leader_type = robot.get("leader_type") or robot_type.replace("_follower", "_leader")
+
     # Enforce strict dataset path naming based on parent skill slug
     parent_slug = ""
     skills_details = project.get("skills_details", {})
     if body.skill_slug in skills_details:
         parent_slug = skills_details[body.skill_slug].get("parent_slug", "")
-        
+
     if parent_slug:
         enforced_dataset_name = f"local/{parent_slug}/{body.skill_slug}"
     else:
         enforced_dataset_name = f"local/{body.skill_slug}"
-    
+
+    # Default the mandatory task annotation to the skill description/name
+    single_task = body.single_task
+    if not single_task:
+        detail = skills_details.get(body.skill_slug, {})
+        single_task = detail.get("description") or detail.get("name") or body.skill_slug.replace("_", " ")
+
     # Increment execution count
     pm.increment_skill_execution_count(body.skill_slug)
-    
+
     ctrl.lerobot_bridge.start_recording(
-        robot_type=body.robot_type,
+        robot_type=robot_type,
         dataset_name=enforced_dataset_name,
         skill_slug=body.skill_slug,
         num_episodes=body.num_episodes,
         fps=body.fps,
-        port=body.port,
+        port=follower_port,
+        robot_id=robot.get("follower_id") or robot.get("id") or "my_follower_arm",
+        teleop_type=leader_type,
+        teleop_port=leader_port,
+        teleop_id=robot.get("leader_id") or "my_leader_arm",
+        single_task=single_task,
+        episode_time_s=body.episode_time_s,
+        reset_time_s=body.reset_time_s,
+        push_to_hub=body.push_to_hub,
+        display_data=body.display_data,
+        camera_ids=cameras,
         resume=body.resume,
-        extra_args=extra_args,
         extra_args_str=body.extra_args_str
     )
     return {"ok": True}
@@ -1102,10 +1189,14 @@ async def tag_episode(body: RecordingTagConfig):
 
 @app.post("/api/training/start")
 async def start_training(body: TrainingConfig):
+    # Resolve optimizer steps: prefer explicit steps, fall back to legacy epochs*100
+    steps = body.steps if body.steps and body.steps > 0 else body.epochs * 100
     if pm.current_project:
         pm.current_project["policy_architecture"] = body.policy_type
         pm.current_project["active_training_config"] = {
+            "steps": steps,
             "epochs": body.epochs,
+            "batch_size": body.batch_size,
             "device": body.device,
             "use_wandb": body.use_wandb,
             "extra_args_str": body.extra_args_str
@@ -1156,6 +1247,9 @@ async def save_settings(body: SettingsConfig):
         cfg.set("lerobot_dir", body.lerobot_dir.strip())
     if body.python_path:
         cfg.set("python_path", body.python_path.strip())
+    # UI language is a global preference (applies regardless of open project)
+    if body.language in ("cs", "en"):
+        cfg.set("language", body.language)
 
     if not pm.current_project:
         return {"ok": True}
@@ -1179,12 +1273,13 @@ async def save_settings(body: SettingsConfig):
 
 
 @app.get("/api/settings/sysinfo")
-async def get_sysinfo():
+def get_sysinfo():
     import subprocess
     from orchiday.core.config import AppConfig
     cfg = AppConfig()
-    python_path = cfg.get("python_path") or "/home/verlyba/miniconda3/envs/lerobot/bin/python"
-    lerobot_dir = cfg.get("lerobot_dir") or "/home/verlyba/robotics/lerobot"
+    ctrl = _get_controller()
+    python_path = cfg.get("python_path") or ctrl.lerobot_bridge._python
+    lerobot_dir = cfg.get("lerobot_dir") or str(LEROBOT_DIR)
 
     # 1. Python version
     py_version = "Neznámá"
@@ -1253,7 +1348,7 @@ async def configure_model(role: str, body: ModelConfig):
 
 
 @app.post("/api/utils/browse_directory")
-async def browse_directory():
+def browse_directory():
     import platform
     import subprocess
     import sys
@@ -1295,24 +1390,34 @@ async def browse_directory():
                 if proc.returncode == 0:
                     directory = proc.stdout.strip()
         elif "windows" in system or "nt" in system:
-            ps_cmd = (
-                "Add-Type -AssemblyName System.Windows.Forms; "
-                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                "$f.Description = 'Vyberte adresář LeRobot'; "
-                "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
-            )
-            proc = subprocess.run(
-                ["powershell", "-Command", ps_cmd],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if proc.returncode == 0:
-                directory = proc.stdout.strip()
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                directory = filedialog.askdirectory(title="Vyberte adresář LeRobot")
+                root.destroy()
+            except Exception as tk_err:
+                log.warning("Tkinter folder dialog failed, trying powershell fallback: %s", tk_err)
+                ps_cmd = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$f.Description = 'Vyberte adresář LeRobot'; "
+                    "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
+                )
+                proc = subprocess.run(
+                    ["powershell", "-Command", ps_cmd],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                if proc.returncode == 0:
+                    directory = proc.stdout.strip()
     except Exception as e:
-        log.warning("Nativní dialog pro výběr složky selhal, zkouším tkinter fallback: %s", e)
+        log.warning("Nativní dialog pro výběr složky selhal: %s", e)
 
-    # Fallback to Tkinter
+    # Fallback to Tkinter (for other platform options if native OS dialog failed)
     if not directory:
         try:
             import tkinter as tk
@@ -1323,8 +1428,7 @@ async def browse_directory():
             directory = filedialog.askdirectory(title="Vyberte adresář LeRobot")
             root.destroy()
         except Exception as e:
-            log.error("Chyba při otevírání tkinter dialogu: %s", e)
-            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+            log.debug("General Tkinter fallback skipped or failed: %s", e)
 
     if not directory:
         return {"ok": True, "path": ""}
@@ -1350,6 +1454,142 @@ async def terminal_command(body: dict):
     cmd = body.get("command", "")
     event_bus.terminal_command_requested.emit(cmd)
     return {"ok": True}
+
+
+# ── LeRobot CLI tools, dataset editing & simulation evaluation ──────────
+
+class ToolRunConfig(BaseModel):
+    tool: str
+    args: list[str] = []
+
+
+@app.post("/api/tools/run")
+async def run_lerobot_tool(body: ToolRunConfig):
+    """Run a whitelisted LeRobot CLI utility in the persistent terminal."""
+    ctrl = _get_controller()
+    ok = ctrl.lerobot_bridge.run_tool(body.tool, body.args)
+    if not ok:
+        return JSONResponse({"ok": False, "error": f"Unknown or failed tool: {body.tool}"}, status_code=400)
+    return {"ok": True}
+
+
+class HFLoginConfig(BaseModel):
+    token: str
+
+
+@app.post("/api/tools/hf-login")
+async def hf_login(body: HFLoginConfig):
+    """Log in to the Hugging Face Hub without echoing the token to the console."""
+    import subprocess
+    ctrl = _get_controller()
+    token = body.token.strip()
+    if not token:
+        return JSONResponse({"ok": False, "error": "Token nesmí být prázdný."}, status_code=400)
+    try:
+        res = subprocess.run(
+            [ctrl.lerobot_bridge._python, "-c",
+             "import sys; from huggingface_hub import login; login(token=sys.stdin.read().strip(), add_to_git_credential=False); print('LOGIN_OK')"],
+            input=token, capture_output=True, text=True, timeout=60,
+        )
+        if res.returncode == 0 and "LOGIN_OK" in res.stdout:
+            event_bus.log_message.emit("SUCCESS", "Přihlášení k Hugging Face Hub proběhlo úspěšně.")
+            return {"ok": True}
+        err = (res.stderr or res.stdout).strip()[-500:]
+        return JSONResponse({"ok": False, "error": err or "Login failed"}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+class DatasetEditRequest(BaseModel):
+    operation: str
+    repo_id: str = ""
+    new_repo_id: str = ""
+    params: dict = {}
+
+
+@app.post("/api/datasets/edit")
+async def dataset_edit(body: DatasetEditRequest):
+    """Run a lerobot-edit-dataset operation (delete episodes, split, merge, ...)."""
+    ctrl = _get_controller()
+    ok = ctrl.lerobot_bridge.run_dataset_edit(
+        operation=body.operation,
+        repo_id=body.repo_id,
+        new_repo_id=body.new_repo_id,
+        params=body.params,
+    )
+    if not ok:
+        return JSONResponse({"ok": False, "error": "Operation rejected — check the console log."}, status_code=400)
+    return {"ok": True}
+
+
+class DatasetPushRequest(BaseModel):
+    repo_id: str       # local dataset id, e.g. local/pick_cube
+    hub_id: str        # target hub id, e.g. username/pick_cube
+    private: bool = True
+
+
+@app.post("/api/datasets/push")
+async def dataset_push(body: DatasetPushRequest):
+    """Push a local dataset to the Hugging Face Hub (runs in the terminal console)."""
+    ctrl = _get_controller()
+    if "/" not in body.hub_id:
+        return JSONResponse({"ok": False, "error": "Hub ID musí mít tvar 'uzivatel/nazev'."}, status_code=400)
+    py = (
+        "from lerobot.datasets.lerobot_dataset import LeRobotDataset; "
+        f"ds = LeRobotDataset('{body.repo_id}'); "
+        f"ds.push_to_hub(repo_id='{body.hub_id}', private={body.private}); "
+        "print('PUSH_DONE')"
+    )
+    cmd = f'"{ctrl.lerobot_bridge._python}" -c "{py}"'
+    ctrl.lerobot_bridge.run_custom_command(cmd)
+    return {"ok": True}
+
+
+class SimEvalRequest(BaseModel):
+    policy_path: str
+    env_type: str = "pusht"
+    n_episodes: int = 10
+    batch_size: int = 10
+    device: str = "cuda"
+
+
+@app.post("/api/eval/start")
+async def start_sim_eval(body: SimEvalRequest):
+    """Evaluate a trained policy in a simulated environment via lerobot-eval."""
+    ctrl = _get_controller()
+    ok = ctrl.lerobot_bridge.start_eval(
+        policy_path=body.policy_path,
+        env_type=body.env_type,
+        n_episodes=body.n_episodes,
+        batch_size=body.batch_size,
+        device=body.device,
+    )
+    if not ok:
+        return JSONResponse({"ok": False, "error": "Evaluation rejected — check the console log."}, status_code=400)
+    return {"ok": True}
+
+
+@app.get("/api/datasets/list")
+async def list_datasets():
+    """List local datasets derived from the project's skill tree, with on-disk status."""
+    if not pm.current_project:
+        return {"datasets": []}
+    skills = pm.current_project.get("skills", [])
+    details = pm.current_project.get("skills_details", {})
+    ctrl = _get_controller()
+    out = []
+    for slug in skills:
+        detail = details.get(slug, {})
+        parent = detail.get("parent_slug") or ""
+        repo_id = f"local/{parent}/{slug}" if parent else f"local/{slug}"
+        out.append({
+            "skill": slug,
+            "name": detail.get("name", slug),
+            "parent": parent,
+            "repo_id": repo_id,
+            "exists": ctrl.lerobot_bridge._verify_dataset_exists(repo_id),
+        })
+    return {"datasets": out}
 
 
 class SetupCameraConfig(BaseModel):
@@ -1392,27 +1632,32 @@ async def setup_finish(body: SetupFinishConfig):
         pm.open_project(pm._config.projects_dir / slug)
         
         # Configure LeRobot dir if provided
-        lerobot_dir = body.lerobot_path.strip() if body.lerobot_path else "/home/verlyba/robotics/lerobot"
+        lerobot_dir = body.lerobot_path.strip() if body.lerobot_path else str(LEROBOT_DIR)
         if lerobot_dir and pm.current_project is not None:
             pm.current_project["lerobot_dir"] = lerobot_dir
             # also save in settings
             pm.current_project["dataset_storage_dir"] = str(Path(lerobot_dir).parent / "data")
         
-        # Add robot config
-        r_type = "so100"
-        if "so-arm" in body.robot_type.lower() or "soarm" in body.robot_type.lower():
-            r_type = "soarm101"
-        elif "koch" in body.robot_type.lower():
-            r_type = "koch"
-        elif "aloha" in body.robot_type.lower():
-            r_type = "aloha"
-        elif "moss" in body.robot_type.lower():
-            r_type = "moss"
-        elif "stretch" in body.robot_type.lower():
-            r_type = "stretch"
-        elif "lekiwi" in body.robot_type.lower():
+        # Add robot config — map free-form wizard labels to valid LeRobot >= 0.4 types
+        raw = body.robot_type.lower()
+        if raw in {r["type"] for r in LEROBOT_SUPPORTED_ROBOTS}:
+            r_type = raw
+        elif "101" in raw:
+            r_type = "so101_follower"
+        elif "koch" in raw:
+            r_type = "koch_follower"
+        elif "openarm" in raw:
+            r_type = "openarm_follower"
+        elif "lekiwi" in raw:
             r_type = "lekiwi"
-        
+        elif "reachy" in raw:
+            r_type = "reachy2"
+        else:
+            r_type = "so100_follower"
+
+        base_family = r_type.replace("_follower", "")
+        leader_type = f"{base_family}_leader" if r_type.endswith("_follower") else "so100_leader"
+
         robot_cfg = {
             "id": "my_robot",
             "type": r_type,
@@ -1421,15 +1666,16 @@ async def setup_finish(body: SetupFinishConfig):
             "label": f"LeRobot Setup: F1/L1",
             "follower_type": r_type,
             "follower_port": body.follower_port or "",
-            "follower_id": "F1",
+            "follower_id": "my_follower_arm",
             "follower_device_id": body.follower_device_id or "",
-            "leader_type": f"{r_type}_leader" if r_type in ["so100", "soarm101", "koch"] else "so100_leader",
+            "leader_type": leader_type,
             "leader_port": body.leader_port or "",
-            "leader_id": "L1",
+            "leader_id": "my_leader_arm",
             "leader_device_id": body.leader_device_id or "",
             "fps": 30,
             "baudrate": 1000000,
-            "cameras": [],
+            # Assign all wizard-configured cameras to this robot so recording works out of the box
+            "cameras": [cam.id for cam in body.cameras],
             "safety": {
                 "slew_rate_limit": 0.05,
                 "lowpass_alpha": 0.25,
@@ -1638,7 +1884,7 @@ class InstallConfig(BaseModel):
     parent_dir: str
 
 @app.get("/api/setup/system-status")
-async def get_system_status():
+def get_system_status():
     import os
     import shutil
     import platform
@@ -1680,8 +1926,8 @@ async def get_system_status():
     }
 
 @app.get("/api/setup/check-lerobot")
-async def check_lerobot():
-    status = await get_system_status()
+def check_lerobot():
+    status = get_system_status()
     if status["lerobot_found"]:
         return {"ok": True, "found": True, "path": status["lerobot_path"]}
     return {"ok": True, "found": False}
@@ -1736,19 +1982,11 @@ async def setup_camera_preview_feed(source: str):
                 await asyncio.sleep(0.04)
             return
 
-        # If not active, open it
+        # If not active, open it with the platform's native backend
         log.info("Setup preview: opening camera %s for live feed", src)
-        is_linux = platform.system().lower() == "linux"
-        cap = None
-        if is_linux and isinstance(src, int):
-            # Try V4L2 backend on Linux first as it is much more robust
-            cap = cv2.VideoCapture(src + cv2.CAP_V4L2)
-            if not cap.isOpened():
-                cap.release()
-                cap = None
-        if cap is None:
-            cap = cv2.VideoCapture(src)
-            
+        from orchiday.hardware.camera_utils import open_capture
+        cap = open_capture(src)
+
         if not cap.isOpened():
             log.warning("Setup preview: failed to open camera %s", src)
             yield b""
@@ -1773,7 +2011,7 @@ async def setup_camera_preview_feed(source: str):
 
 
 @app.post("/api/setup/install-lerobot")
-async def setup_install_lerobot(body: InstallConfig):
+def setup_install_lerobot(body: InstallConfig):
     import os
     import subprocess
     import shutil
@@ -1870,10 +2108,11 @@ async def setup_install_lerobot(body: InstallConfig):
     # 4. Check if lerobot conda env exists
     env_exists = check_conda_env_exists(conda_path, "lerobot")
     if not env_exists:
-        log_lines.append("Conda environment 'lerobot' does not exist. Creating it (Python 3.10)...")
+        # LeRobot >= 0.5 requires Python 3.12+
+        log_lines.append("Conda environment 'lerobot' does not exist. Creating it (Python 3.12)...")
         try:
             res = subprocess.run(
-                [conda_path, "create", "-n", "lerobot", "python=3.10", "-y"],
+                [conda_path, "create", "-n", "lerobot", "python=3.12", "-y"],
                 capture_output=True,
                 text=True,
                 timeout=600
@@ -1934,6 +2173,15 @@ async def setup_install_lerobot(body: InstallConfig):
     return {"ok": True, "logs": log_lines, "path": path}
 
 
+# ── Process state (UI button gating) ────────────────────────────────────
+
+@app.get("/api/processes")
+async def list_processes():
+    """Return currently running LeRobot subprocesses: {key: kind}."""
+    ctrl = _get_controller()
+    return {"processes": ctrl.lerobot_bridge.active_process_kinds}
+
+
 # ── Emergency Stop ───────────────────────────────────────────────────────
 
 @app.post("/api/emergency-stop")
@@ -1976,14 +2224,6 @@ async def websocket_endpoint(ws: WebSocket):
         web_bridge.unregister_client(ws)
 
 
-# ── Qt Event Loop Integration ───────────────────────────────────────────
-
-def _run_qt_events():
-    """Process pending Qt events periodically from the async event loop."""
-    if _qt_app:
-        _qt_app.processEvents()
-
-
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def main():
@@ -1994,7 +2234,7 @@ def main():
     (DATA_DIR / "outputs" / "training").mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "huggingface").mkdir(parents=True, exist_ok=True)
 
-    # Connect event bridge
+    # Connect event bridge (the asyncio loop is attached in the lifespan hook)
     web_bridge.connect_event_bus()
 
     log.info("Starting %s Web Server...", APP_DISPLAY_NAME)
@@ -2002,22 +2242,10 @@ def main():
     log.info("Frontend: %s", _web_dir)
     log.info("Open http://localhost:8000 in your browser")
 
-    # Run Qt event processing in a background thread
-    def qt_thread():
-        import time
-        while True:
-            _run_qt_events()
-            time.sleep(0.05)
-
-    t = threading.Thread(target=qt_thread, daemon=True)
-    t.start()
-
-    # Set the event loop for the bridge
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    web_bridge.set_loop(loop)
-
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info", loop="asyncio")
+    # Host/port configurable for packaging & multi-instance dev (defaults unchanged)
+    host = os.environ.get("ORCHIDAY_HOST", "0.0.0.0")
+    port = int(os.environ.get("ORCHIDAY_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port, log_level="info", loop="asyncio")
 
 
 if __name__ == "__main__":

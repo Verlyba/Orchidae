@@ -7,7 +7,7 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
-    QSpinBox, QVBoxLayout, QWidget,
+    QSpinBox, QVBoxLayout, QWidget, QBoxLayout,
 )
 
 from orchiday.core.project_manager import ProjectManager
@@ -263,6 +263,7 @@ class CameraPanel(QWidget):
         self._compact = compact
         self._float_windows: dict[str, CameraFloatWindow] = {}
         self._camera_cards: dict[str, CameraCard] = {}
+        self._cards_layout: QBoxLayout
         self._setup_ui()
         self._refresh()
 
@@ -318,8 +319,10 @@ class CameraPanel(QWidget):
     def _refresh(self) -> None:
         while self._cards_layout.count():
             child = self._cards_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()
         self._camera_cards.clear()
 
         if self._pm.current_project is None:

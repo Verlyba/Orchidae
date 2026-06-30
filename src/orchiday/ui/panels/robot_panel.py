@@ -20,7 +20,7 @@ from orchiday.core.events import event_bus
 from orchiday.core.constants import LEROBOT_SUPPORTED_ROBOTS
 from orchiday.ui import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_SIZE_XL, FONT_SIZE_LG,
-    SUCCESS, BORDER, BG_MEDIUM,
+    SUCCESS, BORDER, BG_MEDIUM, ACCENT_PRIMARY,
 )
 from orchiday.ui.widgets import StatusIndicator
 
@@ -500,8 +500,10 @@ class RobotPanel(QWidget):
     def _refresh(self) -> None:
         while self._cards_layout.count():
             child = self._cards_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()
         self._cards.clear()
 
         if self._pm.current_project is None:

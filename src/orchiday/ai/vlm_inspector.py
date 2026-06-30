@@ -7,6 +7,7 @@ Verifies visual scene state using a VLM running in LM Studio.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from orchiday.ai.lm_studio_client import LMStudioClient
 from orchiday.core.events import event_bus

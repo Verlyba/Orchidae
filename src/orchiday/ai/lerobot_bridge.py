@@ -22,9 +22,9 @@ import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Slot
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal, Slot
 
 from orchiday.core.events import event_bus
 
@@ -39,18 +39,48 @@ class LeRobotBridge(QObject):
     ensuring thread-safety, real-time output parsing, and reliable emergency stopping.
     """
 
-    def __init__(self, python_executable: str | None = None, parent=None):
+    # Marshals subprocess spawning onto the bridge's owning (main) thread —
+    # QProcess must be created and driven from the thread whose event loop
+    # services it (the orchestration worker thread calls into the bridge).
+    _spawn_requested = Signal(str, list, str, str)
+
+    def __init__(self, python_executable: str | None = None, project_manager=None, parent=None):
         super().__init__(parent)
-        # Auto-detect LeRobot venv python if not explicitly provided
-        venv_python = Path("/home/verlyba/robotics/lerobot/.venv/bin/python")
-        if not python_executable and venv_python.exists():
-            self._default_python = str(venv_python)
-            log.info("LeRobotBridge: Auto-detected LeRobot virtualenv Python at %s", self._default_python)
-        else:
-            self._default_python = python_executable or sys.executable
+        self._spawn_requested.connect(self._spawn_process_impl)
+        self._default_python = python_executable or self._autodetect_python() or sys.executable
+        log.info("LeRobotBridge: default Python interpreter: %s", self._default_python)
+        # Injected ProjectManager — avoids importing orchiday.server (which would
+        # create a SECOND module instance when the server runs as `python -m`).
+        self._pm = project_manager
         self._active_processes: dict[str, QProcess] = {}
         self._teleop_state: dict[str, float] = {}
+        self._record_totals: dict[str, int] = {}
+        self._pending_infer_tasks: dict[str, str] = {}
+        self._process_kinds: dict[str, str] = {}
         self._shell_process: QProcess | None = None
+
+    @staticmethod
+    def _autodetect_python() -> str | None:
+        """Best-effort cross-platform search for a Python with LeRobot installed."""
+        home = Path.home()
+        is_win = sys.platform == "win32"
+        candidates: list[Path] = []
+        # LeRobot repo virtualenvs in common checkout locations
+        for repo in (home / "robotics" / "lerobot", home / "lerobot", home / "projects" / "lerobot"):
+            if is_win:
+                candidates.append(repo / ".venv" / "Scripts" / "python.exe")
+            else:
+                candidates.append(repo / ".venv" / "bin" / "python")
+        # Conda env named "lerobot"
+        for conda_root in (home / "miniconda3", home / "anaconda3", Path("/opt/miniconda3")):
+            if is_win:
+                candidates.append(conda_root / "envs" / "lerobot" / "python.exe")
+            else:
+                candidates.append(conda_root / "envs" / "lerobot" / "bin" / "python")
+        for c in candidates:
+            if c.exists():
+                return str(c)
+        return None
 
     @property
     def _python(self) -> str:
@@ -65,18 +95,93 @@ class LeRobotBridge(QObject):
             # Fallback to checking lerobot_dir
             p_dir = cfg.get("lerobot_dir")
             if p_dir:
-                venv_python = Path(p_dir) / ".venv" / "bin" / "python"
-                if venv_python.exists():
-                    return str(venv_python)
-                if (Path(p_dir) / "bin" / "python").exists():
-                    return str(Path(p_dir) / "bin" / "python")
+                for rel in ((".venv", "bin", "python"), (".venv", "Scripts", "python.exe"),
+                            ("bin", "python"), ("Scripts", "python.exe")):
+                    venv_python = Path(p_dir).joinpath(*rel)
+                    if venv_python.exists():
+                        return str(venv_python)
         except Exception:
             pass
         return self._default_python
 
+    # ── Project config helpers ───────────────────────────────────────────
+
+    def _current_project(self) -> dict | None:
+        """Return the active project dict from the injected ProjectManager."""
+        try:
+            if self._pm is not None and self._pm.current_project:
+                return self._pm.current_project
+        except Exception:
+            pass
+        return None
+
+    def _build_cameras_arg(self, camera_ids: list[str] | None) -> str:
+        """
+        Build the draccus camera dict for --robot.cameras from project camera configs.
+
+        LeRobot >= 0.4 expects:
+        { name: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}
+        """
+        project = self._current_project()
+        configured = (project or {}).get("cameras", [])
+        by_id = {c.get("id"): c for c in configured}
+
+        entries = []
+        for cam_id in camera_ids or []:
+            cfg = by_id.get(cam_id)
+            if not cfg:
+                continue
+            source = cfg.get("source", 0)
+            try:
+                source = int(source)
+            except (TypeError, ValueError):
+                pass  # keep string path (e.g. /dev/video0)
+            res = cfg.get("resolution", [640, 480]) or [640, 480]
+            fps = cfg.get("fps", 30)
+            name = re.sub(r"[^a-zA-Z0-9_]", "_", cam_id)
+            src_repr = source if isinstance(source, int) else f"'{source}'"
+            entries.append(
+                f"{name}: {{type: opencv, index_or_path: {src_repr}, "
+                f"width: {res[0]}, height: {res[1]}, fps: {fps}}}"
+            )
+        if not entries:
+            return ""
+        return "{ " + ", ".join(entries) + "}"
+
+    def _build_cameras_json(self, camera_ids: list[str] | None) -> str:
+        """JSON camera map for the Orchiday inference daemon (not draccus syntax)."""
+        project = self._current_project()
+        configured = (project or {}).get("cameras", [])
+        by_id = {c.get("id"): c for c in configured}
+
+        cams: dict[str, dict] = {}
+        for cam_id in camera_ids or []:
+            cfg = by_id.get(cam_id)
+            if not cfg:
+                continue
+            source = cfg.get("source", 0)
+            try:
+                source = int(source)
+            except (TypeError, ValueError):
+                pass
+            res = cfg.get("resolution", [640, 480]) or [640, 480]
+            name = re.sub(r"[^a-zA-Z0-9_]", "_", cam_id)
+            cams[name] = {
+                "index_or_path": source,
+                "width": res[0],
+                "height": res[1],
+                "fps": cfg.get("fps", 30),
+            }
+        return json.dumps(cams) if cams else ""
+
     @property
     def active_processes(self) -> dict[str, QProcess]:
         return dict(self._active_processes)
+
+    @property
+    def active_process_kinds(self) -> dict[str, str]:
+        """Map of running process key -> kind, for UI state synchronisation."""
+        return {k: self._process_kinds.get(k, "") for k in self._active_processes}
 
     # ── Detect available robot types from LeRobot ────────────────────────
 
@@ -90,7 +195,7 @@ class LeRobotBridge(QObject):
         try:
             result = subprocess.run(
                 [self._python, "-c",
-                 "from lerobot.common.robots.utils import make_robot_from_config; "
+                 "from lerobot.robots.utils import make_robot_from_config; "
                  "print('lerobot_available')"],
                 capture_output=True, text=True, timeout=15,
             )
@@ -119,6 +224,90 @@ class LeRobotBridge(QObject):
         event_bus.log_message.emit("WARN", "LeRobot not found — install it first")
         return False
 
+    def _run_preflight_check(self, port: str, robot_type: str, on_success_callback: Callable[[], None]) -> None:
+        """Run pre-flight check asynchronously via QProcess. If success, execute callback."""
+        if not port:
+            on_success_callback()
+            return
+
+        is_feetech = any(f in robot_type.lower() for f in ("so100", "so101", "bi_so", "lekiwi"))
+        if is_feetech:
+            # STS3215 Feetech check
+            py_code = f"""
+import sys
+try:
+    from lerobot.motors.feetech import FeetechMotorsBus
+    from lerobot.motors.motors_bus import Motor, MotorNormMode
+    norm = list(MotorNormMode)[0]
+    motors = {{f"m{{i}}": Motor(i, "sts3215", norm) for i in [1, 2, 3, 4, 5, 6]}}
+    bus = FeetechMotorsBus(port=r'{port}', motors=motors)
+    bus.connect()
+    bus.disconnect()
+    print("SUCCESS")
+except Exception as e:
+    print("ERROR:", str(e))
+"""
+        else:
+            # Generic serial check
+            py_code = f"""
+import sys
+try:
+    import serial
+    s = serial.Serial(r'{port}', baudrate=1000000, timeout=1)
+    s.close()
+    print("SUCCESS")
+except Exception as e:
+    print("ERROR:", str(e))
+"""
+
+        # Using a QProcess for non-blocking asynchronous execution
+        check_process = QProcess(self)
+        check_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        
+        project = self._current_project()
+        from orchiday.core.constants import APP_DATA_DIR
+        hf_home = str(APP_DATA_DIR / "data" / "huggingface")
+        if project and project.get("dataset_storage_dir"):
+            hf_home = str(project["dataset_storage_dir"])
+            
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUNBUFFERED", "1")
+        env.insert("HF_HOME", hf_home)
+        check_process.setProcessEnvironment(env)
+
+        temp_key = f"preflight_{port}"
+        self._active_processes[temp_key] = check_process
+
+        def on_finished(exit_code: int):
+            self._active_processes.pop(temp_key, None)
+            output = bytes(check_process.readAllStandardOutput().data()).decode("utf-8", errors="replace").strip()
+            if exit_code == 0 and "SUCCESS" in output:
+                log.info("Pre-flight hardware check passed for port %s.", port)
+                on_success_callback()
+            else:
+                err = output.replace("ERROR:", "").strip() or "Connection timeout or device not found."
+                msg = f"[HARDWARE CHECK FAILED] Port {port}: {err}"
+                log.error(msg)
+                event_bus.log_message.emit("ERROR", msg)
+                event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+
+        check_process.finished.connect(on_finished)
+        log.info("Spawning asynchronous pre-flight hardware check on port %s...", port)
+        check_process.start(self._python, ["-c", py_code])
+
+    def _get_dataset_dir(self, dataset_name: str) -> Path:
+        """Resolve the local dataset directory on disk using the HF_HOME setting."""
+        project = self._current_project()
+        hf_home = Path.home() / ".cache" / "huggingface"
+        if project and project.get("dataset_storage_dir"):
+            hf_home = Path(project["dataset_storage_dir"])
+        else:
+            from orchiday.core.constants import APP_DATA_DIR
+            hf_home = APP_DATA_DIR / "data" / "huggingface"
+
+        parts = dataset_name.split("/")
+        return hf_home / "lerobot" / "local" / Path(*parts)
+
     def _verify_dataset_exists(self, dataset_name: str) -> bool:
         """Check if dataset exists locally in local caches or is absolute."""
         if not dataset_name:
@@ -129,16 +318,16 @@ class LeRobotBridge(QObject):
         custom_dir = None
         parent_slug = ""
         try:
-            from orchiday.server import pm
-            if pm and pm.current_project:
-                custom_dir = pm.current_project.get("dataset_storage_dir")
-                skills_details = pm.current_project.get("skills_details", {})
+            project = self._current_project()
+            if project:
+                custom_dir = project.get("dataset_storage_dir")
+                skills_details = project.get("skills_details", {})
                 parts = dataset_name.split("/")
                 last_part = parts[-1]
                 if last_part in skills_details:
                     parent_slug = skills_details[last_part].get("parent_slug", "")
                 else:
-                    for robot in pm.current_project.get("robots", []):
+                    for robot in project.get("robots", []):
                         r_type = robot.get("type", "")
                         if r_type and last_part.startswith(f"{r_type}_"):
                             candidate = last_part[len(r_type) + 1:]
@@ -186,12 +375,9 @@ class LeRobotBridge(QObject):
             return True
 
         custom_dir = None
-        try:
-            from orchiday.server import pm
-            if pm and pm.current_project:
-                custom_dir = pm.current_project.get("dataset_storage_dir")
-        except Exception:
-            pass
+        project = self._current_project()
+        if project:
+            custom_dir = project.get("dataset_storage_dir")
 
         paths = []
         if custom_dir:
@@ -265,8 +451,12 @@ class LeRobotBridge(QObject):
             for k, v in extra_args.items():
                 cmd.append(f"--{k}={v}")
 
-        event_bus.log_message.emit("INFO", f"Starting teleoperation: {robot_type} <-> {teleop_type}")
-        self._spawn_process(key, cmd, kind="teleop", skill_slug="teleop")
+        def launch():
+            event_bus.log_message.emit("INFO", f"Starting teleoperation: {robot_type} <-> {teleop_type}")
+            self._spawn_process(key, cmd, kind="teleop", skill_slug="teleop")
+
+        self._run_preflight_check(robot_port, robot_type,
+            lambda: self._run_preflight_check(teleop_port, teleop_type, launch))
 
     def stop_teleop(self) -> None:
         """Stop running teleoperation."""
@@ -286,10 +476,10 @@ class LeRobotBridge(QObject):
         """
         Run LeRobot calibration with validation.
 
-        LeRobot calibrate operates on the teleoperator (leader) device.
-        Provide teleop_type/teleop_port for leader calibration,
-        and robot_type/port for follower calibration.
-        At least one (teleop or robot) port must be specified.
+        LeRobot >= 0.4 requires EXACTLY ONE device per invocation:
+        either --teleop.* (leader arm) or --robot.* (follower arm).
+        Pass teleop_type+teleop_port to calibrate a leader,
+        or robot_type+port to calibrate a follower.
         """
         key = f"calibrate_{robot_id}"
         if key in self._active_processes:
@@ -297,37 +487,50 @@ class LeRobotBridge(QObject):
             return
 
         # ── Precondition Validations ─────────────────────────────────────────
-        if not teleop_port and not port:
-            msg = f"[VALIDATION ERROR] Calibration requires at least one port (teleop leader or robot follower)! Configure one for '{robot_id}'."
+        use_teleop = bool(teleop_port.strip()) if teleop_port else False
+        use_robot = bool(port.strip()) if port else False
+
+        if not use_teleop and not use_robot:
+            msg = f"[VALIDATION ERROR] Calibration requires a port (teleop leader or robot follower)! Configure one for '{robot_id}'."
             log.error(msg)
             event_bus.log_message.emit("ERROR", msg)
             event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
             return
 
-        cmd = [
-            self._python, "-m", "lerobot.scripts.lerobot_calibrate",
-        ]
+        if use_teleop and use_robot:
+            # lerobot-calibrate accepts only one device — prefer the teleop (leader),
+            # the caller should invoke a second calibration for the follower.
+            msg = ("[VALIDATION] lerobot-calibrate accepts exactly one device per run — "
+                   "calibrating the LEADER now. Run follower calibration separately.")
+            log.warning(msg)
+            event_bus.log_message.emit("WARN", msg)
+            use_robot = False
 
-        # Teleop (leader/teacher) args — primary calibration target
-        if teleop_type:
-            cmd.append(f"--teleop.type={teleop_type}")
-        if teleop_port:
+        cmd = [self._python, "-m", "lerobot.scripts.lerobot_calibrate"]
+
+        if use_teleop:
+            cmd.append(f"--teleop.type={teleop_type or 'so100_leader'}")
             cmd.append(f"--teleop.port={teleop_port}")
-
-        # Robot (follower) args — optional second calibration target
-        if robot_type:
-            cmd.append(f"--robot.type={robot_type}")
-        if port:
+            cmd.append(f"--teleop.id={robot_id}")
+        else:
+            cmd.append(f"--robot.type={robot_type or 'so100_follower'}")
             cmd.append(f"--robot.port={port}")
+            cmd.append(f"--robot.id={robot_id}")
 
         if extra_args:
             for k, v in extra_args.items():
                 cmd.append(f"--{k}={v}")
 
-        event_bus.robot_calibrating.emit(robot_id)
-        event_bus.log_message.emit("INFO", f"Starting calibration: teleop={teleop_type or 'n/a'} robot={robot_type or 'n/a'} ({robot_id})")
+        def launch():
+            event_bus.robot_calibrating.emit(robot_id)
+            target = "leader/teleop" if use_teleop else "follower/robot"
+            event_bus.log_message.emit("INFO", f"Starting calibration of {target} arm '{robot_id}'")
+            self._spawn_process(key, cmd, kind="calibrate", skill_slug=robot_id)
 
-        self._spawn_process(key, cmd, kind="calibrate", skill_slug=robot_id)
+        if use_teleop:
+            self._run_preflight_check(teleop_port, teleop_type or "so100_leader", launch)
+        else:
+            self._run_preflight_check(port, robot_type or "so100_follower", launch)
 
     # ── Data recording ───────────────────────────────────────────────────
 
@@ -339,42 +542,81 @@ class LeRobotBridge(QObject):
         num_episodes: int = 50,
         fps: int = 30,
         port: str = "",
+        robot_id: str = "",
+        teleop_type: str = "",
+        teleop_port: str = "",
+        teleop_id: str = "",
+        single_task: str = "",
+        episode_time_s: float = 60,
+        reset_time_s: float = 10,
+        push_to_hub: bool = False,
+        display_data: bool = False,
+        camera_ids: list[str] | None = None,
         resume: bool = False,
         extra_args: dict[str, Any] | None = None,
         extra_args_str: str = "",
     ) -> None:
-        """Start recording episodes using LeRobot's teleoperation with validation."""
+        """
+        Start recording episodes via `lerobot-record` (LeRobot >= 0.4 CLI).
+
+        The record script requires a teleoperator (leader arm) OR a policy,
+        plus a mandatory --dataset.single_task annotation.
+        """
         key = f"record_{skill_slug}"
         if key in self._active_processes:
             event_bus.log_message.emit("WARN", f"Recording already active for {skill_slug}")
             return
 
         # ── Precondition Validations ─────────────────────────────────────────
+        def _fail(msg: str) -> None:
+            log.error(msg)
+            event_bus.log_message.emit("ERROR", msg)
+            event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+
         if not port:
-            msg = "[VALIDATION ERROR] Follower serial port must be specified to start recording demonstrations!"
-            log.error(msg)
-            event_bus.log_message.emit("ERROR", msg)
-            event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+            _fail("[VALIDATION ERROR] Follower serial port must be specified to start recording demonstrations!")
             return
-
+        if not teleop_port:
+            _fail("[VALIDATION ERROR] Leader (teleop) serial port must be specified — lerobot-record needs a teleoperator to control the robot!")
+            return
+        if port.strip() == teleop_port.strip():
+            _fail(f"[VALIDATION ERROR] Serial Port Conflict! Leader and Follower cannot share the same port: '{port}'")
+            return
         if not dataset_name:
-            msg = "[VALIDATION ERROR] Dataset repository name cannot be empty!"
-            log.error(msg)
-            event_bus.log_message.emit("ERROR", msg)
-            event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+            _fail("[VALIDATION ERROR] Dataset repository name cannot be empty!")
             return
 
-        # Enforce local repository name and no HF hub pushing
+        if not single_task:
+            # --dataset.single_task is mandatory in LeRobot >= 0.4
+            single_task = skill_slug.replace("_", " ")
+            event_bus.log_message.emit("WARN", f"No task description provided — using '{single_task}' as the dataset task annotation.")
+
         cmd = [
             self._python, "-m", "lerobot.scripts.lerobot_record",
             f"--robot.type={robot_type}",
+            f"--robot.port={port}",
+            f"--robot.id={robot_id or 'my_follower_arm'}",
+            f"--teleop.type={teleop_type or 'so100_leader'}",
+            f"--teleop.port={teleop_port}",
+            f"--teleop.id={teleop_id or 'my_leader_arm'}",
+            f"--dataset.repo_id={dataset_name}",
+            f"--dataset.single_task={single_task}",
             f"--dataset.fps={fps}",
             f"--dataset.num_episodes={num_episodes}",
-            f"--dataset.repo_id={dataset_name}",
-            "--dataset.push_to_hub=false",
+            f"--dataset.episode_time_s={episode_time_s}",
+            f"--dataset.reset_time_s={reset_time_s}",
+            f"--dataset.push_to_hub={'true' if push_to_hub else 'false'}",
+            # Streaming video encoding keeps the 30 Hz control loop stable (anti-lag)
+            "--dataset.streaming_encoding=true",
+            "--dataset.encoder_threads=2",
         ]
-        if port:
-            cmd.append(f"--robot.port={port}")
+
+        cameras_arg = self._build_cameras_arg(camera_ids)
+        if cameras_arg:
+            cmd.append(f"--robot.cameras={cameras_arg}")
+
+        if display_data:
+            cmd.append("--display_data=true")
 
         if resume:
             cmd.append("--resume=true")
@@ -390,10 +632,24 @@ class LeRobotBridge(QObject):
             except Exception as e:
                 log.error("Failed to parse extra record arguments: %s", e)
 
-        event_bus.recording_started.emit(skill_slug)
-        event_bus.log_message.emit("INFO", f"Recording started: {skill_slug} ({num_episodes} episodes, resume={resume})")
+        def launch():
+            if not resume:
+                dataset_dir = self._get_dataset_dir(dataset_name)
+                if dataset_dir.exists():
+                    log.info("FS Validation: Deleting existing dataset at %s to prevent LeRobot FileExistsError", dataset_dir)
+                    try:
+                        import shutil
+                        shutil.rmtree(dataset_dir)
+                    except Exception as e:
+                        log.error("Failed to delete existing dataset directory: %s", e)
 
-        self._spawn_process(key, cmd, kind="record", skill_slug=skill_slug)
+            self._record_totals[skill_slug] = num_episodes
+            event_bus.recording_started.emit(skill_slug)
+            event_bus.log_message.emit("INFO", f"Recording started: {skill_slug} ({num_episodes} episodes, task='{single_task}', resume={resume})")
+            self._spawn_process(key, cmd, kind="record", skill_slug=skill_slug)
+
+        self._run_preflight_check(port, robot_type,
+            lambda: self._run_preflight_check(teleop_port, teleop_type or "so100_leader", launch))
 
     def stop_recording(self, skill_slug: str) -> None:
         """Stop an active recording session (Emergency Stop)."""
@@ -407,6 +663,7 @@ class LeRobotBridge(QObject):
         dataset_name: str,
         episode_index: int,
         port: str = "",
+        robot_id: str = "",
         extra_args: dict[str, Any] | None = None,
     ) -> None:
         """Start hardware replay of a recorded episode on the robot with validations."""
@@ -433,6 +690,7 @@ class LeRobotBridge(QObject):
         cmd = [
             self._python, "-m", "lerobot.scripts.lerobot_replay",
             f"--robot.type={robot_type}",
+            f"--robot.id={robot_id or 'my_follower_arm'}",
             f"--dataset.repo_id={dataset_name}",
             f"--dataset.episode={episode_index}",
         ]
@@ -446,6 +704,123 @@ class LeRobotBridge(QObject):
         event_bus.log_message.emit("INFO", f"Replay started: episode {episode_index} of {dataset_name} on {robot_type}")
         self._spawn_process(key, cmd, kind="replay", skill_slug=dataset_name)
 
+    # ── Dataset editing (lerobot-edit-dataset) ───────────────────────────
+
+    # Whitelisted operations of lerobot-edit-dataset (LeRobot >= 0.5)
+    DATASET_EDIT_OPERATIONS = {
+        "delete_episodes", "split", "merge", "remove_feature",
+        "modify_tasks", "convert_image_to_video", "recompute_stats", "info",
+    }
+
+    def run_dataset_edit(
+        self,
+        operation: str,
+        repo_id: str = "",
+        new_repo_id: str = "",
+        params: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Run one `lerobot-edit-dataset` operation as a tracked subprocess.
+
+        Operation params are passed as --operation.<key>=<value>; lists/dicts
+        are serialized the way draccus expects (Python-literal style strings).
+        """
+        if operation not in self.DATASET_EDIT_OPERATIONS:
+            event_bus.log_message.emit("ERROR", f"Unknown dataset operation: {operation}")
+            return False
+        if operation != "merge" and not repo_id:
+            event_bus.log_message.emit("ERROR", "Dataset repo_id is required for this operation.")
+            return False
+
+        key = f"dataset_edit_{operation}_{repo_id or new_repo_id}"
+        if key in self._active_processes:
+            event_bus.log_message.emit("WARN", "A dataset edit operation is already running for this dataset.")
+            return False
+
+        cmd = [self._python, "-m", "lerobot.scripts.lerobot_edit_dataset",
+               f"--operation.type={operation}"]
+        if repo_id:
+            cmd.append(f"--repo_id={repo_id}")
+        if new_repo_id:
+            cmd.append(f"--new_repo_id={new_repo_id}")
+        cmd.append("--push_to_hub=false")
+
+        for k, v in (params or {}).items():
+            if isinstance(v, (list, dict)):
+                cmd.append(f"--operation.{k}={json.dumps(v)}")
+            elif isinstance(v, bool):
+                cmd.append(f"--operation.{k}={'true' if v else 'false'}")
+            else:
+                cmd.append(f"--operation.{k}={v}")
+
+        event_bus.log_message.emit("INFO", f"Dataset operation '{operation}' started on '{repo_id or new_repo_id}'")
+        self._spawn_process(key, cmd, kind="dataset_edit", skill_slug=repo_id)
+        return True
+
+    # ── Simulation evaluation (lerobot-eval) ─────────────────────────────
+
+    def start_eval(
+        self,
+        policy_path: str,
+        env_type: str,
+        n_episodes: int = 10,
+        batch_size: int = 10,
+        device: str = "cuda",
+    ) -> bool:
+        """Evaluate a trained policy in a simulated gym environment (pusht/aloha/xarm)."""
+        key = f"eval_{env_type}"
+        if key in self._active_processes:
+            event_bus.log_message.emit("WARN", f"Evaluation already running in env '{env_type}'")
+            return False
+
+        if not policy_path:
+            event_bus.log_message.emit("ERROR", "Policy path is required for evaluation.")
+            return False
+
+        cmd = [
+            self._python, "-m", "lerobot.scripts.lerobot_eval",
+            f"--policy.path={policy_path}",
+            f"--env.type={env_type}",
+            f"--eval.n_episodes={n_episodes}",
+            f"--eval.batch_size={batch_size}",
+            f"--policy.device={device}",
+            "--policy.use_amp=false",
+        ]
+        event_bus.log_message.emit("INFO", f"Simulation evaluation started: {policy_path} in '{env_type}' ({n_episodes} episodes)")
+        self._spawn_process(key, cmd, kind="eval", skill_slug=env_type)
+        return True
+
+    # ── Hardware / diagnostic CLI utilities ──────────────────────────────
+
+    # tool name -> (module, supports draccus robot/teleop args)
+    LEROBOT_TOOLS = {
+        "find_cameras": "lerobot.scripts.lerobot_find_cameras",
+        "find_port": "lerobot.scripts.lerobot_find_port",
+        "setup_motors": "lerobot.scripts.lerobot_setup_motors",
+        "find_joint_limits": "lerobot.scripts.lerobot_find_joint_limits",
+        "info": "lerobot.scripts.lerobot_info",
+        "dataset_viz": "lerobot.scripts.lerobot_dataset_viz",
+    }
+
+    def run_tool(self, tool: str, cli_args: list[str] | None = None) -> bool:
+        """
+        Run a whitelisted LeRobot CLI utility inside the persistent terminal
+        shell so interactive prompts (setup-motors, find-port) keep working.
+        """
+        module = self.LEROBOT_TOOLS.get(tool)
+        if not module:
+            event_bus.log_message.emit("ERROR", f"Unknown LeRobot tool: {tool}")
+            return False
+
+        parts = [f'"{self._python}"', "-m", module]
+        for a in cli_args or []:
+            # Basic shell-safety: quote args containing spaces
+            parts.append(f'"{a}"' if " " in a and not a.startswith('"') else a)
+
+        event_bus.log_message.emit("INFO", f"Spouštím LeRobot nástroj: {tool}")
+        self.run_custom_command(" ".join(parts))
+        return True
+
     # ── Training ─────────────────────────────────────────────────────────
 
     def start_training(
@@ -454,14 +829,23 @@ class LeRobotBridge(QObject):
         dataset_repo_id: str,
         skill_slug: str,
         output_dir: str = "",
-        num_epochs: int = 100,
-        batch_size: int = 32,
+        training_steps: int = 10_000,
+        batch_size: int = 8,
         device: str = "cuda",
         use_wandb: bool = False,
+        save_freq: int = 2_000,
         extra_args: dict[str, Any] | None = None,
         extra_args_str: str = "",
     ) -> None:
-        """Start training a LeRobot policy with validation of dataset presence."""
+        """
+        Start training a LeRobot policy via `lerobot-train`.
+
+        Notes for LeRobot >= 0.4:
+        - --policy.push_to_hub defaults to TRUE and then requires --policy.repo_id;
+          we force it to false unless the user overrides it in extra args.
+        - --output_dir must not already exist; if it does and contains a resumable
+          checkpoint we resume from it, otherwise we pick a unique directory.
+        """
         key = f"train_{skill_slug}"
         if key in self._active_processes:
             event_bus.log_message.emit("WARN", f"Training already active for {skill_slug}")
@@ -476,31 +860,61 @@ class LeRobotBridge(QObject):
             event_bus.training_error.emit(skill_slug, msg)
             return
 
-        cmd = [
-            self._python, "-m", "lerobot.scripts.lerobot_train",
-            f"--policy.type={policy_type}",
-            f"--dataset.repo_id={dataset_repo_id}",
-            f"--steps={num_epochs * 100}",
-            f"--batch_size={batch_size}",
-            f"--policy.device={device}",
-            f"--wandb.enable={'true' if use_wandb else 'false'}",
-        ]
+        # ── Resume / output-dir collision handling ──────────────────────────
+        resume_config: Path | None = None
         if output_dir:
-            cmd.append(f"--output_dir={output_dir}")
+            out_path = Path(output_dir)
+            if out_path.exists():
+                candidate = out_path / "checkpoints" / "last" / "pretrained_model" / "train_config.json"
+                if candidate.exists():
+                    resume_config = candidate
+                    event_bus.log_message.emit("INFO", f"Existing checkpoint found — resuming training from {candidate}")
+                else:
+                    base = output_dir
+                    suffix = 2
+                    while Path(f"{base}_v{suffix}").exists():
+                        suffix += 1
+                    output_dir = f"{base}_v{suffix}"
+                    event_bus.log_message.emit("WARN", f"Output dir already exists — training into '{output_dir}' instead.")
 
-        if extra_args:
-            for k, v in extra_args.items():
-                cmd.append(f"--{k}={v}")
+        if resume_config is not None:
+            cmd = [
+                self._python, "-m", "lerobot.scripts.lerobot_train",
+                f"--config_path={resume_config}",
+                "--resume=true",
+            ]
+        else:
+            cmd = [
+                self._python, "-m", "lerobot.scripts.lerobot_train",
+                f"--policy.type={policy_type}",
+                f"--dataset.repo_id={dataset_repo_id}",
+                f"--steps={training_steps}",
+                f"--batch_size={batch_size}",
+                f"--save_freq={save_freq}",
+                f"--job_name={skill_slug}",
+                f"--policy.device={device}",
+                f"--wandb.enable={'true' if use_wandb else 'false'}",
+            ]
+            if output_dir:
+                cmd.append(f"--output_dir={output_dir}")
 
-        if extra_args_str:
-            try:
-                parsed_args = shlex.split(extra_args_str)
-                cmd.extend(parsed_args)
-            except Exception as e:
-                log.error("Failed to parse extra train arguments: %s", e)
+            if extra_args:
+                for k, v in extra_args.items():
+                    cmd.append(f"--{k}={v}")
+
+            if extra_args_str:
+                try:
+                    parsed_args = shlex.split(extra_args_str)
+                    cmd.extend(parsed_args)
+                except Exception as e:
+                    log.error("Failed to parse extra train arguments: %s", e)
+
+            # Mandatory unless the user pushes to hub themselves (then repo_id is required too)
+            if not any(a.startswith("--policy.push_to_hub") for a in cmd):
+                cmd.append("--policy.push_to_hub=false")
 
         event_bus.training_started.emit(skill_slug)
-        event_bus.log_message.emit("INFO", f"Training started: {skill_slug} (policy={policy_type})")
+        event_bus.log_message.emit("INFO", f"Training started: {skill_slug} (policy={policy_type}, steps={training_steps})")
 
         self._spawn_process(key, cmd, kind="train", skill_slug=skill_slug)
 
@@ -518,6 +932,7 @@ class LeRobotBridge(QObject):
         skill_slug: str,
         port: str = "",
         fps: int = 30,
+        auto_task: str = "",
         extra_args: dict[str, Any] | None = None,
     ) -> None:
         """Start running a trained policy on the robot with checkpoint validations."""
@@ -541,20 +956,40 @@ class LeRobotBridge(QObject):
             event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
             return
 
-        from pathlib import Path
         script_path = Path(__file__).parent / "orchiday_inference.py"
+
+        project = self._current_project() or {}
+        robots = project.get("robots", [])
+        robot_cfg = robots[0] if robots else {}
+        robot_id = robot_cfg.get("follower_id") or robot_cfg.get("id") or "my_follower_arm"
 
         cmd = [
             self._python, str(script_path),
             f"--robot.type={robot_type}",
+            f"--robot.id={robot_id}",
             f"--policy.path={policy_path}",
             f"--fps={fps}",
         ]
         if port:
             cmd.append(f"--robot.port={port}")
 
-        event_bus.log_message.emit("INFO", f"Inference started: {skill_slug}")
-        self._spawn_process(key, cmd, kind="infer", skill_slug=skill_slug)
+        cameras_json = self._build_cameras_json(robot_cfg.get("cameras"))
+        if cameras_json:
+            cmd.append(f"--robot.cameras={cameras_json}")
+
+        if extra_args:
+            for k, v in extra_args.items():
+                cmd.append(f"--{k}={v}")
+
+        if auto_task:
+            # The daemon boots in WAITING — queue the task to dispatch on DAEMON_READY
+            self._pending_infer_tasks[key] = auto_task
+
+        def launch():
+            event_bus.log_message.emit("INFO", f"Inference started: {skill_slug}")
+            self._spawn_process(key, cmd, kind="infer", skill_slug=skill_slug)
+
+        self._run_preflight_check(port, robot_type, launch)
 
     def stop_inference(self, skill_slug: str) -> None:
         """Stop inference."""
@@ -584,14 +1019,9 @@ class LeRobotBridge(QObject):
         # Enforce HF_HOME to lock Hugging Face datasets/policies locally
         from orchiday.core.constants import APP_DATA_DIR
         hf_home = str(APP_DATA_DIR / "data" / "huggingface")
-        try:
-            from orchiday.server import pm
-            if pm and pm.current_project:
-                custom_dir = pm.current_project.get("dataset_storage_dir")
-                if custom_dir:
-                    hf_home = str(custom_dir)
-        except Exception:
-            pass
+        project = self._current_project()
+        if project and project.get("dataset_storage_dir"):
+            hf_home = str(project["dataset_storage_dir"])
 
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
@@ -613,13 +1043,10 @@ class LeRobotBridge(QObject):
             shell_args = ["-i"]  # Run interactive to load env profiles
 
         # Set working directory to project path or current working directory
-        try:
-            from orchiday.server import pm
-            if pm and pm.current_project and pm.current_project.get("path"):
-                working_dir = pm.current_project["path"]
-            else:
-                working_dir = os.getcwd()
-        except Exception:
+        project = self._current_project()
+        if project and project.get("path"):
+            working_dir = project["path"]
+        else:
             working_dir = os.getcwd()
 
         self._shell_process.setWorkingDirectory(working_dir)
@@ -654,6 +1081,7 @@ class LeRobotBridge(QObject):
             return
 
         self._ensure_shell_active()
+        assert self._shell_process is not None
 
         # Echo prompt and command in UI console log
         event_bus.console_output.emit(f"$ {cmd_string}")
@@ -672,6 +1100,17 @@ class LeRobotBridge(QObject):
         kind: str = "",
         skill_slug: str = "",
     ) -> None:
+        """Spawn a subprocess. Safe to call from any thread (queued to owner)."""
+        self._spawn_requested.emit(key, cmd, kind, skill_slug)
+
+    @Slot(str, list, str, str)
+    def _spawn_process_impl(
+        self,
+        key: str,
+        cmd: list[str],
+        kind: str = "",
+        skill_slug: str = "",
+    ) -> None:
         """Spawn a subprocess via PySide6 QProcess on the event loop."""
         if key in self._active_processes:
             return
@@ -682,15 +1121,10 @@ class LeRobotBridge(QObject):
         # Enforce HF_HOME to lock Hugging Face datasets/policies locally
         from orchiday.core.constants import APP_DATA_DIR
         hf_home = str(APP_DATA_DIR / "data" / "huggingface")
-        
-        try:
-            from orchiday.server import pm
-            if pm and pm.current_project:
-                custom_dir = pm.current_project.get("dataset_storage_dir")
-                if custom_dir:
-                    hf_home = str(custom_dir)
-        except Exception:
-            pass
+
+        project = self._current_project()
+        if project and project.get("dataset_storage_dir"):
+            hf_home = str(project["dataset_storage_dir"])
 
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
@@ -706,6 +1140,8 @@ class LeRobotBridge(QObject):
 
         process.start(cmd[0], cmd[1:])
         self._active_processes[key] = process
+        self._process_kinds[key] = kind
+        event_bus.process_started.emit(key, kind)
 
         # Auto-confirm calibration/interactive dialogs on startup by seeding stdin with newline
         if kind in ("teleop", "calibrate", "record", "replay", "infer"):
@@ -721,6 +1157,9 @@ class LeRobotBridge(QObject):
                 continue
             event_bus.console_output.emit(line)
 
+            # Monitor hardware errors and warnings in real time
+            self._monitor_hardware_errors(line, key)
+
             # Parse training progress
             if kind == "train":
                 self._parse_training_line(line, skill_slug)
@@ -733,9 +1172,15 @@ class LeRobotBridge(QObject):
             elif kind == "teleop":
                 self._parse_teleop_line(line)
 
+            # Parse persistent inference daemon status
+            elif kind == "infer":
+                self._parse_inference_line(line, key, skill_slug)
+
     def _handle_finished(self, key: str, exit_code: int, kind: str, skill_slug: str) -> None:
         """Triggered asynchronously when a QProcess exits."""
         self._active_processes.pop(key, None)
+        self._process_kinds.pop(key, None)
+        event_bus.process_finished.emit(key, kind)
         log.info("Process %s exited with code %d", key, exit_code)
 
         if kind == "train":
@@ -773,23 +1218,98 @@ class LeRobotBridge(QObject):
             else:
                 event_bus.log_message.emit("WARN", f"Recording process exited with code {exit_code}")
 
+        elif kind == "dataset_edit":
+            if exit_code == 0:
+                event_bus.log_message.emit("SUCCESS", f"Dataset operation completed: {skill_slug}")
+            else:
+                event_bus.log_message.emit("ERROR", f"Dataset operation failed (exit {exit_code}): {skill_slug}")
+
+        elif kind == "eval":
+            if exit_code == 0:
+                event_bus.log_message.emit("SUCCESS", f"Simulation evaluation completed ({skill_slug}) — see console for metrics.")
+            else:
+                event_bus.log_message.emit("ERROR", f"Simulation evaluation failed (exit {exit_code})")
+
     def _parse_training_line(self, line: str, skill_slug: str) -> None:
-        """Extract epoch and loss from training output."""
-        loss_match = re.search(r"loss[:\s]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
-        epoch_match = re.search(r"epoch[:\s]+(\d+)", line, re.IGNORECASE)
-        if loss_match:
-            loss = float(loss_match.group(1))
-            epoch = int(epoch_match.group(1)) if epoch_match else 0
-            event_bus.training_progress.emit(skill_slug, epoch, loss)
+        """
+        Extract progress from `lerobot-train` output.
+
+        LeRobot >= 0.4 logs lines like:
+        "step:200 smpl:2K ep:8 epch:0.31 loss:2.674 grdn:18.114 lr:1.0e-05 ..."
+        """
+        loss_match = re.search(r"loss[:\s]+([0-9]+\.?[0-9]*(?:[eE][-+]?\d+)?)", line, re.IGNORECASE)
+        if not loss_match:
+            return
+        step_match = re.search(r"\bstep[:\s]+([0-9][0-9_]*)(K?)", line, re.IGNORECASE)
+        epoch_match = re.search(r"\bepoch[:\s]+(\d+)", line, re.IGNORECASE)
+
+        loss = float(loss_match.group(1))
+        if step_match:
+            step = int(step_match.group(1).replace("_", ""))
+            if step_match.group(2):  # "2K" style suffix
+                step *= 1000
+        elif epoch_match:
+            step = int(epoch_match.group(1))
+        else:
+            step = 0
+        event_bus.training_progress.emit(skill_slug, step, loss)
 
     def _parse_recording_line(self, line: str, skill_slug: str) -> None:
-        """Extract recording progress from output."""
+        """
+        Extract recording progress from `lerobot-record` output.
+
+        Matches both "Episode 3/50" style and LeRobot's
+        "Recording episode 3" voice-log style.
+        """
         ep_match = re.search(r"[Ee]pisode[:\s_]+(\d+)\s*/\s*(\d+)", line)
         if ep_match:
             current = int(ep_match.group(1))
             total = int(ep_match.group(2))
             progress = current / total if total > 0 else 0
             event_bus.recording_progress.emit(skill_slug, progress)
+            return
+
+        rec_match = re.search(r"Recording episode\s+(\d+)", line)
+        if rec_match:
+            current = int(rec_match.group(1))
+            total = self._record_totals.get(skill_slug, 0)
+            progress = min(current / total, 1.0) if total > 0 else 0.0
+            event_bus.recording_progress.emit(skill_slug, progress)
+
+    def _parse_inference_line(self, line: str, key: str, skill_slug: str) -> None:
+        """
+        React to the persistent inference daemon's [STATUS] protocol.
+
+        - DAEMON_READY: dispatch a queued SET_TASK (orchestration auto-start).
+        - TASK_DONE: the motor finished one skill — signal completion so the
+          orchestrator's task latch unlocks WITHOUT killing the daemon.
+        """
+        if "[STATUS] DAEMON_READY" in line or "DEEMON_READY" in line:
+            pending = self._pending_infer_tasks.pop(key, None)
+            if pending:
+                log.info("Daemon ready — dispatching queued task '%s'", pending)
+                self.send_inference_command(skill_slug, f"SET_TASK:{pending}")
+        elif "[STATUS] TASK_DONE" in line:
+            event_bus.inference_finished.emit(skill_slug)
+
+    def _monitor_hardware_errors(self, line: str, key: str) -> None:
+        """Scan subprocess output for critical hardware errors or performance alerts."""
+        if "Overload error!" in line:
+            msg = "[KRITICKÉ PŘETÍŽENÍ SERVA] Vypni na 2 minuty napájení robota, aby serva vychladla."
+            log.error(msg)
+            event_bus.log_message.emit("ERROR", msg)
+            event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+            self.kill_all()
+        elif "Incorrect status packet!" in line:
+            msg = "[VAROVÁNÍ] Sběrnice ztrácí packety (přerušený drát/rušení)."
+            log.warning(msg)
+            event_bus.log_message.emit("WARN", msg)
+            event_bus.console_output.emit(f"<span style='color:var(--warning); font-weight:bold;'>{msg}</span>")
+        elif "running slower" in line:
+            msg = "[VAROVÁNÍ] Počítač nestíhá (přetížené GPU/CPU)."
+            log.warning(msg)
+            event_bus.log_message.emit("WARN", msg)
+            event_bus.console_output.emit(f"<span style='color:var(--warning);'>{msg}</span>")
 
     def _parse_teleop_line(self, line: str) -> None:
         """Extract joints state from teleop output name | value and format as [TELEMETRY] log."""
@@ -832,6 +1352,9 @@ class LeRobotBridge(QObject):
         process.kill()
         process.waitForFinished(3000)
         self._active_processes.pop(key, None)
+        # _handle_finished normally emits process_finished; cover the timeout path too
+        if key in self._process_kinds:
+            event_bus.process_finished.emit(key, self._process_kinds.pop(key))
         event_bus.log_message.emit("WARN", f"Process {key} terminated by Emergency Stop!")
 
     def kill_all(self) -> None:

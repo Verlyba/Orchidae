@@ -166,6 +166,12 @@ class WebEventBridge:
         event_bus.watchdog_timeout.connect(
             lambda rid: self.broadcast("watchdog_timeout", rid))
 
+        # ── Subprocess lifecycle (drives UI button states) ───────────
+        event_bus.process_started.connect(
+            lambda key, kind: self.broadcast("process_started", {"key": key, "kind": kind}))
+        event_bus.process_finished.connect(
+            lambda key, kind: self.broadcast("process_finished", {"key": key, "kind": kind}))
+
         # ── Console / Log events ─────────────────────────────────────
         event_bus.log_message.connect(
             lambda level, msg: self.broadcast("log_message", {"level": level, "message": msg}))

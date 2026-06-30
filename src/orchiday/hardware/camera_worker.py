@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal, Slot, QMutex
 from PySide6.QtGui import QImage
 
 from orchiday.core.events import event_bus
+from orchiday.hardware.camera_utils import open_capture
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class CameraWorker(QThread):
         """Main capture loop."""
         self._running = True
 
-        cap = cv2.VideoCapture(self._source)
+        cap = open_capture(self._source)
         if not cap.isOpened():
             msg = f"Cannot open camera: {self._source}"
             log.error(msg)

@@ -105,8 +105,10 @@ class ProjectPanel(QWidget):
     def _refresh_recent(self) -> None:
         while self._projects_layout.count():
             child = self._projects_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                w = child.widget()
+                if w is not None:
+                    w.deleteLater()
 
         recent = self._pm.recent_projects
         if not recent:
