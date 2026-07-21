@@ -10,9 +10,14 @@ If LeRobot or the hardware is unavailable, the daemon degrades to a
 simulated mock mode so the UI pipeline stays testable.
 
 Stdin protocol:
-    SET_TASK:<task_name>   -> switch to RUNNING and condition the policy on the task
-    STOP                   -> freeze motors, go back to WAITING
-    QUIT                   -> exit the daemon
+    SET_TASK:<task_name>     -> switch to RUNNING and condition the policy on the task
+    SET_POLICY:<policy_path> -> hot-swap the loaded policy WITHOUT dropping the robot
+                                connection or camera handles (per-step orchestration)
+    SNAP                     -> print "[SNAPSHOT] <b64 jpeg>" of the last camera frame
+                                (the daemon owns the camera exclusively, so the VLM
+                                inspector must obtain scene images through this command)
+    STOP                     -> freeze motors, go back to WAITING
+    QUIT                     -> exit the daemon
 
 Dynamic termination triggers:
 - Protocol A (Velocity Delta): |target - current| < 0.005 for 5 consecutive frames.
@@ -76,11 +81,47 @@ postprocessor = None
 obs_features = None
 action_keys: list[str] = []
 device = "cpu"
+current_policy_path = ""
+# Last camera frame seen by the daemon (BGR numpy array) — served via SNAP
+_frame_lock = threading.Lock()
+last_camera_frame: "np.ndarray | None" = None
 
 # Protocol constants
 PROTOCOL_A_THRESHOLD = 0.005  # Radians
 PROTOCOL_A_PATIENCE = 5       # Frames
 PROTOCOL_B_LOAD_LIMIT = 250   # mA
+
+# ── Camera snapshot support (SNAP) ───────────────────────────────────────────
+
+def cache_camera_frame(obs: dict) -> None:
+    """Remember the newest camera image found in a robot observation dict."""
+    global last_camera_frame
+    for value in obs.values():
+        if isinstance(value, np.ndarray) and value.ndim == 3 and value.shape[2] in (1, 3, 4):
+            with _frame_lock:
+                last_camera_frame = value
+            return
+
+
+def snapshot_b64() -> str:
+    """Encode the last cached camera frame as base64 JPEG ('' when unavailable)."""
+    with _frame_lock:
+        frame = last_camera_frame
+    if frame is None:
+        return ""
+    try:
+        import base64
+        import cv2
+        # LeRobot observations are RGB; OpenCV encodes BGR
+        bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) if frame.shape[2] == 3 else frame
+        ok, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            return ""
+        return base64.b64encode(buf.tobytes()).decode("ascii")
+    except Exception as e:
+        log.warning("Snapshot encoding failed: %s", e)
+        return ""
+
 
 # ── Console/Pipe Input Reader Thread ──────────────────────────────────────────
 
@@ -109,6 +150,25 @@ def stdin_reader():
                 state = "RUNNING"
                 log.info("Transitioned to RUNNING. Active Task: %s", active_task)
                 print(f"[STATUS] TASK_STARTED: {active_task}", flush=True)
+        elif line.startswith("SET_POLICY:"):
+            # Hot-swap the policy while keeping the robot + camera connection alive.
+            # This is the core of per-step orchestration: one daemon owns the
+            # hardware for the whole run, only the model weights change.
+            path = line[len("SET_POLICY:"):].strip()
+            if path == current_policy_path and policy is not None:
+                print(f"[STATUS] POLICY_LOADED: {path} (already active)", flush=True)
+                continue
+            state = "WAITING"  # freeze motors during the swap
+            try:
+                if LEROBOT_OK and TORCH_OK:
+                    load_policy(path, device)
+                print(f"[STATUS] POLICY_LOADED: {path}", flush=True)
+            except Exception as e:
+                log.exception("Policy hot-swap failed: %s", e)
+                print(f"[STATUS] POLICY_ERROR: {e}", flush=True)
+        elif line == "SNAP":
+            # The daemon is the exclusive camera owner — export a frame for the VLM.
+            print(f"[SNAPSHOT] {snapshot_b64()}", flush=True)
         elif line == "STOP":
             state = "WAITING"
             active_task = ""
@@ -123,7 +183,7 @@ def stdin_reader():
 
 def load_policy(policy_path: str, dev: str):
     """Load a pretrained LeRobot policy + its processor pipelines."""
-    global policy, preprocessor, postprocessor
+    global policy, preprocessor, postprocessor, current_policy_path
     cfg = PreTrainedConfig.from_pretrained(policy_path)
     cfg.pretrained_path = policy_path
     policy_cls = get_policy_class(cfg.type)
@@ -137,6 +197,7 @@ def load_policy(policy_path: str, dev: str):
     except Exception as e:
         log.warning("Processor pipelines unavailable (%s) — raw select_action will be used.", e)
         preprocessor, postprocessor = None, None
+    current_policy_path = policy_path
     log.info("Policy '%s' loaded from %s onto %s.", cfg.type, policy_path, dev)
 
 
@@ -178,6 +239,7 @@ def connect_robot(robot_type: str, port: str, robot_id: str, cameras_json: str):
 def predict_real_action(task: str, dev: str) -> tuple[np.ndarray, np.ndarray, float]:
     """One inference step on real hardware. Returns (current_joints, target_action, gripper_load)."""
     obs = robot.get_observation()
+    cache_camera_frame(obs)
 
     # Current joint positions (any *.pos keys)
     joints = np.array(
@@ -277,6 +339,7 @@ def main():
             if not simulated_mode and robot is not None:
                 try:
                     obs = robot.get_observation()
+                    cache_camera_frame(obs)
                     joints = np.array(
                         [float(v) for k, v in obs.items() if isinstance(v, (int, float)) and k.endswith(".pos")],
                         dtype=np.float32,

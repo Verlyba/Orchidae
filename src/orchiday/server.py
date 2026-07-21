@@ -28,7 +28,7 @@ _src_dir = Path(__file__).resolve().parent.parent
 if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -162,6 +162,7 @@ class ProjectCreate(BaseModel):
     name: str
     slug: str
     parent_dir: str = ""
+    scene_description: str = ""
 
 
 class RobotCreate(BaseModel):
@@ -261,6 +262,7 @@ class SettingsConfig(BaseModel):
     leader_port: str = ""
     sequential_loop_interval: float | None = None
     language: str | None = None
+    scene_description: str | None = None
 
 
 
@@ -297,9 +299,13 @@ async def list_projects():
 
 @app.post("/api/projects")
 async def create_project(body: ProjectCreate):
+    if not body.scene_description.strip():
+        return JSONResponse(
+            {"ok": False, "error": "scene_description is required — describe the physical workspace."},
+            status_code=422)
     try:
         p_dir = Path(body.parent_dir) if body.parent_dir else None
-        data = pm.create_project(body.name, body.slug, p_dir)
+        data = pm.create_project(body.name, body.slug, p_dir, scene_description=body.scene_description)
         return {"ok": True, "project": data}
     except FileExistsError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
@@ -677,13 +683,123 @@ def get_skill_dataset_info(skill_slug: str):
     }
 
 
+# ── Portable bundles (project / datasets / models between machines) ──────
+
+@app.get("/api/project/export")
+def export_project_bundle(background_tasks: BackgroundTasks, datasets: int = 1, models: int = 0):
+    """Export the current project as a portable .orchiday bundle."""
+    import tempfile
+    from orchiday.core import portability
+
+    if not pm.current_project or not pm.current_path:
+        return JSONResponse({"ok": False, "error": "No project open"}, status_code=400)
+
+    ctrl = _get_controller()
+    python_exe = ctrl.lerobot_bridge._python if ctrl else None
+    slug = pm.current_project.get("slug", "project")
+    zip_path = Path(tempfile.gettempdir()) / f"{slug}.orchiday"
+
+    try:
+        portability.build_project_bundle(
+            project=pm.current_project,
+            project_path=pm.current_path,
+            dest_zip=zip_path,
+            include_datasets=bool(datasets),
+            include_models=bool(models),
+            python_exe=python_exe,
+        )
+    except Exception as e:
+        log.exception("Bundle export failed: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    background_tasks.add_task(lambda p=str(zip_path): os.remove(p) if os.path.exists(p) else None)
+    return FileResponse(path=str(zip_path), filename=f"{slug}.orchiday", media_type="application/zip")
+
+
+@app.post("/api/project/import")
+async def import_project_bundle_ep(request: Request):
+    """Import a .orchiday bundle: places the project, restores datasets & models."""
+    import tempfile
+    from orchiday.core import portability
+
+    body = await request.body()
+    if not body:
+        return JSONResponse({"ok": False, "error": "Empty upload"}, status_code=400)
+
+    tmp_zip = Path(tempfile.gettempdir()) / "orchiday_import.orchiday"
+    tmp_zip.write_bytes(body)
+    try:
+        result = portability.import_project_bundle(tmp_zip, pm._config.projects_dir)
+        data = pm.open_project(Path(result["path"]))
+        _get_controller()
+        event_bus.project_opened.emit(pm.current_project)
+        event_bus.log_message.emit("SUCCESS", f"Imported project '{result['slug']}' from bundle.")
+        return {"ok": True, "project": data, "manifest": result.get("manifest", {})}
+    except Exception as e:
+        log.exception("Bundle import failed: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    finally:
+        try:
+            tmp_zip.unlink()
+        except Exception:
+            pass
+
+
+@app.get("/api/skills/{skill_slug:path}/export_model")
+def export_skill_model(skill_slug: str, background_tasks: BackgroundTasks):
+    """Export just the trained checkpoint of one skill (for sending a model back)."""
+    import tempfile
+    from orchiday.core import portability
+
+    if not pm.current_project:
+        return JSONResponse({"ok": False, "error": "No project open"}, status_code=400)
+
+    slug_leaf = skill_slug.split("/")[-1]
+    zip_path = Path(tempfile.gettempdir()) / f"{slug_leaf}_model.orchiday"
+    try:
+        portability.build_model_bundle(pm.current_project, slug_leaf, zip_path)
+    except FileNotFoundError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=404)
+    except Exception as e:
+        log.exception("Model export failed: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    background_tasks.add_task(lambda p=str(zip_path): os.remove(p) if os.path.exists(p) else None)
+    return FileResponse(path=str(zip_path), filename=f"{slug_leaf}_model.orchiday", media_type="application/zip")
+
+
+@app.post("/api/models/import")
+async def import_model_bundle_ep(request: Request):
+    """Import a trained checkpoint bundle back onto this machine."""
+    import tempfile
+    from orchiday.core import portability
+
+    body = await request.body()
+    if not body:
+        return JSONResponse({"ok": False, "error": "Empty upload"}, status_code=400)
+    tmp_zip = Path(tempfile.gettempdir()) / "orchiday_model_import.orchiday"
+    tmp_zip.write_bytes(body)
+    try:
+        restored = portability.import_model_bundle(tmp_zip, pm.current_project)
+        event_bus.log_message.emit("SUCCESS", f"Imported model(s): {', '.join(restored)}")
+        return {"ok": True, "restored": restored}
+    except Exception as e:
+        log.exception("Model import failed: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    finally:
+        try:
+            tmp_zip.unlink()
+        except Exception:
+            pass
+
+
 @app.get("/api/project/export_datasets")
 def export_project_datasets(background_tasks: BackgroundTasks):
     from pathlib import Path
     import os
     import zipfile
     import tempfile
-    
+
     if not pm.current_project:
         return JSONResponse({"ok": False, "error": "No project open"}, status_code=400)
     
@@ -1045,144 +1161,98 @@ async def recording_action(body: dict):
         return {"ok": False, "error": str(e)}
 
 
-class RecordingTagConfig(BaseModel):
-    dataset_name: str
-    macro_task: str
-    sub_skills: list[str]
-    transition_points: list[int]
-    episode_index: int | None = None
+# ── Step marks: sub-task boundary flags during recording ────────────────────
 
-
-@app.post("/api/recording/tag_episode")
-async def tag_episode(body: RecordingTagConfig):
-    import re
-    from pathlib import Path
-    import pandas as pd
-
-    # Locate dataset path
-    custom_dir = None
+def _dataset_name_for_skill(skill_slug: str) -> str:
+    """Enforced local dataset repo_id for a skill (parent-aware)."""
+    parent_slug = ""
     if pm.current_project:
-        custom_dir = pm.current_project.get("dataset_storage_dir")
+        details = pm.current_project.get("skills_details", {})
+        parent_slug = details.get(skill_slug, {}).get("parent_slug", "") or ""
+    return f"local/{parent_slug}/{skill_slug}" if parent_slug else f"local/{skill_slug}"
 
-    parent_slug = None
-    skill_slug = body.dataset_name.split("/")[-1]
-    if pm.current_project and "skills_details" in pm.current_project:
-        detail = pm.current_project["skills_details"].get(skill_slug, {})
-        if not detail and "/" in body.dataset_name:
-            parts = body.dataset_name.split("/")
-            detail = pm.current_project["skills_details"].get(parts[-1], {})
-        parent_slug = detail.get("parent_slug")
 
-    paths = []
-    if custom_dir:
-        custom_path = Path(custom_dir)
-        if parent_slug:
-            paths.append(custom_path / "lerobot" / "local" / parent_slug / skill_slug)
-            paths.append(custom_path / "lerobot" / parent_slug / skill_slug)
-            paths.append(custom_path / parent_slug / skill_slug)
-        paths.append(custom_path / "lerobot" / "local" / body.dataset_name)
-        paths.append(custom_path / "lerobot" / body.dataset_name)
-        paths.append(custom_path / body.dataset_name)
+def _ordered_sub_steps(skill_slug: str) -> list[dict]:
+    """Ordered child steps of a parent skill as splitter step descriptors."""
+    project = pm.current_project or {}
+    details = project.get("skills_details", {})
+    steps = []
+    for s in project.get("skills", []):  # project skill order defines step order
+        d = details.get(s, {})
+        if d.get("parent_slug") == skill_slug:
+            steps.append({
+                "slug": s,
+                "repo_id": f"local/{skill_slug}/{s}",
+                "task": d.get("description") or d.get("name") or s.replace("_", " "),
+            })
+    return steps
 
-    default_hf = Path.home() / ".cache" / "huggingface"
-    if parent_slug:
-        paths.append(default_hf / "lerobot" / "local" / parent_slug / skill_slug)
-        paths.append(default_hf / "lerobot" / parent_slug / skill_slug)
-    paths.append(default_hf / "lerobot" / "local" / body.dataset_name)
-    paths.append(default_hf / "lerobot" / body.dataset_name)
 
-    from orchiday.core.constants import APP_DATA_DIR
-    paths.append(APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "local" / body.dataset_name)
-    if parent_slug:
-        paths.append(APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "local" / parent_slug / skill_slug)
+@app.post("/api/recording/mark_step")
+async def mark_recording_step(body: dict):
+    """Flag a sub-task boundary at the current moment of an active recording."""
+    ctrl = _get_controller()
+    skill = body.get("skill_slug", "")
+    if not skill:
+        return {"ok": False, "error": "skill_slug is required"}
+    return ctrl.lerobot_bridge.mark_step(
+        skill, int(body.get("step", 0)), str(body.get("label", "")))
 
-    target_dir = None
-    for p in paths:
-        if p.exists() and (p / "data").exists():
-            target_dir = p
-            break
-        elif p.exists():
-            target_dir = p
-            break
 
-    if not target_dir:
-        target_dir = paths[0]  # Fallback to the first path
+@app.post("/api/recording/undo_mark")
+async def undo_recording_mark(body: dict):
+    """Remove the last step mark of the current episode (misclick recovery)."""
+    ctrl = _get_controller()
+    skill = body.get("skill_slug", "")
+    if not skill:
+        return {"ok": False, "error": "skill_slug is required"}
+    return ctrl.lerobot_bridge.undo_step_mark(skill)
 
-    log.info("Recording tag: dataset located at %s", target_dir)
 
-    data_dir = target_dir / "data"
-    if not data_dir.exists():
-        data_dir = target_dir
+@app.get("/api/skills/{skill_slug:path}/step_marks")
+async def get_step_marks(skill_slug: str):
+    """Step marks for a skill — live during recording, else the persisted file."""
+    ctrl = _get_controller()
+    marks = ctrl.lerobot_bridge.get_step_marks(skill_slug, _dataset_name_for_skill(skill_slug))
+    marks["steps"] = _ordered_sub_steps(skill_slug)
+    return {"ok": True, **marks}
 
-    parquet_files = list(data_dir.glob("episode_*.parquet"))
-    if not parquet_files:
-        parquet_files = list(target_dir.glob("*.parquet"))
 
-    if not parquet_files:
-        return JSONResponse({"ok": False, "error": f"No Parquet files found in dataset path: {target_dir}"}, status_code=404)
+@app.post("/api/datasets/split_steps")
+async def split_dataset_steps(body: dict):
+    """Split a parent skill's recorded dataset into per-step sub-datasets.
 
-    def get_episode_num(f: Path) -> int:
-        match = re.search(r"episode_(\d+)\.parquet", f.name)
-        if match:
-            return int(match.group(1))
-        return -1
+    The full dataset stays untouched (baseline policy training); each ordered
+    sub-skill receives its own derived dataset for per-step model training.
+    """
+    ctrl = _get_controller()
+    skill = body.get("skill_slug", "")
+    if not skill:
+        return {"ok": False, "error": "skill_slug is required"}
+    steps = _ordered_sub_steps(skill)
+    if len(steps) < 2:
+        return {"ok": False, "error": "Skill needs at least 2 ordered sub-steps to split by marks."}
+    ok = ctrl.lerobot_bridge.start_dataset_split(
+        source_repo_id=_dataset_name_for_skill(skill),
+        skill_slug=skill,
+        steps=steps,
+        require_complete=bool(body.get("require_complete", True)),
+    )
+    return {"ok": ok}
 
-    parquet_files.sort(key=get_episode_num)
 
-    target_file = None
-    if body.episode_index is not None:
-        expected_name = f"episode_{body.episode_index:06d}.parquet"
-        for pf in parquet_files:
-            if pf.name == expected_name:
-                target_file = pf
-                break
-        if not target_file:
-            return JSONResponse({"ok": False, "error": f"Requested episode {body.episode_index} Parquet file not found."}, status_code=404)
-    else:
-        target_file = parquet_files[-1]  # Latest episode
+@app.get("/api/orchestration/runs")
+async def get_orchestration_runs(limit: int = 50):
+    """List persisted orchestration run logs of the open project."""
+    if not pm.current_project or not pm.current_path:
+        return {"ok": False, "error": "No active project", "runs": []}
+    from orchiday.orchestration.run_logger import list_runs
+    return {"ok": True, "runs": list_runs(pm.current_path, limit=limit)}
 
-    log.info("Tagging episode file: %s", target_file)
-    event_bus.log_message.emit("INFO", f"Tagging dataset file: {target_file.name}")
 
-    try:
-        df = pd.read_parquet(target_file)
-        num_rows = len(df)
-
-        lang_instructions = []
-        pts = body.transition_points
-        skills = body.sub_skills
-        macro = body.macro_task
-
-        if not skills:
-            return JSONResponse({"ok": False, "error": "No sub-skills provided for tagging."}, status_code=400)
-
-        for row_idx in range(num_rows):
-            phase_idx = 0
-            for i, pt in enumerate(pts):
-                if row_idx >= pt:
-                    phase_idx = i + 1
-                else:
-                    break
-
-            if phase_idx >= len(skills):
-                phase_idx = len(skills) - 1
-
-            active_skill = skills[phase_idx]
-            lang_instructions.append(f"{macro}__{active_skill}")
-
-        df['language_instruction'] = lang_instructions
-        df.to_parquet(target_file, index=False)
-
-        msg = f"Successfully injected active tags into episode Parquet file ({num_rows} frames)"
-        log.info(msg)
-        event_bus.log_message.emit("SUCCESS", msg)
-        return {"ok": True, "file": target_file.name, "frames": num_rows}
-    except Exception as e:
-        err_msg = f"Failed to tag Parquet file: {e}"
-        log.exception(err_msg)
-        event_bus.log_message.emit("ERROR", err_msg)
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
+# NOTE: The legacy /api/recording/tag_episode endpoint (direct parquet
+# rewriting) was replaced by the step-mark + dataset-splitter pipeline:
+# POST /api/recording/mark_step  +  POST /api/datasets/split_steps.
 
 
 # ── Training ─────────────────────────────────────────────────────────────
@@ -1256,6 +1326,8 @@ async def save_settings(body: SettingsConfig):
 
     if body.dataset_storage_dir is not None:
         pm.current_project["dataset_storage_dir"] = body.dataset_storage_dir.strip()
+    if body.scene_description is not None:
+        pm.current_project["scene_description"] = body.scene_description.strip()
     if body.robot_type is not None:
         pm.current_project["robot_type"] = body.robot_type.strip()
     if body.follower_port is not None:
@@ -1608,10 +1680,15 @@ class SetupFinishConfig(BaseModel):
     follower_port: str = ""
     follower_device_id: str = ""
     cameras: list[SetupCameraConfig] = []
+    scene_description: str = ""
 
 @app.post("/api/setup/finish")
 async def setup_finish(body: SetupFinishConfig):
     import re
+    if not body.scene_description.strip():
+        return JSONResponse(
+            {"ok": False, "error": "scene_description is required — describe the physical workspace."},
+            status_code=422)
     # 1. Generate slug from project name
     slug = re.sub(r'[^a-z0-9_]', '', body.project_name.lower().replace(" ", "_").replace("-", "_"))
     if not slug:
@@ -1626,7 +1703,7 @@ async def setup_finish(body: SetupFinishConfig):
 
     try:
         # Create project
-        project_data = pm.create_project(body.project_name, slug)
+        project_data = pm.create_project(body.project_name, slug, scene_description=body.scene_description)
         
         # Open it so it is the active one
         pm.open_project(pm._config.projects_dir / slug)

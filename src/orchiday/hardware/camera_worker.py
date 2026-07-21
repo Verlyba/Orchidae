@@ -11,7 +11,8 @@ from PySide6.QtCore import QThread, Signal, Slot, QMutex
 from PySide6.QtGui import QImage
 
 from orchiday.core.events import event_bus
-from orchiday.hardware.camera_utils import open_capture
+from orchiday.hardware.camera_utils import (
+    open_capture_configured, register_source, unregister_source)
 
 log = logging.getLogger(__name__)
 
@@ -52,44 +53,45 @@ class CameraWorker(QThread):
         """Main capture loop."""
         self._running = True
 
-        cap = open_capture(self._source)
-        if not cap.isOpened():
-            msg = f"Cannot open camera: {self._source}"
-            log.error(msg)
-            self.error.emit(msg)
-            return
+        # Claim the device BEFORE opening so hardware scans skip it (probing a
+        # device that is being streamed crashes Windows capture backends).
+        register_source(self._source)
+        try:
+            cap = open_capture_configured(self._source, self._width, self._height, self._fps)
+            if not cap.isOpened():
+                msg = f"Cannot open camera: {self._source}"
+                log.error(msg)
+                self.error.emit(msg)
+                return
 
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-        cap.set(cv2.CAP_PROP_FPS, self._fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            log.info("Camera %s started (source=%s, %dx%d, %d FPS)",
+                     self._camera_id, self._source, self._width, self._height, self._fps)
+            self.started_ok.emit(self._camera_id)
 
-        log.info("Camera %s started (source=%s, %dx%d, %d FPS)",
-                 self._camera_id, self._source, self._width, self._height, self._fps)
-        self.started_ok.emit(self._camera_id)
+            frame_delay = max(1, int(1000 / self._fps))
 
-        frame_delay = max(1, int(1000 / self._fps))
+            while self._running:
+                ret, frame = cap.read()
+                if ret:
+                    self._mutex.lock()
+                    self._last_frame = frame.copy()
+                    self._mutex.unlock()
 
-        while self._running:
-            ret, frame = cap.read()
-            if ret:
-                self._mutex.lock()
-                self._last_frame = frame.copy()
-                self._mutex.unlock()
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = rgb.shape
+                    qt_image = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+                    self.frame_ready.emit(qt_image)
+                    event_bus.camera_frame_ready.emit(self._camera_id, qt_image)
+                else:
+                    self.msleep(100)
+                    continue
+                self.msleep(frame_delay)
 
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgb.shape
-                qt_image = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
-                self.frame_ready.emit(qt_image)
-                event_bus.camera_frame_ready.emit(self._camera_id, qt_image)
-            else:
-                self.msleep(100)
-                continue
-            self.msleep(frame_delay)
-
-        cap.release()
-        log.info("Camera %s stopped", self._camera_id)
-        self.stopped_ok.emit(self._camera_id)
+            cap.release()
+            log.info("Camera %s stopped", self._camera_id)
+            self.stopped_ok.emit(self._camera_id)
+        finally:
+            unregister_source(self._source)
 
     @Slot()
     def stop(self) -> None:
@@ -131,10 +133,20 @@ class CameraManager:
         self._workers: dict[str, CameraWorker] = {}
 
     def start_camera(self, camera_id: str, source: int | str = 0,
-                     width: int = 640, height: int = 480, fps: int = 30) -> CameraWorker:
+                     width: int = 640, height: int = 480, fps: int = 30) -> CameraWorker | None:
         if camera_id in self._workers:
             log.warning("Camera %s is already running", camera_id)
             return self._workers[camera_id]
+        # One physical device = one owner. A second worker on the same source
+        # would fail to open at best and crash the OS backend at worst.
+        for other in self._workers.values():
+            if str(other._source) == str(source):
+                msg = (f"Camera source '{source}' is already used by '{other.camera_id}' — "
+                       f"'{camera_id}' not started. Assign a different device index.")
+                log.warning(msg)
+                event_bus.camera_error.emit(camera_id, msg)
+                event_bus.log_message.emit("WARN", msg)
+                return None
         worker = CameraWorker(camera_id, source, width, height, fps)
         self._workers[camera_id] = worker
         worker.start()

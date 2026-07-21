@@ -31,6 +31,7 @@ const App = {
     taggingActiveIndex: 0,
     taggingPoints: [],
     taggingInterval: null,
+    taggingEpisode: -1,
     wizardActivePage: 1,
     wizardSelectedOption: 'install', // 'install' or 'connect'
     wizardLeaderPort: '',
@@ -89,6 +90,11 @@ const App = {
             const k = el.getAttribute('data-i18n-title');
             if (k)
                 el.title = this.t(k);
+        });
+        root.querySelectorAll('[data-i18n-tooltip]').forEach(el => {
+            const k = el.getAttribute('data-i18n-tooltip');
+            if (k)
+                el.setAttribute('data-tooltip', this.t(k));
         });
         document.documentElement.lang = this.lang;
         // Keep the language toggle in sync with the active language
@@ -315,6 +321,13 @@ const App = {
                 this.renderCameras();
                 this.log('INFO', `Camera ${data} feed offline`);
                 break;
+            case 'camera_suspended':
+                // A robot process took exclusive access — preview resumes automatically
+                if (this.activeCameras)
+                    this.activeCameras = this.activeCameras.filter(cid => cid !== data);
+                this.renderCameras();
+                this.log('INFO', this.t('log.camSuspended', { c: data }));
+                break;
             case 'recording_started':
                 this.log('INFO', `Demonstration recording started for skill: ${data}`);
                 this.updateTrainingStatus(`Recording demonstration for '${data}'...`, 'var(--yellow)');
@@ -325,6 +338,15 @@ const App = {
             case 'recording_progress':
                 this.log('INFO', `Recording episode progress: ${Math.round(data.progress * 100)}%`);
                 this.updateTrainingStatus(`Recording... ${Math.round(data.progress * 100)}%`, 'var(--yellow)');
+                break;
+            case 'recording_episode':
+                this.log('INFO', this.t('log.episodeStarted', { n: data.episode }));
+                this.onRecordingEpisodeStarted(data.episode);
+                break;
+            case 'step_marked':
+                // Server-side confirmation of a step mark (also covers other clients)
+                if (data && data.undone)
+                    this.log('INFO', this.t('log.markUndone'));
                 break;
             case 'recording_stopped':
                 this.log('SUCCESS', `Demonstration episode recorded successfully for: ${data.skill}`);
@@ -531,8 +553,9 @@ const App = {
             teleBadge.style.display = teleopRunning ? 'inline-flex' : 'none';
     },
     changeTab(tabId) {
-        // Guard: Must have active project to select tabs other than 'projects'
-        if (tabId !== 'projects' && !this.project) {
+        // Guard: Must have active project to select tabs other than 'projects'.
+        // The Help page is pure documentation — always accessible.
+        if (tabId !== 'projects' && tabId !== 'help' && !this.project) {
             alert(this.t('alert.openProjectFirst'));
             this.changeTab('projects');
             return;
@@ -587,6 +610,8 @@ const App = {
                 bcSection.textContent = 'model_run';
             else if (tabId === 'settings')
                 bcSection.textContent = 'settings';
+            else if (tabId === 'help')
+                bcSection.textContent = 'help';
         }
         if (bcFile) {
             if (tabId === 'projects')
@@ -611,6 +636,8 @@ const App = {
                 bcFile.textContent = 'ceo_execution.json';
             else if (tabId === 'settings')
                 bcFile.textContent = 'config.json';
+            else if (tabId === 'help')
+                bcFile.textContent = 'orchestration_schema';
         }
         if (tabId === 'learning') {
             // Sync the policy picker cards with the project's stored architecture
@@ -774,9 +801,15 @@ const App = {
                 }
             });
         };
+        const exportBtn = document.getElementById('ds-btn-export-model');
+        const splitBtn = document.getElementById('ds-btn-split-steps');
         if (!skill) {
             ['ds-info-exists', 'ds-info-episodes', 'ds-info-fps', 'ds-info-size'].forEach(id => setVal(id, '—'));
             setOpsEnabled(false);
+            if (exportBtn)
+                exportBtn.disabled = true;
+            if (splitBtn)
+                splitBtn.disabled = true;
             return;
         }
         const info = await this.api('GET', `/skills/${skill}/dataset_info`);
@@ -785,6 +818,48 @@ const App = {
         setVal('ds-info-fps', info?.exists ? String(info.fps) : '—');
         setVal('ds-info-size', info?.exists ? `${info.size_mb} MB` : '—');
         setOpsEnabled(!!info?.exists);
+        // "Export model" is only meaningful once a policy has been trained for this skill
+        if (exportBtn) {
+            const status = await this.api('GET', `/skills/${skill}/policy_status`);
+            exportBtn.disabled = !status?.exists;
+            exportBtn.title = status?.exists ? '' : this.t('tip.noModelYet');
+        }
+        // "Split by steps" needs: dataset on disk + >=2 ordered sub-skills + step marks
+        if (splitBtn) {
+            let enabled = false;
+            let tip = '';
+            if (info?.exists) {
+                const marks = await this.api('GET', `/skills/${skill}/step_marks`);
+                const nSteps = (marks?.steps || []).length;
+                const nMarked = Object.keys(marks?.episodes || {}).length;
+                if (nSteps < 2)
+                    tip = this.t('tip.splitNeedsSubskills');
+                else if (nMarked === 0)
+                    tip = this.t('tip.splitNeedsMarks');
+                else {
+                    enabled = true;
+                    tip = this.t('tip.splitSteps');
+                }
+            }
+            else {
+                tip = this.t('tip.splitNeedsDataset');
+            }
+            splitBtn.disabled = !enabled;
+            splitBtn.title = tip;
+        }
+    },
+    async splitDatasetSteps() {
+        const skill = this.dsSelectedSkill();
+        if (!skill) {
+            alert(this.t('msg.selectDatasetFirst'));
+            return;
+        }
+        this.log('INFO', this.t('log.splitStart', { s: skill }));
+        const res = await this.api('POST', '/datasets/split_steps', { skill_slug: skill });
+        if (res && res.ok === false) {
+            this.log('ERROR', this.t('log.splitFail', { e: res.error || '?' }));
+            alert(res.error || 'Split failed');
+        }
     },
     async dsRunOp(operation, params = {}, newRepoId = '') {
         const repo = this.dsSelectedRepo();
@@ -971,6 +1046,9 @@ const App = {
                     storageDirInput.value = val;
                 if (recStorageDirInput)
                     recStorageDirInput.value = val;
+                const sceneDescInput = document.getElementById('settings-scene-desc');
+                if (sceneDescInput)
+                    sceneDescInput.value = this.project?.scene_description || '';
                 // Populate diagnostic labels
                 const lblPyVersion = document.getElementById('diag-python-version');
                 if (lblPyVersion)
@@ -998,11 +1076,17 @@ const App = {
         const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
         const storageDirEl = document.getElementById('settings-dataset-storage-dir');
         const storageDir = storageDirEl ? storageDirEl.value.trim() : '';
+        const sceneDescEl = document.getElementById('settings-scene-desc');
+        const sceneDescription = sceneDescEl ? sceneDescEl.value.trim() : '';
+        if (this.project && sceneDescEl && !sceneDescription) {
+            this.log('WARN', this.t('log.sceneDescEmptyWarn'));
+        }
         this.log('INFO', 'Saving global and project settings...');
         const r = await this.api('POST', '/settings', {
             python_path: pyPath,
             lerobot_dir: lerobotDir,
-            dataset_storage_dir: storageDir
+            dataset_storage_dir: storageDir,
+            scene_description: sceneDescription
         });
         if (r && r.ok) {
             this.log('SUCCESS', 'Settings saved successfully');
@@ -1174,15 +1258,23 @@ const App = {
             const slugInput = document.getElementById('new-project-slug');
             if (slugInput)
                 slugInput.value = '';
+            const sceneDescInput = document.getElementById('new-project-scene-desc');
+            if (sceneDescInput)
+                sceneDescInput.value = '';
         }
     },
     async createProject() {
         const name = document.getElementById('new-project-name').value.trim();
         const slug = document.getElementById('new-project-slug').value.trim();
         const parentDir = document.getElementById('new-project-parent-dir')?.value.trim() || '';
+        const sceneDescription = document.getElementById('new-project-scene-desc')?.value.trim() || '';
         if (!name || !slug)
             return;
-        const r = await this.api('POST', '/projects', { name, slug, parent_dir: parentDir });
+        if (!sceneDescription) {
+            alert(this.t('alert.sceneDescRequired'));
+            return;
+        }
+        const r = await this.api('POST', '/projects', { name, slug, parent_dir: parentDir, scene_description: sceneDescription });
         if (r.ok) {
             this.closeModal('modal-new-project');
             this.loadProjects();
@@ -3112,6 +3204,10 @@ const App = {
             alert("Název nesmí být prázdný!");
             return;
         }
+        if (!desc) {
+            alert(this.t('alert.skillDescRequired'));
+            return;
+        }
         if (this.skillWizardIsEdit) {
             // EDIT MODE
             this.log('INFO', `Ukládám změny dovednosti/kroku: '${name}' (slug: ${this.skillWizardEditSlug})...`);
@@ -3168,14 +3264,89 @@ const App = {
         }
     },
     exportAllDatasets() {
-        this.log('INFO', 'Generuji ZIP archiv se všemi datasety...');
+        this.log('INFO', this.t('log.zipExport'));
+        this._triggerDownload('/api/project/export_datasets');
+        this.log('SUCCESS', this.t('log.zipExportStarted'));
+    },
+    // ── Portable bundles (project / datasets / models between machines) ──
+    _triggerDownload(url) {
         const a = document.createElement('a');
-        a.href = '/api/project/export_datasets';
+        a.href = url;
         a.download = '';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        this.log('SUCCESS', 'Export všech dovedností do ZIPu byl zahájen.');
+    },
+    showExportModal() {
+        if (!this.project) {
+            alert(this.t('alert.openProjectFirst'));
+            return;
+        }
+        this.openModal('modal-export-bundle');
+    },
+    doExportBundle() {
+        const datasets = document.getElementById('export-datasets')?.checked ? 1 : 0;
+        const models = document.getElementById('export-models')?.checked ? 1 : 0;
+        this.closeModal('modal-export-bundle');
+        this.log('INFO', this.t('log.bundleExport'));
+        this._triggerDownload(`/api/project/export?datasets=${datasets}&models=${models}`);
+        this.log('SUCCESS', this.t('log.bundleExportStarted'));
+    },
+    importProjectBundle() {
+        document.getElementById('import-bundle-input')?.click();
+    },
+    async onImportBundleFile(event) {
+        const input = event.target;
+        const file = input.files && input.files[0];
+        input.value = '';
+        if (!file)
+            return;
+        this.log('INFO', this.t('log.importing') + ' ' + file.name);
+        try {
+            const res = await fetch('/api/project/import', { method: 'POST', body: file });
+            const data = await res.json();
+            if (data && data.ok) {
+                this.log('SUCCESS', this.t('log.importOk'));
+                await this.loadProjects();
+                await this.refreshProject();
+            }
+            else {
+                this.log('ERROR', `${this.t('log.importFail')}: ${data?.error || res.status}`);
+                alert(`${this.t('log.importFail')}: ${data?.error || res.status}`);
+            }
+        }
+        catch (e) {
+            this.log('ERROR', `${this.t('log.importFail')}: ${e}`);
+        }
+    },
+    exportSkillModel(slug) {
+        this.log('INFO', this.t('log.modelExport') + ' ' + slug);
+        this._triggerDownload(`/api/skills/${slug}/export_model`);
+    },
+    importSkillModel() {
+        document.getElementById('import-model-input')?.click();
+    },
+    async onImportModelFile(event) {
+        const input = event.target;
+        const file = input.files && input.files[0];
+        input.value = '';
+        if (!file)
+            return;
+        this.log('INFO', this.t('log.modelImporting') + ' ' + file.name);
+        try {
+            const res = await fetch('/api/models/import', { method: 'POST', body: file });
+            const data = await res.json();
+            if (data && data.ok) {
+                this.log('SUCCESS', `${this.t('log.modelImportOk')}: ${(data.restored || []).join(', ')}`);
+            }
+            else {
+                this.log('ERROR', `${this.t('log.modelImportFail')}: ${data?.error || res.status}`);
+                alert(`${this.t('log.modelImportFail')}: ${data?.error || res.status}`);
+            }
+        }
+        catch (e) {
+            this.log('ERROR', `${this.t('log.modelImportFail')}: ${e}`);
+        }
     },
     async deleteSkill(slug) {
         if (confirm(`Opravdu chcete smazat '${slug}' a všechna jeho nahraná data?`)) {
@@ -3784,54 +3955,80 @@ const App = {
             }
         });
     },
+    taggingSubSkills() {
+        const s = this.activeSkill;
+        if (!s)
+            return [];
+        const skills = this.project?.skills || [];
+        const details = this.project?.skills_details || {};
+        return skills.filter(sub => details[sub]?.parent_slug === s);
+    },
     initTaggingWizard() {
         const s = this.activeSkill;
         if (!s)
             return;
-        const skills = this.project?.skills || [];
-        const details = this.project?.skills_details || {};
-        const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+        const subSkills = this.taggingSubSkills();
         const wizard = document.getElementById('rec-tagging-wizard');
         const stepsContainer = document.getElementById('rec-tagging-steps');
         if (subSkills.length > 0 && wizard && stepsContainer) {
             wizard.style.display = 'flex';
+            // Marks are timestamped SERVER-SIDE against the real episode start parsed
+            // from lerobot-record output — this local timer is display-only.
             this.taggingStartTime = Date.now();
             this.taggingActiveIndex = 0;
             this.taggingPoints = [];
+            this.taggingEpisode = -1;
             this.renderTaggingSteps(subSkills);
             const timerEl = document.getElementById('rec-tagging-timer');
-            const frameEl = document.getElementById('rec-tagging-frame');
+            const epEl = document.getElementById('rec-tagging-episode');
             const pointsEl = document.getElementById('rec-tagging-points');
             if (timerEl)
                 timerEl.textContent = '0.0s';
-            if (frameEl)
-                frameEl.textContent = '0';
+            if (epEl)
+                epEl.textContent = '–';
             if (pointsEl)
-                pointsEl.textContent = '[]';
+                pointsEl.textContent = '0';
             if (this.taggingInterval) {
                 clearInterval(this.taggingInterval);
             }
-            const btnNext = document.getElementById('btn-tagging-next');
-            if (btnNext) {
-                btnNext.disabled = false;
-                btnNext.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle; margin-right:4px;"><polyline points="9 18 15 12 9 6"></polyline></svg> [MEZERNÍK / 2] Označit konec fáze`;
-            }
+            this.setTaggingNextEnabled(true);
             this.taggingInterval = setInterval(() => {
-                const elapsedMs = Date.now() - this.taggingStartTime;
-                const elapsedSecs = (elapsedMs / 1000).toFixed(1);
-                const frameIdx = Math.round((elapsedMs / 1000) * 30);
+                const elapsedSecs = ((Date.now() - this.taggingStartTime) / 1000).toFixed(1);
                 const tEl = document.getElementById('rec-tagging-timer');
-                const fEl = document.getElementById('rec-tagging-frame');
                 if (tEl)
                     tEl.textContent = `${elapsedSecs}s`;
-                if (fEl)
-                    fEl.textContent = `${frameIdx}`;
             }, 100);
-            this.log('SUCCESS', `Aktivní fázování spuštěno pro '${s}' (${subSkills.length} sub-skillů).`);
+            this.log('SUCCESS', this.t('log.taggingStarted', { s, n: subSkills.length }));
         }
         else if (wizard) {
             wizard.style.display = 'none';
         }
+    },
+    setTaggingNextEnabled(enabled) {
+        const btnNext = document.getElementById('btn-tagging-next');
+        if (!btnNext)
+            return;
+        btnNext.disabled = !enabled;
+        const label = btnNext.querySelector('span');
+        if (label)
+            label.textContent = enabled ? this.t('rec.markPhaseEnd') : this.t('rec.allPhasesMarked');
+    },
+    onRecordingEpisodeStarted(episode) {
+        // A new episode began — step marking restarts from phase 0
+        if (this.taggingSubSkills().length === 0)
+            return;
+        this.taggingEpisode = episode;
+        this.taggingActiveIndex = 0;
+        this.taggingPoints = [];
+        this.taggingStartTime = Date.now();
+        const epEl = document.getElementById('rec-tagging-episode');
+        if (epEl)
+            epEl.textContent = String(episode);
+        const pointsEl = document.getElementById('rec-tagging-points');
+        if (pointsEl)
+            pointsEl.textContent = '0';
+        this.renderTaggingSteps(this.taggingSubSkills());
+        this.setTaggingNextEnabled(true);
     },
     renderTaggingSteps(subSkills) {
         const stepsContainer = document.getElementById('rec-tagging-steps');
@@ -3842,14 +4039,14 @@ const App = {
             const isCompleted = idx < this.taggingActiveIndex;
             const isActive = idx === this.taggingActiveIndex;
             let badgeCls = 'bg-syntax-type/20 text-syntax-type';
-            let stateLabel = 'Čeká';
+            let stateLabel = this.t('tag.waiting');
             if (isCompleted) {
                 badgeCls = 'bg-green-500/20 text-green';
-                stateLabel = 'Hotovo';
+                stateLabel = this.t('tag.done');
             }
             else if (isActive) {
                 badgeCls = 'bg-cyan-500/20 text-cyan font-bold';
-                stateLabel = 'AKTIVNÍ';
+                stateLabel = this.t('tag.active');
             }
             return `
         <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:4px; border:1px solid ${isActive ? 'var(--cyan)' : 'rgba(255,255,255,0.04)'};" class="${isActive ? 'pulse-light-cyan' : ''}">
@@ -3861,75 +4058,76 @@ const App = {
       `;
         }).join('');
     },
-    taggingNextStep() {
+    async taggingNextStep() {
         const s = this.activeSkill;
         if (!s)
             return;
-        const skills = this.project?.skills || [];
-        const details = this.project?.skills_details || {};
-        const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
+        const subSkills = this.taggingSubSkills();
         if (this.taggingActiveIndex >= subSkills.length - 1) {
-            this.log('WARN', 'Všechny fáze fázování byly již označeny!');
+            this.log('WARN', this.t('log.allPhasesMarked'));
             return;
         }
-        const elapsedMs = Date.now() - this.taggingStartTime;
-        const frameIdx = Math.round((elapsedMs / 1000) * 30);
-        this.taggingPoints.push(frameIdx);
-        this.taggingActiveIndex++;
-        const pointsEl = document.getElementById('rec-tagging-points');
-        if (pointsEl) {
-            pointsEl.textContent = JSON.stringify(this.taggingPoints);
+        // The mark timestamp is taken server-side against the real episode start
+        // parsed from lerobot-record output (immune to UI/network latency drift).
+        const nextIdx = this.taggingActiveIndex + 1;
+        const res = await this.api('POST', '/recording/mark_step', {
+            skill_slug: s,
+            step: nextIdx,
+            label: subSkills[this.taggingActiveIndex],
+        });
+        if (!res || res.ok === false) {
+            this.log('WARN', this.t('log.markFail', { e: res?.error || '?' }));
+            return;
         }
+        this.taggingPoints.push(res.t);
+        this.taggingActiveIndex = nextIdx;
+        const pointsEl = document.getElementById('rec-tagging-points');
+        if (pointsEl)
+            pointsEl.textContent = String(this.taggingPoints.length);
+        const epEl = document.getElementById('rec-tagging-episode');
+        if (epEl && typeof res.episode === 'number')
+            epEl.textContent = String(res.episode);
         this.renderTaggingSteps(subSkills);
-        this.log('SUCCESS', `Fáze '${subSkills[this.taggingActiveIndex - 1]}' uložena na framu ${frameIdx}. Aktivní fáze: '${subSkills[this.taggingActiveIndex]}'.`);
-        const btnNext = document.getElementById('btn-tagging-next');
-        if (this.taggingActiveIndex === subSkills.length - 1 && btnNext) {
-            btnNext.disabled = true;
-            btnNext.style.background = 'rgba(255,255,255,0.03)';
-            btnNext.style.color = 'var(--text-muted)';
-            btnNext.style.borderColor = 'rgba(255,255,255,0.06)';
-            btnNext.textContent = 'Všechny fáze označeny';
+        this.log('SUCCESS', this.t('log.markSaved', {
+            s: subSkills[nextIdx - 1], t: Number(res.t).toFixed(2), next: subSkills[nextIdx]
+        }));
+        if (this.taggingActiveIndex === subSkills.length - 1) {
+            this.setTaggingNextEnabled(false);
         }
     },
+    async taggingUndoStep() {
+        const s = this.activeSkill;
+        if (!s || this.taggingActiveIndex === 0)
+            return;
+        const res = await this.api('POST', '/recording/undo_mark', { skill_slug: s });
+        if (!res || res.ok === false) {
+            this.log('WARN', this.t('log.undoFail', { e: res?.error || '?' }));
+            return;
+        }
+        this.taggingPoints.pop();
+        this.taggingActiveIndex = Math.max(0, this.taggingActiveIndex - 1);
+        const pointsEl = document.getElementById('rec-tagging-points');
+        if (pointsEl)
+            pointsEl.textContent = String(this.taggingPoints.length);
+        this.renderTaggingSteps(this.taggingSubSkills());
+        this.setTaggingNextEnabled(true);
+        this.log('INFO', this.t('log.markUndone'));
+    },
     async finishTaggingPostProcess() {
+        // Marks are persisted server-side next to the dataset as they are clicked —
+        // nothing to post-process here, just close the wizard UI.
         if (this.taggingInterval) {
             clearInterval(this.taggingInterval);
             this.taggingInterval = null;
         }
-        const s = this.activeSkill;
-        if (!s)
-            return;
-        const skills = this.project?.skills || [];
-        const details = this.project?.skills_details || {};
-        const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
-        if (subSkills.length === 0 || this.taggingPoints.length === 0) {
-            const wizard = document.getElementById('rec-tagging-wizard');
-            if (wizard)
-                wizard.style.display = 'none';
-            return;
-        }
-        this.log('INFO', 'Nahrávání epizody dokončeno. Zahajuji post-processing Parquet souboru datasetu...');
-        try {
-            const res = await this.api('POST', '/recording/tag_episode', {
-                dataset_name: `local/${s}`,
-                macro_task: s,
-                sub_skills: subSkills,
-                transition_points: this.taggingPoints
-            });
-            if (res && res.ok) {
-                this.log('SUCCESS', `✓ Dataset Tagging úspěšný! Vloženo ${res.frames} framů do souboru ${res.file}.`);
-            }
-            else {
-                this.log('ERROR', 'Dataset Tagging selhal: ' + (res.error || 'Neznámá chyba'));
-            }
-        }
-        catch (err) {
-            this.log('ERROR', 'Chyba při Dataset Tagging post-processingu: ' + err.message);
-        }
         const wizard = document.getElementById('rec-tagging-wizard');
         if (wizard)
             wizard.style.display = 'none';
-        this.selectSkill(s);
+        const s = this.activeSkill;
+        if (s && this.taggingSubSkills().length > 0) {
+            this.log('INFO', this.t('log.marksPersisted'));
+            this.selectSkill(s);
+        }
     },
     initPersistentInferenceUI() {
         const s = this.activeSkill;
@@ -4481,6 +4679,12 @@ const App = {
             const nameInput = document.getElementById('wizard-project-name');
             if (!nameInput || !nameInput.value.trim()) {
                 alert(this.t('wiz.enterProjectName'));
+                return;
+            }
+            const sceneDescInput = document.getElementById('wizard-scene-desc');
+            if (!sceneDescInput || !sceneDescInput.value.trim()) {
+                alert(this.t('alert.sceneDescRequired'));
+                sceneDescInput?.focus();
                 return;
             }
             if (this.wizardMode === 'quick') {
@@ -5035,9 +5239,16 @@ const App = {
         const nameInput = document.getElementById('wizard-project-name');
         const robotSelect = document.getElementById('wizard-robot-select');
         const pathInput = document.getElementById('wizard-lerobot-path');
+        const sceneDescInput = document.getElementById('wizard-scene-desc');
         const name = nameInput ? nameInput.value.trim() : 'Pepe';
         const robot = robotSelect ? robotSelect.value : 'SO-ARM 101';
         const path = pathInput ? pathInput.value.trim() : '/home/verlyba/robotics/lerobot';
+        const sceneDescription = sceneDescInput ? sceneDescInput.value.trim() : '';
+        if (!sceneDescription) {
+            alert(this.t('alert.sceneDescRequired'));
+            sceneDescInput?.focus();
+            return;
+        }
         // Map wizardSelectedOption to 'connect' or 'install' expected by backend
         let lerobotOpt = 'connect';
         if (this.wizardSelectedOption === 'install' || this.wizardSelectedOption === 'found-install') {
@@ -5054,7 +5265,8 @@ const App = {
                 leader_device_id: this.wizardLeaderDeviceId || '',
                 follower_port: this.wizardFollowerPort || '',
                 follower_device_id: this.wizardFollowerDeviceId || '',
-                cameras: this.wizardCameras
+                cameras: this.wizardCameras,
+                scene_description: sceneDescription
             });
             if (res.ok) {
                 localStorage.setItem('orchiday_setup_completed', 'true');

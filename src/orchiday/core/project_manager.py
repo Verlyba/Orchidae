@@ -52,7 +52,8 @@ class ProjectManager:
     # ── Create ───────────────────────────────────────────────────────────
 
     def create_project(
-        self, name: str, slug: str, parent_dir: Path | None = None
+        self, name: str, slug: str, parent_dir: Path | None = None,
+        scene_description: str = "",
     ) -> dict[str, Any]:
         """
         Create a new project with full directory structure.
@@ -79,6 +80,10 @@ class ProjectManager:
             "slug": slug,
             "version": "1.0",
             "created_at": datetime.now(timezone.utc).isoformat(),
+            # Physical description of the workspace (camera views, objects,
+            # layout) — prepended to BOTH the CEO planner's and the VLM
+            # inspector's prompts so they share the same grounding context.
+            "scene_description": scene_description.strip(),
             "robots": [],
             "cameras": [],
             "policy_architecture": "diffusion",

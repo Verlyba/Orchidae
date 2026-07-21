@@ -43,10 +43,14 @@ class LeRobotBridge(QObject):
     # QProcess must be created and driven from the thread whose event loop
     # services it (the orchestration worker thread calls into the bridge).
     _spawn_requested = Signal(str, list, str, str)
+    # Marshals stdin writes onto the owning thread (QProcess is not thread-safe;
+    # the orchestration worker thread sends SET_TASK/SET_POLICY/SNAP commands).
+    _write_requested = Signal(str, str)
 
     def __init__(self, python_executable: str | None = None, project_manager=None, parent=None):
         super().__init__(parent)
         self._spawn_requested.connect(self._spawn_process_impl)
+        self._write_requested.connect(self._write_process_impl)
         self._default_python = python_executable or self._autodetect_python() or sys.executable
         log.info("LeRobotBridge: default Python interpreter: %s", self._default_python)
         # Injected ProjectManager — avoids importing orchiday.server (which would
@@ -58,6 +62,21 @@ class LeRobotBridge(QObject):
         self._pending_infer_tasks: dict[str, str] = {}
         self._process_kinds: dict[str, str] = {}
         self._shell_process: QProcess | None = None
+        # ── Resource arbiter state (exclusive hardware access) ────────────
+        # Serial ports owned by running processes: key -> {port, ...}
+        self._process_ports: dict[str, set[str]] = {}
+        # Preview cameras suspended for a process, restored on its exit
+        self._suspended_cameras: dict[str, list[str]] = {}
+        # Injected CameraManager (set by the controller)
+        self._camera_manager = None
+        # ── Per-step orchestration state ───────────────────────────────────
+        # Policy currently loaded inside a running inference daemon: key -> path
+        self._infer_policy_paths: dict[str, str] = {}
+        # Waiters for [SNAPSHOT]/[STATUS] POLICY_* daemon replies: key -> (Event, [payload])
+        self._daemon_waiters: dict[str, tuple] = {}
+        # ── Step-mark state (sub-task flags clicked during recording) ─────
+        # skill_slug -> {dataset, marks_path, fps, episodes, current_episode, episode_started}
+        self._record_marks: dict[str, dict] = {}
 
     @staticmethod
     def _autodetect_python() -> str | None:
@@ -103,6 +122,83 @@ class LeRobotBridge(QObject):
         except Exception:
             pass
         return self._default_python
+
+    # ── Resource arbiter: exclusive camera + serial-port access ───────────
+
+    def set_camera_manager(self, camera_manager) -> None:
+        """Inject the CameraManager so preview workers can be suspended while
+        a LeRobot subprocess needs exclusive access to the same devices."""
+        self._camera_manager = camera_manager
+
+    def _port_conflict(self, *ports: str) -> str | None:
+        """Return a human-readable owner description if any port is already
+        owned by a running process, else None."""
+        wanted = {p.strip() for p in ports if p and p.strip()}
+        for key, owned in self._process_ports.items():
+            hit = wanted & owned
+            if hit:
+                kind = self._process_kinds.get(key, "process")
+                return f"port '{next(iter(hit))}' is in use by running {kind} ({key})"
+        return None
+
+    def _guard_ports(self, *ports: str) -> bool:
+        """Emit an error and return False when a requested serial port is busy."""
+        conflict = self._port_conflict(*ports)
+        if conflict:
+            msg = f"[RESOURCE CONFLICT] Cannot start: {conflict}. Stop it first."
+            log.error(msg)
+            event_bus.log_message.emit("ERROR", msg)
+            event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+            return False
+        return True
+
+    @staticmethod
+    def _extract_ports(cmd: list[str]) -> set[str]:
+        """Collect serial ports referenced by a command line."""
+        ports: set[str] = set()
+        for a in cmd:
+            for prefix in ("--robot.port=", "--teleop.port="):
+                if a.startswith(prefix):
+                    val = a[len(prefix):].strip()
+                    if val:
+                        ports.add(val)
+        return ports
+
+    def _suspend_preview_cameras(self, key: str, cmd: list[str]) -> None:
+        """Stop preview CameraWorkers before a subprocess opens the same devices.
+
+        Only one process may own a camera at a time; LeRobot subprocesses that
+        receive a cameras argument get exclusive access, previews are restored
+        automatically when the process exits.
+        """
+        if self._camera_manager is None:
+            return
+        if not any(".cameras=" in a for a in cmd):
+            return
+        active = list(self._camera_manager.active_cameras)
+        if not active:
+            return
+        for cam_id in active:
+            try:
+                self._camera_manager.stop_camera(cam_id)
+                event_bus.camera_suspended.emit(cam_id)
+            except Exception as e:
+                log.warning("Failed to suspend camera '%s': %s", cam_id, e)
+        self._suspended_cameras[key] = active
+        event_bus.log_message.emit(
+            "INFO", f"Camera preview suspended ({', '.join(active)}) — exclusive access handed to {key}")
+
+    def _resume_preview_cameras(self, key: str) -> None:
+        """Restart preview workers that were suspended for a finished process."""
+        suspended = self._suspended_cameras.pop(key, None)
+        if not suspended:
+            return
+        for cam_id in suspended:
+            # camera_started is a REQUEST signal — the controller slot restarts
+            # the worker using the project camera configuration.
+            event_bus.camera_started.emit(cam_id)
+        event_bus.log_message.emit(
+            "INFO", f"Camera preview resumed ({', '.join(suspended)}) after {key} finished")
 
     # ── Project config helpers ───────────────────────────────────────────
 
@@ -305,8 +401,11 @@ except Exception as e:
             from orchiday.core.constants import APP_DATA_DIR
             hf_home = APP_DATA_DIR / "data" / "huggingface"
 
+        # LeRobot resolves local datasets to HF_LEROBOT_HOME/<repo_id>, where
+        # HF_LEROBOT_HOME defaults to HF_HOME/lerobot — repo_id already contains
+        # the "local/" namespace, so it must NOT be prefixed again.
         parts = dataset_name.split("/")
-        return hf_home / "lerobot" / "local" / Path(*parts)
+        return hf_home / "lerobot" / Path(*parts)
 
     def _verify_dataset_exists(self, dataset_name: str) -> bool:
         """Check if dataset exists locally in local caches or is absolute."""
@@ -433,6 +532,9 @@ except Exception as e:
             event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
             return
 
+        if not self._guard_ports(robot_port, teleop_port):
+            return
+
         cmd = [
             self._python, "-m", "lerobot.scripts.lerobot_teleoperate",
             f"--robot.type={robot_type}",
@@ -505,6 +607,9 @@ except Exception as e:
             log.warning(msg)
             event_bus.log_message.emit("WARN", msg)
             use_robot = False
+
+        if not self._guard_ports(teleop_port if use_teleop else port):
+            return
 
         cmd = [self._python, "-m", "lerobot.scripts.lerobot_calibrate"]
 
@@ -585,6 +690,8 @@ except Exception as e:
         if not dataset_name:
             _fail("[VALIDATION ERROR] Dataset repository name cannot be empty!")
             return
+        if not self._guard_ports(port, teleop_port):
+            return
 
         if not single_task:
             # --dataset.single_task is mandatory in LeRobot >= 0.4
@@ -633,8 +740,9 @@ except Exception as e:
                 log.error("Failed to parse extra record arguments: %s", e)
 
         def launch():
+            dataset_dir = self._get_dataset_dir(dataset_name)
+            marks_path = dataset_dir.parent / f"{dataset_dir.name}.step_marks.json"
             if not resume:
-                dataset_dir = self._get_dataset_dir(dataset_name)
                 if dataset_dir.exists():
                     log.info("FS Validation: Deleting existing dataset at %s to prevent LeRobot FileExistsError", dataset_dir)
                     try:
@@ -642,6 +750,30 @@ except Exception as e:
                         shutil.rmtree(dataset_dir)
                     except Exception as e:
                         log.error("Failed to delete existing dataset directory: %s", e)
+                if marks_path.exists():
+                    try:
+                        marks_path.unlink()
+                    except Exception as e:
+                        log.warning("Failed to reset step marks file: %s", e)
+
+            # Step-mark tracking: sub-task boundary flags clicked in the UI while
+            # recording; stored NEXT TO the dataset (sibling file) so lerobot-record
+            # never sees an unexpected pre-existing dataset directory.
+            marks_state = {
+                "dataset": dataset_name,
+                "marks_path": str(marks_path),
+                "fps": fps,
+                "episodes": {},
+                "current_episode": -1,
+                "episode_started": 0.0,
+            }
+            if resume and marks_path.exists():
+                try:
+                    with open(marks_path, "r", encoding="utf-8") as f:
+                        marks_state["episodes"] = json.load(f).get("episodes", {})
+                except Exception as e:
+                    log.warning("Failed to load existing step marks: %s", e)
+            self._record_marks[skill_slug] = marks_state
 
             self._record_totals[skill_slug] = num_episodes
             event_bus.recording_started.emit(skill_slug)
@@ -685,6 +817,9 @@ except Exception as e:
             log.error(msg)
             event_bus.log_message.emit("ERROR", msg)
             event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+            return
+
+        if not self._guard_ports(port):
             return
 
         cmd = [
@@ -755,6 +890,57 @@ except Exception as e:
 
         event_bus.log_message.emit("INFO", f"Dataset operation '{operation}' started on '{repo_id or new_repo_id}'")
         self._spawn_process(key, cmd, kind="dataset_edit", skill_slug=repo_id)
+        return True
+
+    # ── Step-dataset splitting (orchestration training data) ─────────────
+
+    def start_dataset_split(
+        self,
+        source_repo_id: str,
+        skill_slug: str,
+        steps: list[dict],
+        require_complete: bool = True,
+    ) -> bool:
+        """
+        Split a recorded dataset into per-step sub-datasets using the step marks
+        sidecar file. Runs core/dataset_splitter.py as a standalone script inside
+        the LeRobot Python environment (the script has no orchiday imports).
+
+        Args:
+            source_repo_id: e.g. "local/pick_and_place" (the full baseline dataset).
+            skill_slug: parent skill slug (used for progress reporting).
+            steps: ordered list of {"slug", "repo_id", "task"} — one per sub-skill.
+                   Segment k of every episode is appended to steps[k]'s dataset.
+            require_complete: skip episodes whose mark count != len(steps) - 1.
+        """
+        key = f"dataset_split_{skill_slug}"
+        if key in self._active_processes:
+            event_bus.log_message.emit("WARN", "Dataset splitting already running for this skill.")
+            return False
+        if len(steps) < 2:
+            event_bus.log_message.emit("ERROR", "Dataset splitting requires at least 2 ordered sub-steps.")
+            return False
+
+        dataset_dir = self._get_dataset_dir(source_repo_id)
+        if not dataset_dir.exists():
+            event_bus.log_message.emit("ERROR", f"Source dataset '{source_repo_id}' not found on disk.")
+            return False
+        marks_path = dataset_dir.parent / f"{dataset_dir.name}.step_marks.json"
+        if not marks_path.exists():
+            event_bus.log_message.emit("ERROR", "No step marks found — record with step flags first.")
+            return False
+
+        script_path = Path(__file__).parent.parent / "core" / "dataset_splitter.py"
+        cmd = [
+            self._python, str(script_path),
+            f"--repo-id={source_repo_id}",
+            f"--marks={marks_path}",
+            f"--steps-json={json.dumps(steps, ensure_ascii=False)}",
+            f"--require-complete={'true' if require_complete else 'false'}",
+        ]
+        event_bus.log_message.emit(
+            "INFO", f"Splitting dataset '{source_repo_id}' into {len(steps)} step datasets...")
+        self._spawn_process(key, cmd, kind="dataset_split", skill_slug=skill_slug)
         return True
 
     # ── Simulation evaluation (lerobot-eval) ─────────────────────────────
@@ -956,6 +1142,9 @@ except Exception as e:
             event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
             return
 
+        if not self._guard_ports(port):
+            return
+
         script_path = Path(__file__).parent / "orchiday_inference.py"
 
         project = self._current_project() or {}
@@ -987,6 +1176,7 @@ except Exception as e:
 
         def launch():
             event_bus.log_message.emit("INFO", f"Inference started: {skill_slug}")
+            self._infer_policy_paths[key] = policy_path
             self._spawn_process(key, cmd, kind="infer", skill_slug=skill_slug)
 
         self._run_preflight_check(port, robot_type, launch)
@@ -997,14 +1187,79 @@ except Exception as e:
         self._kill_process(key)
 
     def send_inference_command(self, skill_slug: str, command: str) -> bool:
-        """Send a string command to the running persistent inference stdin pipe."""
+        """Send a string command to the running persistent inference stdin pipe.
+
+        Safe to call from any thread — the actual write is marshalled onto the
+        bridge's owning thread via a queued signal (QProcess is not thread-safe).
+        """
         key = f"infer_{skill_slug}"
         process = self._active_processes.get(key)
         if process and process.state() == QProcess.ProcessState.Running:
             log.info("Sending inference command to %s: %s", key, command.strip())
-            process.write(f"{command.strip()}\n".encode("utf-8"))
+            self._write_requested.emit(key, f"{command.strip()}\n")
             return True
         return False
+
+    @Slot(str, str)
+    def _write_process_impl(self, key: str, payload: str) -> None:
+        """Perform the QProcess stdin write on the owning thread."""
+        process = self._active_processes.get(key)
+        if process and process.state() == QProcess.ProcessState.Running:
+            process.write(payload.encode("utf-8"))
+
+    # ── Daemon request/reply helpers (orchestration thread → daemon) ──────
+
+    def _wait_daemon_reply(self, key: str, command: str, timeout_s: float):
+        """Send a stdin command to a daemon and block until its tagged reply
+        arrives (parsed in _parse_inference_line) or the timeout expires.
+
+        Called from the orchestration worker thread — NEVER from the Qt thread,
+        blocking there would deadlock the reply parsing.
+        """
+        import threading as _threading
+        if key not in self._active_processes:
+            return None
+        event = _threading.Event()
+        payload: list = []
+        self._daemon_waiters[key] = (event, payload)
+        skill_slug = key[len("infer_"):]
+        if not self.send_inference_command(skill_slug, command):
+            self._daemon_waiters.pop(key, None)
+            return None
+        if not event.wait(timeout_s):
+            self._daemon_waiters.pop(key, None)
+            log.warning("Daemon reply timeout for '%s' on %s", command, key)
+            return None
+        return payload[0] if payload else None
+
+    def running_inference_key(self) -> str | None:
+        """Return the key of the first running persistent inference daemon."""
+        for key in self._active_processes:
+            if key.startswith("infer_"):
+                return key
+        return None
+
+    def daemon_policy_path(self, key: str) -> str:
+        """Policy path currently loaded in the given daemon ('' if unknown)."""
+        return self._infer_policy_paths.get(key, "")
+
+    def swap_policy(self, key: str, policy_path: str, timeout_s: float = 180.0) -> bool:
+        """Hot-swap the policy inside a running daemon (blocks until loaded)."""
+        reply = self._wait_daemon_reply(key, f"SET_POLICY:{policy_path}", timeout_s)
+        if isinstance(reply, str) and reply.startswith("POLICY_LOADED"):
+            self._infer_policy_paths[key] = policy_path
+            return True
+        return False
+
+    def request_snapshot(self, key: str, timeout_s: float = 5.0) -> str:
+        """Ask a running daemon for a camera snapshot (base64 JPEG, '' on failure).
+
+        During orchestration the daemon owns the cameras exclusively, so the
+        VLM inspector must obtain scene images through this channel."""
+        reply = self._wait_daemon_reply(key, "SNAP", timeout_s)
+        if isinstance(reply, str) and reply.startswith("SNAPSHOT:"):
+            return reply[len("SNAPSHOT:"):]
+        return ""
 
     def _ensure_shell_active(self) -> None:
         """Ensure the persistent shell process is running."""
@@ -1138,6 +1393,13 @@ except Exception as e:
         log.debug("Spawning QProcess: %s", " ".join(cmd))
         event_bus.console_output.emit(f"$ {' '.join(cmd)}")
 
+        # ── Resource arbiter: register serial ports + take exclusive cameras ──
+        ports = self._extract_ports(cmd)
+        if ports:
+            self._process_ports[key] = ports
+        if kind in ("record", "teleop", "infer"):
+            self._suspend_preview_cameras(key, cmd)
+
         process.start(cmd[0], cmd[1:])
         self._active_processes[key] = process
         self._process_kinds[key] = kind
@@ -1155,7 +1417,9 @@ except Exception as e:
             line = line.rstrip()
             if not line:
                 continue
-            event_bus.console_output.emit(line)
+            # Snapshot payloads are huge base64 blobs — keep them out of the console
+            if not line.startswith("[SNAPSHOT]"):
+                event_bus.console_output.emit(line)
 
             # Monitor hardware errors and warnings in real time
             self._monitor_hardware_errors(line, key)
@@ -1180,6 +1444,7 @@ except Exception as e:
         """Triggered asynchronously when a QProcess exits."""
         self._active_processes.pop(key, None)
         self._process_kinds.pop(key, None)
+        self._release_process_resources(key)
         event_bus.process_finished.emit(key, kind)
         log.info("Process %s exited with code %d", key, exit_code)
 
@@ -1212,6 +1477,7 @@ except Exception as e:
                 event_bus.log_message.emit("ERROR", f"Replay failed or aborted with exit code {exit_code}")
 
         elif kind == "record":
+            self._record_marks.pop(skill_slug, None)  # persisted sidecar remains on disk
             event_bus.recording_stopped.emit(skill_slug, 0)
             if exit_code == 0:
                 event_bus.log_message.emit("SUCCESS", f"Recording completed: {skill_slug}")
@@ -1223,6 +1489,12 @@ except Exception as e:
                 event_bus.log_message.emit("SUCCESS", f"Dataset operation completed: {skill_slug}")
             else:
                 event_bus.log_message.emit("ERROR", f"Dataset operation failed (exit {exit_code}): {skill_slug}")
+
+        elif kind == "dataset_split":
+            if exit_code == 0:
+                event_bus.log_message.emit("SUCCESS", f"Step datasets created for '{skill_slug}' — sub-skills are ready for training.")
+            else:
+                event_bus.log_message.emit("ERROR", f"Dataset splitting failed (exit {exit_code}): {skill_slug}")
 
         elif kind == "eval":
             if exit_code == 0:
@@ -1267,6 +1539,7 @@ except Exception as e:
             total = int(ep_match.group(2))
             progress = current / total if total > 0 else 0
             event_bus.recording_progress.emit(skill_slug, progress)
+            self._track_episode_start(skill_slug, current)
             return
 
         rec_match = re.search(r"Recording episode\s+(\d+)", line)
@@ -1275,6 +1548,95 @@ except Exception as e:
             total = self._record_totals.get(skill_slug, 0)
             progress = min(current / total, 1.0) if total > 0 else 0.0
             event_bus.recording_progress.emit(skill_slug, progress)
+            self._track_episode_start(skill_slug, current)
+
+    def _track_episode_start(self, skill_slug: str, episode_index: int) -> None:
+        """Anchor the wall-clock start of an episode so step marks clicked in the
+        UI can be converted to in-episode timestamps (matching the dataset's
+        per-frame `timestamp` column, which starts at 0 each episode)."""
+        import time
+        state = self._record_marks.get(skill_slug)
+        if state is None or state.get("current_episode") == episode_index:
+            return
+        state["current_episode"] = episode_index
+        state["episode_started"] = time.monotonic()
+        event_bus.recording_episode.emit(skill_slug, episode_index)
+
+    def mark_step(self, skill_slug: str, step: int, label: str = "") -> dict:
+        """Record a sub-task boundary flag during an active recording.
+
+        The mark stores the elapsed time within the current episode; the dataset
+        splitter later cuts the episode into per-step segments at these times.
+        Returns a result dict {ok, episode, t, step, label} or {ok: False, error}.
+        """
+        import time
+        key = f"record_{skill_slug}"
+        state = self._record_marks.get(skill_slug)
+        if key not in self._active_processes or state is None:
+            return {"ok": False, "error": "no active recording for this skill"}
+        episode = state.get("current_episode", -1)
+        if episode < 0:
+            return {"ok": False, "error": "no episode started yet"}
+
+        t = round(time.monotonic() - state["episode_started"], 3)
+        mark = {"t": t, "step": step, "label": label}
+        state["episodes"].setdefault(str(episode), []).append(mark)
+        self._persist_step_marks(skill_slug)
+
+        payload = {"episode": episode, **mark}
+        event_bus.step_marked.emit(skill_slug, payload)
+        event_bus.log_message.emit("INFO", f"Step mark: '{label or step}' at {t:.2f}s of episode {episode} ({skill_slug})")
+        return {"ok": True, **payload}
+
+    def undo_step_mark(self, skill_slug: str) -> dict:
+        """Remove the last step mark of the current episode (misclick recovery)."""
+        state = self._record_marks.get(skill_slug)
+        if state is None:
+            return {"ok": False, "error": "no active recording for this skill"}
+        episode = str(state.get("current_episode", -1))
+        marks = state["episodes"].get(episode) or []
+        if not marks:
+            return {"ok": False, "error": "no marks in current episode"}
+        removed = marks.pop()
+        self._persist_step_marks(skill_slug)
+        event_bus.step_marked.emit(skill_slug, {"episode": int(episode), "undone": True, **removed})
+        return {"ok": True, "removed": removed}
+
+    def _persist_step_marks(self, skill_slug: str) -> None:
+        """Write the marks sidecar JSON next to the dataset directory."""
+        state = self._record_marks.get(skill_slug)
+        if state is None:
+            return
+        try:
+            marks_path = Path(state["marks_path"])
+            marks_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(marks_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "version": 1,
+                    "dataset": state["dataset"],
+                    "fps": state["fps"],
+                    "episodes": state["episodes"],
+                }, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            log.error("Failed to persist step marks: %s", e)
+
+    def get_step_marks(self, skill_slug: str, dataset_name: str = "") -> dict:
+        """Return step marks for a skill — live state when recording, otherwise
+        the persisted sidecar file of the given/derived dataset."""
+        state = self._record_marks.get(skill_slug)
+        if state is not None:
+            return {"dataset": state["dataset"], "episodes": state["episodes"], "live": True}
+        if dataset_name:
+            marks_path_dir = self._get_dataset_dir(dataset_name)
+            marks_path = marks_path_dir.parent / f"{marks_path_dir.name}.step_marks.json"
+            if marks_path.exists():
+                try:
+                    with open(marks_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    return {"dataset": dataset_name, "episodes": data.get("episodes", {}), "live": False}
+                except Exception as e:
+                    log.warning("Failed to read step marks file: %s", e)
+        return {"dataset": dataset_name, "episodes": {}, "live": False}
 
     def _parse_inference_line(self, line: str, key: str, skill_slug: str) -> None:
         """
@@ -1291,6 +1653,20 @@ except Exception as e:
                 self.send_inference_command(skill_slug, f"SET_TASK:{pending}")
         elif "[STATUS] TASK_DONE" in line:
             event_bus.inference_finished.emit(skill_slug)
+        elif line.startswith("[SNAPSHOT]"):
+            self._resolve_daemon_waiter(key, "SNAPSHOT:" + line[len("[SNAPSHOT]"):].strip())
+        elif "[STATUS] POLICY_LOADED" in line:
+            self._resolve_daemon_waiter(key, "POLICY_LOADED")
+        elif "[STATUS] POLICY_ERROR" in line:
+            event_bus.log_message.emit("ERROR", f"Policy hot-swap failed in daemon: {line}")
+            self._resolve_daemon_waiter(key, "POLICY_ERROR")
+
+    def _resolve_daemon_waiter(self, key: str, payload: str) -> None:
+        """Deliver a daemon reply to the thread blocked in _wait_daemon_reply."""
+        waiter = self._daemon_waiters.pop(key, None)
+        if waiter is not None:
+            waiter[1].append(payload)
+            waiter[0].set()
 
     def _monitor_hardware_errors(self, line: str, key: str) -> None:
         """Scan subprocess output for critical hardware errors or performance alerts."""
@@ -1343,6 +1719,18 @@ except Exception as e:
                 )
                 event_bus.console_output.emit(tele_str)
 
+    def _release_process_resources(self, key: str) -> None:
+        """Release serial ports, restore preview cameras, and drop daemon state
+        associated with a finished/killed process."""
+        self._process_ports.pop(key, None)
+        self._infer_policy_paths.pop(key, None)
+        waiter = self._daemon_waiters.pop(key, None)
+        if waiter is not None:
+            # Unblock anyone waiting for a daemon reply that will never come
+            waiter[1].append(None)
+            waiter[0].set()
+        self._resume_preview_cameras(key)
+
     def _kill_process(self, key: str) -> None:
         """Forcibly terminate a running subprocess (Emergency Stop)."""
         if key not in self._active_processes:
@@ -1352,6 +1740,7 @@ except Exception as e:
         process.kill()
         process.waitForFinished(3000)
         self._active_processes.pop(key, None)
+        self._release_process_resources(key)
         # _handle_finished normally emits process_finished; cover the timeout path too
         if key in self._process_kinds:
             event_bus.process_finished.emit(key, self._process_kinds.pop(key))

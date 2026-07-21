@@ -112,6 +112,7 @@ class Orchestrator:
 
         self._execute_callback: Callable[[str], Awaitable[None]] | Callable[[str], None] | None = None
         self._capture_callback: Callable[[], Awaitable[str]] | Callable[[], str] | None = None
+        self._plan_resolver: Callable[[list[str]], list[str]] | None = None
 
     @property
     def state(self) -> OrchestratorState:
@@ -139,6 +140,25 @@ class Orchestrator:
         """Set callback for capturing a scene snapshot."""
         self._capture_callback = callback
 
+    def set_plan_resolver(self, resolver: Callable[[list[str]], list[str]]) -> None:
+        """Set callback that validates a raw LLM plan and expands parent skills
+        into their ordered executable sub-steps (per-step models)."""
+        self._plan_resolver = resolver
+
+    def _resolve_plan(self, raw_plan: list[str]) -> list[str]:
+        """Run the plan through the resolver; on resolver failure keep the raw plan."""
+        if not self._plan_resolver:
+            return raw_plan
+        try:
+            resolved = self._plan_resolver(raw_plan)
+        except Exception as e:
+            log.warning("Plan resolver failed (%s) — using the raw plan.", e)
+            return raw_plan
+        if resolved != raw_plan:
+            event_bus.log_message.emit("INFO", f"Plan resolved to executable steps: {resolved}")
+            event_bus.orchestration_plan_ready.emit(resolved)
+        return resolved
+
     async def run(self, user_instruction: str) -> list[dict[str, Any]]:
         """
         Run the complete orchestration loop with planning, non-blocking execution,
@@ -158,7 +178,7 @@ class Orchestrator:
             # Phase 1: Planning
             self._state = OrchestratorState.PLANNING
             event_bus.log_message.emit("INFO", f"Phase: PLANNING — \"{user_instruction}\"")
-            self._plan = await self._planner.create_plan(user_instruction)
+            self._plan = self._resolve_plan(await self._planner.create_plan(user_instruction))
             self._current_task_index = 0
 
             if not self._plan:
@@ -239,7 +259,7 @@ class Orchestrator:
                         f"Please adapt the remaining plan addressingly based on this failure. "
                         f"Original instruction: '{user_instruction}'"
                     )
-                    self._plan = await self._planner.create_plan(failure_context)
+                    self._plan = self._resolve_plan(await self._planner.create_plan(failure_context))
                     self._current_task_index = 0  # Restart the new plan from zero
                     
                     if not self._plan:

@@ -105,6 +105,8 @@ class WebEventBridge:
             lambda cid: self.broadcast("camera_stopped", cid))
         event_bus.camera_error.connect(
             lambda cid, msg: self.broadcast("camera_error", {"id": cid, "error": msg}))
+        event_bus.camera_suspended.connect(
+            lambda cid: self.broadcast("camera_suspended", cid))
 
         # ── AI model events ──────────────────────────────────────────
         event_bus.model_configured.connect(
@@ -125,6 +127,10 @@ class WebEventBridge:
             lambda s, n: self.broadcast("recording_stopped", {"skill": s, "episodes": n}))
         event_bus.recording_progress.connect(
             lambda s, p: self.broadcast("recording_progress", {"skill": s, "progress": p}))
+        event_bus.recording_episode.connect(
+            lambda s, ep: self.broadcast("recording_episode", {"skill": s, "episode": ep}))
+        event_bus.step_marked.connect(
+            lambda s, mark: self.broadcast("step_marked", {"skill": s, **(mark or {})}))
 
         # ── Training events ──────────────────────────────────────────
         event_bus.training_started.connect(

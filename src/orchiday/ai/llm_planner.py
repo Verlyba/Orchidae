@@ -28,12 +28,14 @@ class LLMPlanner:
     def __init__(self, client: LMStudioClient, model_name: str = "local-llm",
                  system_prompt: str = DEFAULT_LLM_SYSTEM_PROMPT,
                  available_skills: list[str] | None = None,
-                 skills_details: dict[str, Any] | None = None):
+                 skills_details: dict[str, Any] | None = None,
+                 scene_description: str = ""):
         self._client = client
         self._model = model_name
         self._system_prompt = system_prompt
         self._available_skills = available_skills or []
         self._skills_details = skills_details or {}
+        self._scene_description = scene_description or ""
 
     @property
     def model_name(self) -> str:
@@ -51,8 +53,18 @@ class LLMPlanner:
         """Update the skill details dictionary."""
         self._skills_details = details
 
+    def set_scene_description(self, description: str) -> None:
+        """Update the physical scene description used as prompt grounding."""
+        self._scene_description = description or ""
+
     def _build_system_prompt(self) -> str:
         prompt = self._system_prompt
+        if self._scene_description:
+            prompt += (
+                f"\n\nScene description (physical setup of the robot's workspace, "
+                f"cameras and objects — always true regardless of the task):\n"
+                f"{self._scene_description}"
+            )
         if self._available_skills:
             skills_list_str = []
             for s in self._available_skills:

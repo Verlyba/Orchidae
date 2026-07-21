@@ -71,8 +71,13 @@ class OrchidayController(QObject):
         # Managers & Bridges
         self.camera_manager = CameraManager()
         self.lerobot_bridge = LeRobotBridge(project_manager=project_manager)
+        # Resource arbiter: the bridge suspends preview workers whenever a
+        # LeRobot subprocess needs exclusive access to the same camera devices
+        self.lerobot_bridge.set_camera_manager(self.camera_manager)
         from orchiday.core.calibration_manager import CalibrationManager
         self.calibration_manager = CalibrationManager(self.pm)
+        from orchiday.orchestration.run_logger import OrchestrationRunLogger
+        self.run_logger = OrchestrationRunLogger(self.pm)
 
         # AI clients & models (lazy-initialized when project opens)
         self.lm_client = None
@@ -183,6 +188,7 @@ class OrchidayController(QObject):
         system_prompt = llm_cfg.get("system_prompt")
         skills = project_data.get("skills", [])
         skills_details = project_data.get("skills_details", {})
+        scene_description = project_data.get("scene_description", "")
 
         if system_prompt:
             self.planner = LLMPlanner(
@@ -191,6 +197,7 @@ class OrchidayController(QObject):
                 system_prompt=system_prompt,
                 available_skills=skills,
                 skills_details=skills_details,
+                scene_description=scene_description,
             )
         else:
             self.planner = LLMPlanner(
@@ -198,11 +205,13 @@ class OrchidayController(QObject):
                 model_name=llm_model,
                 available_skills=skills,
                 skills_details=skills_details,
+                scene_description=scene_description,
             )
 
         # 3. Setup VLM Inspector
         vlm_model = vlm_cfg.get("model_name") or "local-vlm"
-        self.inspector = VLMInspector(self.vlm_client, model_name=vlm_model, skills_details=skills_details)
+        self.inspector = VLMInspector(self.vlm_client, model_name=vlm_model, skills_details=skills_details,
+                                      scene_description=scene_description)
 
         # 4. Setup Orchestrator
         orch_cfg = project_data.get("orchestration", {})
@@ -219,6 +228,7 @@ class OrchidayController(QObject):
         # Connect callbacks
         self.orchestrator.set_execute_callback(self._execute_motor_task)
         self.orchestrator.set_capture_callback(self._capture_scene_snapshot)
+        self.orchestrator.set_plan_resolver(self._resolve_orchestration_plan)
 
         # Test connection in background thread
         threading.Thread(target=self._test_lm_connection, daemon=True).start()
@@ -311,18 +321,24 @@ class OrchidayController(QObject):
                     self.planner._system_prompt = system_prompt
             else:
                 skills = self.pm.current_project.get("skills", []) if self.pm.current_project else []
+                skills_details = self.pm.current_project.get("skills_details", {}) if self.pm.current_project else {}
+                scene_description = self.pm.current_project.get("scene_description", "") if self.pm.current_project else ""
                 if system_prompt:
                     self.planner = LLMPlanner(
                         self.llm_client,
                         model_name=llm_model,
                         system_prompt=system_prompt,
                         available_skills=skills,
+                        skills_details=skills_details,
+                        scene_description=scene_description,
                     )
                 else:
                     self.planner = LLMPlanner(
                         self.llm_client,
                         model_name=llm_model,
                         available_skills=skills,
+                        skills_details=skills_details,
+                        scene_description=scene_description,
                     )
             if getattr(self, "orchestrator", None):
                 self.orchestrator._planner = self.planner
@@ -338,7 +354,11 @@ class OrchidayController(QObject):
                 self.inspector._client = self.vlm_client
                 self.inspector._model = vlm_model
             else:
-                self.inspector = VLMInspector(self.vlm_client, model_name=vlm_model)
+                skills_details = self.pm.current_project.get("skills_details", {}) if self.pm.current_project else {}
+                scene_description = self.pm.current_project.get("scene_description", "") if self.pm.current_project else ""
+                self.inspector = VLMInspector(self.vlm_client, model_name=vlm_model,
+                                              skills_details=skills_details,
+                                              scene_description=scene_description)
 
             if getattr(self, "orchestrator", None):
                 self.orchestrator._inspector = self.inspector
@@ -734,10 +754,68 @@ class OrchidayController(QObject):
 
     # ── Orchestration Callbacks (called by Orchestrator Thread) ──────────────
 
+    def _resolve_orchestration_plan(self, raw_plan: list[str]) -> list[str]:
+        """
+        Validate a raw LLM plan and expand it into executable per-step models.
+
+        - Unknown skill IDs are dropped (LLM hallucination guard); display names
+          are mapped back to slugs when possible.
+        - A parent skill (high-level goal) is expanded into its ordered child
+          steps — each child is a separately trained small policy.
+        """
+        project = self.pm.current_project or {}
+        skills = project.get("skills", [])
+        details = project.get("skills_details", {})
+
+        by_name = {
+            str(details.get(s, {}).get("name", "")).strip().lower(): s
+            for s in skills if details.get(s, {}).get("name")
+        }
+        children: dict[str, list[str]] = {}
+        for s in skills:  # skills list order defines the step order
+            parent = details.get(s, {}).get("parent_slug", "")
+            if parent:
+                children.setdefault(parent, []).append(s)
+
+        resolved: list[str] = []
+        dropped: list[str] = []
+        for item in raw_plan:
+            slug = item if item in skills else by_name.get(str(item).strip().lower(), "")
+            if not slug:
+                dropped.append(item)
+                continue
+            if slug in children:
+                resolved.extend(children[slug])
+            else:
+                resolved.append(slug)
+
+        if dropped:
+            event_bus.log_message.emit(
+                "WARN", f"Plan contained unknown skills (dropped): {dropped}")
+        # Collapse accidental consecutive duplicates
+        return [s for i, s in enumerate(resolved) if i == 0 or s != resolved[i - 1]]
+
+    def _policy_path_for(self, task_name: str) -> str:
+        """Resolve the trained policy checkpoint directory for a skill."""
+        parent_slug = ""
+        skills_details = (self.pm.current_project or {}).get("skills_details", {})
+        if task_name in skills_details:
+            parent_slug = skills_details[task_name].get("parent_slug", "")
+
+        policy_type = (self.pm.current_project or {}).get("policy_architecture", "diffusion")
+        policy_slug = f"{parent_slug}_{task_name}" if parent_slug else task_name
+
+        custom_dir = (self.pm.current_project or {}).get("dataset_storage_dir")
+        base_output = Path(custom_dir) if custom_dir else self._data_dir
+        return str(base_output / "outputs" / "training" / f"{policy_slug}_{policy_type}")
+
     def _execute_motor_task(self, task_name: str) -> None:
         """
         Callback called by the Orchestrator to execute a sub-task.
-        Starts the LeRobot inference process in non-blocking mode.
+
+        One persistent daemon owns the robot + cameras for the whole run;
+        per-step models are hot-swapped over stdin (SET_POLICY) so the serial
+        port and camera devices never change hands mid-orchestration.
         """
         if not self.pm.current_project:
             raise RuntimeError("No project open")
@@ -749,28 +827,31 @@ class OrchidayController(QObject):
         robot = robots[0]  # Use the first configured robot in v1
         robot_type = robot.get("follower_type") or robot.get("type", "so100_follower")
         port = robot.get("follower_port") or robot.get("port", "")
+        policy_path = self._policy_path_for(task_name)
 
-        parent_slug = ""
-        skills_details = self.pm.current_project.get("skills_details", {})
-        if task_name in skills_details:
-            parent_slug = skills_details[task_name].get("parent_slug", "")
+        # 1. Warm path: a persistent daemon is already running — switch the model
+        #    (if this step uses a different policy) and dispatch the task.
+        key = self.lerobot_bridge.running_inference_key()
+        if key:
+            running_slug = key[len("infer_"):]
+            current_policy = self.lerobot_bridge.daemon_policy_path(key)
+            same_policy = current_policy and Path(current_policy) == Path(policy_path)
 
-        policy_type = self.pm.current_project.get("policy_architecture", "diffusion")
-        policy_slug = f"{parent_slug}_{task_name}" if parent_slug else task_name
+            if not same_policy:
+                event_bus.log_message.emit(
+                    "INFO", f"Hot-swapping policy for step '{task_name}' (daemon keeps robot + camera)...")
+                if not self.lerobot_bridge.swap_policy(key, policy_path):
+                    event_bus.log_message.emit(
+                        "WARN", "Policy hot-swap failed — restarting the inference daemon.")
+                    self.lerobot_bridge.stop_inference(running_slug)
+                    key = None
 
-        custom_dir = self.pm.current_project.get("dataset_storage_dir")
-        base_output = Path(custom_dir) if custom_dir else self._data_dir
-        policy_path = str(base_output / "outputs" / "training" / f"{policy_slug}_{policy_type}")
-
-        # 1. Goal-conditioned mode: if a persistent daemon is already running,
-        #    just switch its active task over stdin instead of spawning a new process.
-        for key in self.lerobot_bridge.active_processes:
-            if key.startswith("infer_"):
-                running_slug = key[len("infer_"):]
-                if self.lerobot_bridge.send_inference_command(running_slug, f"SET_TASK:{task_name}"):
-                    event_bus.log_message.emit("INFO", f"Re-using running inference daemon — task switched to '{task_name}'.")
-                    return
-                # Stale daemon for another skill: stop it to free the serial port
+            if key and self.lerobot_bridge.send_inference_command(running_slug, f"SET_TASK:{task_name}"):
+                event_bus.log_message.emit(
+                    "INFO", f"Re-using running inference daemon — task switched to '{task_name}'.")
+                return
+            if key:
+                # Daemon unresponsive: stop it to free the serial port, cold start below
                 self.lerobot_bridge.stop_inference(running_slug)
 
         log.info(
@@ -793,7 +874,18 @@ class OrchidayController(QObject):
         """
         Callback called by the Orchestrator to get a scene image.
         Returns base64 encoded JPEG string.
+
+        Camera exclusivity: while the inference daemon runs it owns the camera
+        devices, so the snapshot is requested from the daemon over stdin (SNAP).
+        Preview workers are only used as a fallback when the daemon has no camera.
         """
+        daemon_key = self.lerobot_bridge.running_inference_key()
+        if daemon_key:
+            b64 = self.lerobot_bridge.request_snapshot(daemon_key)
+            if b64:
+                return b64
+            log.info("Daemon returned no snapshot — falling back to preview cameras")
+
         active = self.camera_manager.active_cameras
         if not active:
             log.warning("No active cameras to capture scene snapshot")

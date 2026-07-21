@@ -24,10 +24,12 @@ class VLMInspector:
     """
 
     def __init__(self, client: LMStudioClient, model_name: str = "local-vlm",
-                 skills_details: dict[str, Any] | None = None):
+                 skills_details: dict[str, Any] | None = None,
+                 scene_description: str = ""):
         self._client = client
         self._model = model_name
         self._skills_details = skills_details or {}
+        self._scene_description = scene_description or ""
 
     @property
     def model_name(self) -> str:
@@ -40,6 +42,10 @@ class VLMInspector:
     def set_skills_details(self, details: dict[str, Any]) -> None:
         """Update the skill details dictionary."""
         self._skills_details = details
+
+    def set_scene_description(self, description: str) -> None:
+        """Update the physical scene description used as prompt grounding."""
+        self._scene_description = description or ""
 
     async def verify_task_completion(self, task_name: str, image_base64: str,
                                      expected_state: str | None = None) -> tuple[bool, str]:
@@ -86,7 +92,10 @@ class VLMInspector:
         return response.strip()
 
     def _build_verification_prompt(self, task_name: str, expected_state: str | None) -> str:
-        prompt = (
+        prompt = ""
+        if self._scene_description:
+            prompt += f"Scene context: {self._scene_description}\n\n"
+        prompt += (
             f"The robotic task '{task_name}' just ran. "
             "Look at the image and evaluate if the task completed successfully. "
             "Respond with EXACTLY one of the following strings:\n"

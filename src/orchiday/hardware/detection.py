@@ -149,9 +149,25 @@ def detect_cameras() -> list[dict]:
     # Uses the platform's native backend (DSHOW/AVFoundation/V4L2) — probing with
     # OpenCV's default backend takes seconds per index on Windows.
     if not cameras:
-        from orchiday.hardware.camera_utils import open_capture, camera_device_label
+        from orchiday.hardware.camera_utils import (
+            open_capture, camera_device_label, is_source_active)
         log.info("Sysfs scan empty, scanning OpenCV indexes 0-5...")
         for i in range(6):
+            # NEVER probe a device that a CameraWorker is streaming — a second
+            # concurrent handle crashes the native Windows capture backends.
+            # The device obviously exists, so report it directly instead.
+            if is_source_active(i):
+                device = camera_device_label(i)
+                cameras.append({
+                    "index": i,
+                    "device": device,
+                    "model_name": "OpenCV Webcam",
+                    "serial_number": None,
+                    "location": None,
+                    "persistent_id": f"camera-index-{i}",
+                    "friendly_name": f"{device} — OpenCV Webcam (index {i})"
+                })
+                continue
             try:
                 cap = open_capture(i)
                 if cap.isOpened():

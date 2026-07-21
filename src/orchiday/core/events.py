@@ -39,6 +39,8 @@ class EventBus(QObject):
     camera_stopped = Signal(str)         # camera_id
     camera_error = Signal(str, str)      # camera_id, error_message
     camera_frame_ready = Signal(str, object)  # camera_id, QImage (use object for typing)
+    # Preview worker paused because a robot subprocess took exclusive camera access
+    camera_suspended = Signal(str)       # camera_id
 
     # ── AI Models ────────────────────────────────────────────────────────
     model_configured = Signal(str, dict)      # model_role, config
@@ -54,6 +56,8 @@ class EventBus(QObject):
     replay_requested = Signal(str, str, int, str)  # robot_type, dataset_name, episode_index, port
     recording_requested = Signal(str, bool)   # skill_slug, resume
     recording_stop_requested = Signal(str)    # skill_slug
+    recording_episode = Signal(str, int)      # skill_slug, episode_index (new episode started)
+    step_marked = Signal(str, dict)           # skill_slug, mark {episode, t, step, label}
 
     # ── Training ─────────────────────────────────────────────────────────
     training_started = Signal(str)            # skill_slug

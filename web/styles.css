@@ -3841,3 +3841,459 @@ body { min-width: 320px; }
 .page-header-row .btn {
     flex-shrink: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   POPUP MIN-SIZES & NO-DEFORM ON RESIZE (v3.8)
+   Popups keep a usable minimum size and their inner card rows wrap instead
+   of squashing when the window (or the dialog) gets narrow.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Container floor: stays usable, never wider than the viewport minus overlay padding */
+.modal-container {
+    min-width: min(300px, calc(100vw - 48px));
+}
+
+/* The skill-wizard modal has no .modal-body wrapper — let the container scroll
+   so tall content never clips at small heights. */
+#modal-new-skill .modal-container {
+    overflow-y: auto;
+}
+
+/* Form rows and controls inside popups: wrap + shrink rather than overflow */
+.modal-body .form-row,
+.modal-container .form-row {
+    flex-wrap: wrap;
+}
+
+.modal-container input,
+.modal-container select,
+.modal-container textarea {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Two-up card rows inside popups wrap when the dialog narrows */
+#new-project-mode-selection > div[style*="display: flex"],
+#skill-wizard-step1 > div[style*="display: flex"] {
+    flex-wrap: wrap;
+}
+
+/* Project-mode cards & skill-type cards keep a sensible minimum, then wrap */
+#new-proj-card-quick,
+#new-proj-card-plain {
+    min-width: 200px;
+}
+
+.wizard-type-card {
+    flex: 1 1 200px;
+    min-width: 180px;
+}
+
+/* Detect-ports step indicators wrap rather than crushing the dashed divider */
+.detect-arm-section,
+.detect-sub-step {
+    min-width: 0;
+}
+
+/* Manage-episodes / detect-ports stay readable on small windows */
+#modal-manage-episodes .modal-container,
+#modal-detect-ports .modal-container {
+    min-width: min(420px, calc(100vw - 48px));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PORTABLE BUNDLE EXPORT OPTIONS (v3.9)
+   ═══════════════════════════════════════════════════════════════════════ */
+.export-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.export-opt:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+}
+
+.export-opt input[type="checkbox"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.export-opt span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.export-opt strong {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-light);
+}
+
+.export-opt small {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.export-opt input:disabled {
+    opacity: 0.6;
+}
+
+/* ============================================================
+   v3.11 — Help page (orchestration schema documentation)
+   ============================================================ */
+
+.page-header-sub {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The Help page is a single scrollable document column */
+#page-help {
+    overflow: hidden;
+}
+
+.help-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-right: 4px;
+    max-width: 980px;
+}
+
+.help-block {
+    flex: 0 0 auto;
+}
+
+.help-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+    .help-two-col {
+        grid-template-columns: 1fr;
+    }
+}
+
+.help-p {
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text-light);
+    margin: 0 0 10px 0;
+}
+
+.help-p strong {
+    color: var(--text-white);
+}
+
+.help-roles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px;
+    margin-top: 4px;
+}
+
+/* ── Flow diagram ─────────────────────────────────────────── */
+
+.help-flow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    padding: 6px 0;
+}
+
+.hf-node {
+    width: min(560px, 100%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 8px 12px;
+    text-align: center;
+}
+
+.hf-node-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.hf-node-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.5;
+}
+
+.hf-io {
+    border-style: dashed;
+    border-color: var(--cyan);
+}
+
+.hf-io .hf-node-title {
+    color: var(--cyan);
+}
+
+.hf-arrow {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.hf-arrow::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid var(--border-strong, var(--border));
+}
+
+.hf-loop {
+    width: min(640px, 100%);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 26px 14px 12px 14px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.hf-loop-label {
+    position: absolute;
+    top: 6px;
+    left: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--yellow);
+}
+
+.hf-branch {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.hf-branch-item {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+.hf-ok {
+    color: var(--green);
+    border-color: color-mix(in srgb, var(--green) 40%, transparent);
+    background: color-mix(in srgb, var(--green) 8%, transparent);
+}
+
+.hf-fail {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 40%, transparent);
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+.help-flow-mini .hf-node {
+    padding: 6px 10px;
+}
+
+.help-flow-mini .hf-arrow {
+    height: 12px;
+}
+
+/* ── Step-by-step list ────────────────────────────────────── */
+
+.help-steps {
+    margin: 0;
+    padding-left: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.help-steps li {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-light);
+}
+
+.help-steps li strong {
+    color: var(--text-white);
+}
+
+.help-steps li code,
+.help-p code,
+.help-list li code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--cyan);
+}
+
+.help-list {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.help-list li {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-light);
+}
+
+.help-list li strong {
+    color: var(--text-white);
+}
+
+/* ── Risks table ──────────────────────────────────────────── */
+
+.help-table-wrap {
+    overflow-x: auto;
+}
+
+.help-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.help-table th {
+    text-align: left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.help-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-light);
+    line-height: 1.5;
+    vertical-align: top;
+}
+
+.help-table td:first-child {
+    color: var(--text-white);
+    font-weight: 600;
+    width: 38%;
+}
+
+.help-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* ── Disk paths ───────────────────────────────────────────── */
+
+.help-paths {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.help-path-row {
+    display: grid;
+    grid-template-columns: minmax(260px, 44%) 1fr;
+    gap: 12px;
+    align-items: baseline;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.help-path-row code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--cyan);
+    word-break: break-all;
+}
+
+.help-path-row span {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+    .help-path-row {
+        grid-template-columns: 1fr;
+        gap: 2px;
+    }
+}
+
+/* ============================================================
+   v3.12 — Scene description field + required-field marker
+   ============================================================ */
+
+.required-mark {
+    color: var(--red, #e06c75);
+    font-weight: 700;
+}
+
+.wizard-form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    background-color: var(--bg-sidebar);
+    color: var(--text-white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    font-family: inherit;
+    line-height: 1.5;
+    outline: none;
+    resize: vertical;
+    transition: var(--transition);
+}
+
+.wizard-form-group textarea:focus {
+    border-color: var(--accent);
+    box-shadow: none;
+}
+
+.wizard-field-hint {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 400;
+}

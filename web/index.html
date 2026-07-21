@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.7.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.14.0">
 </head>
 <body>
 
-  <a href="#workspace-main" class="skip-link">Přeskočit na hlavní obsah</a>
+  <a href="#workspace-main" class="skip-link" data-i18n="a11y.skip">Přeskočit na hlavní obsah</a>
 
   <div id="main-container">
 
@@ -105,6 +105,9 @@
           <button id="btn-settings" class="activity-btn" onclick="App.changeTab('settings')" title="Globální nastavení cest a diagnostika">
             <span data-i18n="nav.settings">Nastavení</span>
           </button>
+          <button id="btn-help" class="activity-btn" onclick="App.changeTab('help')" data-i18n-title="nav.help.tip" title="Nápověda — jak funguje orchestrační schéma">
+            <span data-i18n="nav.help">Nápověda</span>
+          </button>
         </div>
         <div class="activitybar-bottom">
           <div class="estop-container">
@@ -126,6 +129,8 @@
           <div class="page-header-row">
             <h2 data-i18n="page.projects.title">Správa Projektů</h2>
             <div style="display: flex; gap: 8px; margin-left: auto;">
+              <button class="btn btn-xs btn-secondary" data-i18n="btn.importBundle" onclick="App.importProjectBundle()" title="Importovat .orchiday balíček (projekt + datasety + modely)">Importovat balíček</button>
+              <button class="btn btn-xs btn-secondary" data-i18n="btn.exportBundle" onclick="App.showExportModal()" title="Exportovat aktuální projekt jako přenositelný .orchiday balíček">Exportovat balíček</button>
               <button class="btn btn-xs btn-secondary" data-i18n="btn.runWizard" onclick="App.startSetupWizard()">Spustit průvodce setupem</button>
               <button class="btn btn-xs btn-primary" data-i18n="btn.newProject" onclick="App.showNewProjectModal()">+ Nový Projekt</button>
             </div>
@@ -271,7 +276,7 @@
                 <div style="display: flex; gap: 12px; align-items: stretch; width: 100%; flex: 1; min-height: 0;">
                   <!-- Preview Box -->
                   <div style="flex: 1.2; display: flex; flex-direction: column; gap: 4px; min-height: 0;">
-                    <span style="font-size: 11px; font-weight: bold; color: var(--text-muted);">Live náhled</span>
+                    <span style="font-size: 11px; font-weight: bold; color: var(--text-muted);" data-i18n="hint.livePreview">Live náhled</span>
                     <div id="hw-camera-preview-box" style="flex: 1; min-height: 150px; background: #000; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
                       <img id="hw-camera-preview-img" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
                       <span id="hw-camera-preview-placeholder" style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 10px;" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
@@ -332,11 +337,17 @@
                   <h4 style="font-size: 10px; color: var(--cyan); text-transform: uppercase; margin: 0; font-weight: 700; letter-spacing: 0.5px;" data-i18n="h4.tele.session">Nastavení relace teleoperace</h4>
                   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div class="form-group" style="margin: 0;">
-                      <label for="tele-fps" style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; display: block;" data-i18n="lbl.fps">Snímková frekvence (FPS)</label>
+                      <div class="label-with-tooltip" style="margin-bottom: 4px;">
+                        <label for="tele-fps" style="font-size: 10px; color: var(--text-muted); font-weight: 600;" data-i18n="lbl.fps">Snímková frekvence (FPS)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.teleFps">ⓘ</span>
+                      </div>
                       <input type="number" id="tele-fps" value="60" min="1" max="240" class="form-control" style="background: var(--bg-input); border: 1px solid var(--border); color: var(--text-light); padding: 5px 8px; border-radius: var(--radius); font-size: 11px; width: 100%;">
                     </div>
                     <div class="form-group" style="margin: 0;">
-                      <label for="tele-time-s" style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; display: block;" data-i18n="lbl.sessionDuration">Doba trvání relace (s)</label>
+                      <div class="label-with-tooltip" style="margin-bottom: 4px;">
+                        <label for="tele-time-s" style="font-size: 10px; color: var(--text-muted); font-weight: 600;" data-i18n="lbl.sessionDuration">Doba trvání relace (s)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.teleDuration">ⓘ</span>
+                      </div>
                       <div style="display: flex; gap: 4px; width: 100%;">
                         <input type="number" id="tele-time-s" placeholder="Nekonečno" min="1" class="form-control" style="background: var(--bg-input); border: 1px solid var(--border); color: var(--text-light); padding: 5px 8px; border-radius: var(--radius); font-size: 11px; flex: 1;" data-i18n-ph="ph.infinity">
                         <button type="button" class="btn btn-xs btn-secondary btn-icon" onclick="document.getElementById('tele-time-s').value=''" title="Nastavit na nekonečno">∞</button>
@@ -348,6 +359,7 @@
                 <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;" id="display-visual-group">
                   <input type="checkbox" id="tele-display-data" checked style="width: 14px; height: 14px; cursor: pointer;">
                   <label for="tele-display-data" style="font-size: 11px; font-weight: normal; cursor: pointer; color: var(--text-light);" data-i18n="lbl.showRerun">Zobrazovat Rerun vizualizaci</label>
+                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.teleShowRerun">ⓘ</span>
                 </div>
               </div>
 
@@ -367,7 +379,7 @@
                       <span>Hodnota</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 12px; align-items: center;">
-                      <span style="color: var(--text-muted);">Settle Status (Uklidnění)</span>
+                      <span style="color: var(--text-muted);" data-i18n="hint.settleStatus">Settle Status (Uklidnění)</span>
                       <span id="tele-infer-settle-frames" style="font-family: var(--font-mono); font-weight: bold; color: var(--cyan); font-size: 13px;">0/5</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 12px; align-items: center;">
@@ -442,12 +454,15 @@
                     <div class="form-group">
                       <div class="label-with-tooltip">
                         <label data-i18n="lbl.modelName">Název modelu</label>
-                        <span class="info-tooltip-trigger" data-tooltip="CEO Model (LLM Plánovač) analyzuje instrukce uživatele v přirozeném jazyce a rozkládá je na sekvenci jednotlivých kroků a pod-úkolů (maker).">ⓘ</span>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.llmModelName">ⓘ</span>
                       </div>
                       <input type="text" id="llm-model" value="qwen2.5-7b-instruct" placeholder="Např. qwen2.5-7b-instruct" style="font-size:11px;" data-i18n-ph="ph.llmModel">
                     </div>
                     <div class="form-group">
-                      <label data-i18n="lbl.serverAddr">Adresa serveru</label>
+                      <div class="label-with-tooltip">
+                        <label data-i18n="lbl.serverAddr">Adresa serveru</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.llmEndpoint">ⓘ</span>
+                      </div>
                       <input type="text" id="llm-endpoint" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1" style="font-size:11px;">
                     </div>
                   </div>
@@ -458,12 +473,15 @@
                     <div class="form-group">
                       <div class="label-with-tooltip">
                         <label data-i18n="lbl.modelName">Název modelu</label>
-                        <span class="info-tooltip-trigger" data-tooltip="VLM Inspector Model provádí vizuální kontrolu scény po každém kroku. Ověřuje splnění podmínek a kontroluje úspěšnost provedené akce.">ⓘ</span>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.vlmModelName">ⓘ</span>
                       </div>
                       <input type="text" id="vlm-model" value="qwen2-vl-7b-instruct" placeholder="Např. qwen2-vl-7b-instruct" style="font-size:11px;" data-i18n-ph="ph.vlmModel">
                     </div>
                     <div class="form-group">
-                      <label data-i18n="lbl.serverAddr">Adresa serveru</label>
+                      <div class="label-with-tooltip">
+                        <label data-i18n="lbl.serverAddr">Adresa serveru</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.vlmEndpoint">ⓘ</span>
+                      </div>
                       <input type="text" id="vlm-endpoint" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1" style="font-size:11px;">
                     </div>
                   </div>
@@ -473,14 +491,17 @@
                 <div class="form-group" style="margin-top: 4px;">
                   <div class="label-with-tooltip">
                     <label data-i18n="lbl.vlmLoopFreq">Frekvence sekvenční smyčky VLM (sekundy)</label>
-                    <span class="info-tooltip-trigger" data-tooltip="Určuje časovou prodlevu mezi snímky odesílanými do VLM k průběžnému ověřování stavu.">ⓘ</span>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.vlmLoopFreq">ⓘ</span>
                   </div>
                   <input type="number" id="settings-loop-interval" value="5" min="1" step="0.5" style="width: 100px; font-size:11px; font-family:var(--font-mono);">
                   <div style="font-size:10px; color:var(--text-muted); margin-top:2px;" data-i18n="hint.vlmInterval">Interval, ve kterém se spouští vizuální kontrola VLM inspectora při monitorování scény.</div>
                 </div>
 
                 <div class="form-group flex-stretch-column" style="flex:1;">
-                  <label data-i18n="lbl.ceoPrompt">Systémový Prompt pro CEO Plánovač</label>
+                  <div class="label-with-tooltip">
+                    <label data-i18n="lbl.ceoPrompt">Systémový Prompt pro CEO Plánovač</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.ceoPrompt">ⓘ</span>
+                  </div>
                   <div style="font-size:9.5px; color:var(--text-muted); margin-bottom:2px; line-height:1.2;" data-i18n="hint.ceoPromptDesc">Definuje, jak se uživatelská instrukce rozkládá na dovednosti.</div>
                   <textarea id="llm-prompt" placeholder="Systémový prompt..." style="flex:1; min-height:80px; resize:none; font-family:var(--font-mono); font-size:10.5px;" data-i18n-ph="ph.systemPrompt"></textarea>
                 </div>
@@ -534,13 +555,13 @@
             <div class="datacollection-block">
               <div class="datacollection-block-header">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="10"></circle></svg>
-                Nahrávání & Přehrávání (Replay)
+                <span data-i18n="blk.dc.recording">Nahrávání & Přehrávání (Replay)</span>
               </div>
               <div class="datacollection-block-body">
                 
                 <div id="rec-empty-state" class="empty-state" style="flex:1;">
                   <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg></div>
-                  <div class="empty-state-text" style="max-width:230px;">
+                  <div class="empty-state-text" style="max-width:230px;" data-i18n-html="hint.recSelectSkill">
                     Vyberte konkrétní <strong>dovednost / sub-skill</strong> ze seznamu dovedností vlevo.
                   </div>
                 </div>
@@ -553,28 +574,40 @@
                   </div>
 
                   <div class="active-skill-stats-row">
-                    <span>Dovednost: <strong id="active-sub-skill-title" style="color:var(--cyan);">pick_cube</strong></span>
-                    <span>Demonstrace: <strong id="active-skill-episodes" style="color:var(--green);">0 ep</strong></span>
+                    <span><span data-i18n="lbl.skillColon">Dovednost:</span> <strong id="active-sub-skill-title" style="color:var(--cyan);">pick_cube</strong></span>
+                    <span><span data-i18n="lbl.demosColon">Demonstrace:</span> <strong id="active-skill-episodes" style="color:var(--green);">0 ep</strong></span>
                   </div>
 
                   <div class="form-row" style="margin:0; gap:8px;">
                     <div class="form-group">
-                      <label for="rec-repo-id">Dataset Repo ID</label>
+                      <div class="label-with-tooltip">
+                        <label for="rec-repo-id">Dataset Repo ID</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recRepoId">ⓘ</span>
+                      </div>
                       <input type="text" id="rec-repo-id" style="font-size:12px; font-family:var(--font-mono);" readonly>
                     </div>
                     <div class="form-group" style="width: 80px;">
-                      <label for="rec-episodes" data-i18n="lbl.episodes">Epizody</label>
+                      <div class="label-with-tooltip">
+                        <label for="rec-episodes" data-i18n="lbl.episodes">Epizody</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recEpisodes">ⓘ</span>
+                      </div>
                       <input type="number" id="rec-episodes" value="50" min="1" style="font-size:12px; font-family:var(--font-mono);">
                     </div>
                   </div>
 
                   <div class="form-row" style="margin:0; gap:8px;">
                     <div class="form-group">
-                      <label for="rec-task-desc" data-i18n="lbl.taskDesc">Popis úkolu — single_task anotace (povinné v LeRobot)</label>
+                      <div class="label-with-tooltip">
+                        <label for="rec-task-desc" data-i18n="lbl.taskDesc">Popis úkolu — single_task anotace (povinné v LeRobot)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recTaskDesc">ⓘ</span>
+                      </div>
                       <input type="text" id="rec-task-desc" value="Uchop kostku a zvedni ji" style="font-size:12px;">
                     </div>
                     <div class="form-group" style="width: 80px;">
-                      <label for="rec-duration" data-i18n="lbl.maxEpTime">Max čas / ep. (s)</label>
+                      <div class="label-with-tooltip">
+                        <label for="rec-duration" data-i18n="lbl.maxEpTime">Max čas / ep. (s)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recDuration">ⓘ</span>
+                      </div>
                       <input type="number" id="rec-duration" value="15" min="1" style="font-size:12px; font-family:var(--font-mono);">
                     </div>
                   </div>
@@ -583,6 +616,7 @@
                     <div style="display:flex; align-items:center; gap:6px;">
                       <input type="checkbox" id="rec-push-hub" style="width:14px; height:14px;">
                       <label for="rec-push-hub" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;">PUSH TO HF HUB</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recPushHub">ⓘ</span>
                     </div>
                     <div style="display:flex; align-items:center; gap:6px;" title="Pokračovat v nahrávání do existujícího datasetu (--resume=true)">
                       <input type="checkbox" id="rec-resume" style="width:14px; height:14px;">
@@ -591,19 +625,22 @@
                   </div>
                   
                   <div class="form-group">
-                    <label data-i18n="lbl.dataStorageFolder">Složka pro ukládání dat (HF Cache)</label>
+                    <div class="label-with-tooltip">
+                      <label data-i18n="lbl.dataStorageFolder">Složka pro ukládání dat (HF Cache)</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dataStorageFolder">ⓘ</span>
+                    </div>
                     <input type="text" id="rec-dataset-storage-dir" placeholder="např. /home/verlyba/OrchidayProjects/data (volitelné)" style="font-size:12px;" onchange="App.syncDatasetStorageDir('rec-dataset-storage-dir')" data-i18n-ph="ph.dataDir">
                   </div>
 
                   <div class="form-group">
                     <div class="label-with-tooltip">
                       <label data-i18n="lbl.extraArgsRecord">Vlastní LeRobot CLI argumenty (Sběr dat)</label>
-                      <span class="info-tooltip-trigger" data-tooltip="Zde můžete zadat jakékoliv dodatečné argumenty pro lerobot_record.py (např. --dataset.vcodec=h264 --dataset.streaming_encoding=true)">ⓘ</span>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recExtraArgs">ⓘ</span>
                     </div>
                     <input type="text" id="rec-extra-args" placeholder="např. --dataset.streaming_encoding=true" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.recExtra">
                   </div>
 
-                  <div class="recording-keys-guide" id="rec-keys-guide" style="display:none;">
+                  <div class="recording-keys-guide" id="rec-keys-guide" style="display:none;" data-i18n="rec.keysGuide">
                     KLÁVESY: [→] Další Ep | [←] Reset | [ESC] Uložit a stop
                   </div>
 
@@ -613,13 +650,18 @@
                     <div id="rec-tagging-steps" style="display:flex; flex-direction:column; gap:6px; margin-bottom:4px;">
                       <!-- Populated dynamically: steps list e.g. "1. najed_ke_kostce (Aktivní)" -->
                     </div>
-                    <button class="btn btn-xs btn-success-light" id="btn-tagging-next" onclick="App.taggingNextStep()">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle; margin-right:4px;"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                      [MEZERNÍK / 2] Označit konec fáze
-                    </button>
+                    <div style="display:grid; grid-template-columns: 1fr auto; gap:8px;">
+                      <button class="btn btn-xs btn-success-light" id="btn-tagging-next" onclick="App.taggingNextStep()">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle; margin-right:4px;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        <span data-i18n="rec.markPhaseEnd">Označit konec fáze</span>
+                      </button>
+                      <button class="btn btn-xs btn-secondary" id="btn-tagging-undo" onclick="App.taggingUndoStep()" data-i18n-title="rec.undoMarkTip" title="Vrátit poslední značku (překlik)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle;"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+                      </button>
+                    </div>
                     <div style="font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
-                      <span>Čas: <strong id="rec-tagging-timer" style="font-family:var(--font-mono); color:var(--text-light);">0.0s</strong> (Frame: <strong id="rec-tagging-frame" style="font-family:var(--font-mono); color:var(--text-light);">0</strong>)</span>
-                      <span>Body: <strong id="rec-tagging-points" style="font-family:var(--font-mono); color:var(--yellow);">[]</strong></span>
+                      <span><span data-i18n="rec.episodeLbl">Epizoda</span>: <strong id="rec-tagging-episode" style="font-family:var(--font-mono); color:var(--text-light);">–</strong> · <span data-i18n="rec.timeLbl">Čas</span>: <strong id="rec-tagging-timer" style="font-family:var(--font-mono); color:var(--text-light);">0.0s</strong></span>
+                      <span><span data-i18n="rec.marksLbl">Značky</span>: <strong id="rec-tagging-points" style="font-family:var(--font-mono); color:var(--yellow);">0</strong></span>
                     </div>
                   </div>
 
@@ -627,14 +669,14 @@
                   <div id="rec-live-controls" style="display:none; flex-direction:column; gap:8px; background:rgba(255,255,255,0.02); border:1px solid var(--border); padding:10px; border-radius:6px; margin-top:8px;">
                     <span class="sidebar-subtitle" style="margin-bottom:4px; color:var(--text-light); text-transform:uppercase; font-size:10px; font-weight:700;" data-i18n="hint.liveRecCtrl">Řízení nahrávání v reálném čase</span>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                      <button class="btn btn-xs btn-success" onclick="App.sendRecordingAction('next')">
+                      <button class="btn btn-xs btn-success" onclick="App.sendRecordingAction('next')" data-i18n="btn.nextEpisode">
                         → Další epizoda
                       </button>
-                      <button class="btn btn-xs btn-danger" onclick="App.sendRecordingAction('reset')">
+                      <button class="btn btn-xs btn-danger" onclick="App.sendRecordingAction('reset')" data-i18n="btn.discardRetry">
                         ← Zahodit & Znovu
                       </button>
                     </div>
-                    <button class="btn btn-xs btn-secondary w-full mt-1" onclick="App.sendRecordingAction('stop')">
+                    <button class="btn btn-xs btn-secondary w-full mt-1" onclick="App.sendRecordingAction('stop')" data-i18n="btn.finishSave">
                       ESC Dokončit a uložit
                     </button>
                   </div>
@@ -679,7 +721,10 @@
               
               <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
                 <div class="form-group" style="margin:0; flex:1; display:flex; flex-direction:column; min-height:0;">
-                  <label id="policy-pick-label" data-i18n="lbl.policyArch">Model Policy (Architektura)</label>
+                  <div class="label-with-tooltip">
+                    <label id="policy-pick-label" data-i18n="lbl.policyArch">Model Policy (Architektura)</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.policyArch">ⓘ</span>
+                  </div>
                   <select id="train-policy-type" style="display:none;" aria-hidden="true">
                     <option value="act" selected>ACT</option>
                     <option value="diffusion">Diffusion Policy</option>
@@ -713,15 +758,24 @@
 
                 <div class="form-row" style="margin:0; gap:16px;">
                   <div class="form-group">
-                    <label for="train-steps" data-i18n="lbl.trainSteps">Tréninkové kroky (steps)</label>
+                    <div class="label-with-tooltip">
+                      <label for="train-steps" data-i18n="lbl.trainSteps">Tréninkové kroky (steps)</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainSteps">ⓘ</span>
+                    </div>
                     <input type="number" id="train-steps" value="10000" min="100" step="100" style="font-size:12px; font-family:var(--font-mono);">
                   </div>
                   <div class="form-group" style="width: 90px;">
-                    <label for="train-batch-size">Batch size</label>
+                    <div class="label-with-tooltip">
+                      <label for="train-batch-size">Batch size</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainBatchSize">ⓘ</span>
+                    </div>
                     <input type="number" id="train-batch-size" value="8" min="1" style="font-size:12px; font-family:var(--font-mono);">
                   </div>
                   <div class="form-group">
-                    <label for="train-device" data-i18n="lbl.trainDevice">Trénovací Zařízení</label>
+                    <div class="label-with-tooltip">
+                      <label for="train-device" data-i18n="lbl.trainDevice">Trénovací Zařízení</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainDevice">ⓘ</span>
+                    </div>
                     <select id="train-device" style="font-size:12px;">
                       <option value="cuda" data-i18n="opt.cudaRec">CUDA GPU (Doporučeno)</option>
                       <option value="mps">MPS Apple Silicon</option>
@@ -734,13 +788,14 @@
                   <div style="display:flex; align-items:center; gap:6px;">
                     <input type="checkbox" id="train-wandb" style="width:14px; height:14px;">
                     <label for="train-wandb" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;" data-i18n="lbl.logWandb">LOGOVAT WANDB</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainWandb">ⓘ</span>
                   </div>
                 </div>
 
                 <div class="form-group">
                   <div class="label-with-tooltip">
                     <label data-i18n="lbl.extraArgsTrain">Vlastní LeRobot CLI argumenty (Trénování)</label>
-                    <span class="info-tooltip-trigger" data-tooltip="Zde můžete zadat jakékoliv dodatečné argumenty pro lerobot_train.py (např. --policy.n_obs_steps=8 --optimizer.lr=1e-4)">ⓘ</span>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainExtraArgs">ⓘ</span>
                   </div>
                   <input type="text" id="train-extra-args" placeholder="např. --policy.n_obs_steps=8 --optimizer.lr=1e-4" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.trainExtra">
                 </div>
@@ -848,7 +903,7 @@
                           <span>Hodnota</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 9.5px; align-items: center;">
-                          <span style="color: var(--text-muted);">Settle Status (Uklidnění)</span>
+                          <span style="color: var(--text-muted);" data-i18n="hint.settleStatus">Settle Status (Uklidnění)</span>
                           <span id="infer-settle-frames" style="font-family: var(--font-mono); font-weight: bold; color: var(--cyan);">0/5</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 9.5px; align-items: center;">
@@ -921,7 +976,10 @@
         <div id="page-settings" class="editor-area">
           <div class="page-header-row">
             <h2 data-i18n="page.settings.title">Globální Nastavení & Diagnostika</h2>
-            <button class="btn btn-xs btn-primary" data-i18n="settings.save" onclick="App.saveGlobalSettings()">Uložit Globální Nastavení</button>
+            <div style="display:flex; gap:8px; margin-left:auto;">
+              <button class="btn btn-xs btn-secondary" data-i18n="btn.openHelp" onclick="App.changeTab('help')" data-i18n-title="nav.help.tip" title="Nápověda — jak funguje orchestrační schéma">Nápověda ke schématu</button>
+              <button class="btn btn-xs btn-primary" data-i18n="settings.save" onclick="App.saveGlobalSettings()">Uložit Globální Nastavení</button>
+            </div>
           </div>
 
           <!-- Language section -->
@@ -935,6 +993,15 @@
                 <button type="button" data-lang="cs" onclick="App.setLang('cs')">Čeština</button>
                 <button type="button" data-lang="en" onclick="App.setLang('en')">English</button>
               </div>
+            </div>
+          </div>
+
+          <!-- Scene description (required, prompt grounding for CEO + VLM) -->
+          <div class="setup-block" style="flex: 0 0 auto;">
+            <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> <span data-i18n="lbl.sceneDesc">Popis scény</span> <span class="required-mark">*</span></h3>
+            <div class="setup-block-content">
+              <div class="cfg-card-desc" style="margin-bottom: 8px;" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
+              <textarea id="settings-scene-desc" rows="4" style="width: 100%;" placeholder="např. Robotické rameno SO-101 je upevněno na hraně dřevěného stolu. Kamera 'overhead_cam' snímá stůl shora, kamera 'wrist_cam' je na zápěstí robota. Na stole je bílá miska vlevo a modrá krabice vpravo." data-i18n-ph="ph.sceneDesc"></textarea>
             </div>
           </div>
 
@@ -1041,6 +1108,214 @@
         </div>
 
 
+        <!-- PAGE: NÁPOVĚDA — orchestrační schéma -->
+        <div id="page-help" class="editor-area">
+          <div class="page-header-row">
+            <h2 data-i18n="page.help.title">Nápověda — Orchestrační schéma</h2>
+            <span class="page-header-sub" data-i18n="help.subtitle">Jak Orchiday skládá dlouhé úlohy z malých modelů</span>
+          </div>
+
+          <div class="help-scroll">
+
+            <!-- A) Co to je a k čemu -->
+            <div class="setup-block help-block">
+              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> <span data-i18n="help.intro.title">Co to je a k čemu to slouží</span></h3>
+              <div class="setup-block-content">
+                <p class="help-p" data-i18n-html="help.intro.p1">Jedna imitační policy (např. ACT) zvládne spolehlivě <strong>jednu krátkou motorickou dovednost</strong> — uchopit kostku, přejet nad krabici. U dlouhé úlohy složené z mnoha fází ale chyby narůstají a model nemá jak poznat, že se odchýlil. <strong>Orchestrační schéma</strong> proto úlohu rozdělí: velký jazykový model plánuje, malé specializované policy vykonávají jednotlivé kroky a vizuální model po každém kroku kontroluje výsledek.</p>
+                <p class="help-p" data-i18n-html="help.intro.p2">Výsledkem je „třívrstvý mozek": <strong>CEO (LLM)</strong> rozumí zadání, <strong>Inspektor (VLM)</strong> vidí scénu a <strong>svaly (per-step policy)</strong> hýbou robotem. Každá vrstva dělá jen to, v čem je nejlepší — a protože se po každém kroku verifikuje stav, systém se umí z chyby zotavit přeplánováním.</p>
+                <div class="help-roles">
+                  <div class="cfg-card">
+                    <div class="cfg-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path><line x1="9" y1="22" x2="15" y2="22"></line></svg></div>
+                    <div class="cfg-card-body">
+                      <div class="cfg-card-title" data-i18n="help.role.llm.title">1 · LLM Planner „CEO"</div>
+                      <div class="cfg-card-desc" data-i18n="help.role.llm.desc">Dostane instrukci + katalog dovedností projektu (ID, názvy, popisy, hierarchii) a vrátí čisté JSON pole kroků. Běží v LM Studio; endpoint a system prompt nastavíš na stránce Orchestrace → AI modely.</div>
+                    </div>
+                  </div>
+                  <div class="cfg-card">
+                    <div class="cfg-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></div>
+                    <div class="cfg-card-body">
+                      <div class="cfg-card-title" data-i18n="help.role.vlm.title">2 · VLM Inspector „Inspektor"</div>
+                      <div class="cfg-card-desc" data-i18n="help.role.vlm.desc">Po každém kroku dostane snímek scény a otázku „splnil se krok X?". Vrací verdikt + značku chyby (např. NOT_GRASPED), která řídí přeplánování. Také běží v LM Studio jako samostatný endpoint.</div>
+                    </div>
+                  </div>
+                  <div class="cfg-card">
+                    <div class="cfg-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15V9a4 4 0 0 0-8 0v6M6 15V9a4 4 0 0 1 8 0v6"></path><circle cx="12" cy="18" r="3"></circle></svg></div>
+                    <div class="cfg-card-body">
+                      <div class="cfg-card-title" data-i18n="help.role.policy.title">3 · Per-step policy „Svaly"</div>
+                      <div class="cfg-card-desc" data-i18n="help.role.policy.desc">Malé ACT/Diffusion modely — jeden na každý pod-krok dovednosti. Natrénují se z dílčích datasetů vzniklých rozdělením jedné nahrávky podle značek. Za běhu je drží trvalý inferenční daemon a vahami se přepínají bez restartu.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- B) Diagram -->
+            <div class="setup-block help-block">
+              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> <span data-i18n="help.flow.title">Schéma běhu</span></h3>
+              <div class="setup-block-content">
+                <div class="help-flow">
+                  <div class="hf-node hf-io">
+                    <div class="hf-node-title" data-i18n="help.flow.instr">Instrukce uživatele</div>
+                    <div class="hf-node-desc" data-i18n="help.flow.instrDesc">„Ukliď kostku do krabice" — stránka Běh modelu</div>
+                  </div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node">
+                    <div class="hf-node-title" data-i18n="help.flow.plan">1 · LLM Planner (CEO) — plán</div>
+                    <div class="hf-node-desc" data-i18n="help.flow.planDesc">LM Studio vrátí JSON pole ID dovedností, např. ["tidy_cube"]</div>
+                  </div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node">
+                    <div class="hf-node-title" data-i18n="help.flow.resolve">2 · Resolver plánu — validace &amp; expanze</div>
+                    <div class="hf-node-desc" data-i18n="help.flow.resolveDesc">Neznámá ID zahodí, názvy převede na slugy a cíl rozbalí na seřazené kroky: [grab_cube, move_to_box, release]</div>
+                  </div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+
+                  <div class="hf-loop">
+                    <div class="hf-loop-label" data-i18n="help.flow.loopLabel">Smyčka pro každý krok plánu</div>
+                    <div class="hf-node">
+                      <div class="hf-node-title" data-i18n="help.flow.swap">3 · Hot-swap modelu (SET_POLICY)</div>
+                      <div class="hf-node-desc" data-i18n="help.flow.swapDesc">Daemon vymění váhy policy daného kroku — robot i kamera zůstávají připojené</div>
+                    </div>
+                    <div class="hf-arrow" aria-hidden="true"></div>
+                    <div class="hf-node">
+                      <div class="hf-node-title" data-i18n="help.flow.exec">4 · Exekuce (SET_TASK) + zámek úlohy</div>
+                      <div class="hf-node-desc" data-i18n="help.flow.execDesc">Policy řídí robota na 30 Hz; TaskLatch blokuje další příkazy, dokud krok neskončí</div>
+                    </div>
+                    <div class="hf-arrow" aria-hidden="true"></div>
+                    <div class="hf-node">
+                      <div class="hf-node-title" data-i18n="help.flow.term">5 · Ukončení kroku (Protokol A / B)</div>
+                      <div class="hf-node-desc" data-i18n="help.flow.termDesc">Dosednutí kloubů nebo proudová špička gripperu → TASK_DONE → zámek se odemkne</div>
+                    </div>
+                    <div class="hf-arrow" aria-hidden="true"></div>
+                    <div class="hf-node">
+                      <div class="hf-node-title" data-i18n="help.flow.snap">6 · Snímek scény (SNAP)</div>
+                      <div class="hf-node-desc" data-i18n="help.flow.snapDesc">Kameru vlastní daemon — snímek pro inspektora vydá on, ne náhledové kamery</div>
+                    </div>
+                    <div class="hf-arrow" aria-hidden="true"></div>
+                    <div class="hf-node">
+                      <div class="hf-node-title" data-i18n="help.flow.verify">7 · VLM verifikace</div>
+                      <div class="hf-node-desc" data-i18n="help.flow.verifyDesc">„Je kostka v gripperu?" → SUCCESS pokračuje, chybová značka spouští re-plán</div>
+                    </div>
+                    <div class="hf-branch">
+                      <div class="hf-branch-item hf-ok" data-i18n="help.flow.ok">✓ Úspěch → další krok plánu</div>
+                      <div class="hf-branch-item hf-fail" data-i18n="help.flow.fail">✗ Neúspěch → nový plán od CEO (max 3×)</div>
+                    </div>
+                  </div>
+
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node hf-io">
+                    <div class="hf-node-title" data-i18n="help.flow.log">Záznam běhu — run.json + snímky</div>
+                    <div class="hf-node-desc" data-i18n="help.flow.logDesc">Každý běh se ukládá do orchestration_runs/ — plán, časy, úspěšnost kroků, VLM snímky</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- C) Krok za krokem -->
+            <div class="setup-block help-block">
+              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg> <span data-i18n="help.steps.title">Co se přesně kde děje</span></h3>
+              <div class="setup-block-content">
+                <ol class="help-steps">
+                  <li data-i18n-html="help.steps.1">Instrukci odešle stránka <strong>Běh modelu</strong> na server (<code>POST /api/orchestrate</code>); orchestrátor startuje ve vlastním vlákně, UI nikdy neblokuje.</li>
+                  <li data-i18n-html="help.steps.2"><strong>Planner</strong> sestaví system prompt z katalogu dovedností (ID, popisy, hierarchie „cíl → kroky") a zavolá LM Studio. Odpověď musí být čisté JSON pole — cokoliv jiného je chyba plánování.</li>
+                  <li data-i18n-html="help.steps.3"><strong>Resolver</strong> plán vyčistí: halucinovaná ID zahodí (loguje varování), názvy mapuje zpět na slugy a rodičovský cíl nahradí jeho seřazenými pod-kroky. Prázdný plán běh korektně ukončí.</li>
+                  <li data-i18n-html="help.steps.4">Pro první krok se spustí <strong>trvalý inferenční daemon</strong> (orchiday_inference.py) — jediný proces, který vlastní sériový port robota a kamery po celou dobu běhu. Náhledy kamer v UI se automaticky pozastaví a po skončení zase obnoví.</li>
+                  <li data-i18n-html="help.steps.5">Daemon nahlásí <code>DAEMON_READY</code>, dostane <code>SET_TASK</code> a přejde do RUNNING: čte pozorování (klouby + kamera), policy predikuje akce, robot je vykonává na 30 Hz.</li>
+                  <li data-i18n-html="help.steps.6">Souběžně orchestrátor drží <strong>zámek úlohy (TaskLatch)</strong> — dokud krok neskončí, žádný další příkaz se nepustí. Strategie: čekej na dokončení, timeout, nebo hybrid (co nastane dřív).</li>
+                  <li data-i18n-html="help.steps.7">Krok končí <strong>Protokolem A</strong> (klouby se ustálily u cíle — 5 snímků po sobě pod prahem) nebo <strong>Protokolem B</strong> (proud gripperu překročil limit = kontakt s objektem). Daemon vypíše <code>TASK_DONE</code>, motory zamrznou v pozici a zámek se odemkne.</li>
+                  <li data-i18n-html="help.steps.8">Orchestrátor si vyžádá <strong>snímek scény</strong>: příkaz <code>SNAP</code> do daemonu (vlastní kameru) → base64 JPEG. Když daemon kameru nemá, použije se náhledová kamera aplikace.</li>
+                  <li data-i18n-html="help.steps.9"><strong>Inspektor</strong> dostane snímek + popis kroku a vrátí verdikt. Úspěch → index kroku +1. Neúspěch → CEO dostane kontext selhání („krok X selhal kvůli Y") a sestaví nový plán; po 3 neúspěšných re-plánech běh končí chybou.</li>
+                  <li data-i18n-html="help.steps.10">Pro další krok s <em>jinou</em> policy pošle controller <code>SET_POLICY:&lt;cesta&gt;</code> — daemon váhy vymění za běhu (robot drží pozici), takže se neztrácí čas restartem procesu ani se nepřepojuje hardware.</li>
+                  <li data-i18n-html="help.steps.11">Každou událost běhu zapisuje <strong>run logger</strong> průběžně do <code>orchestration_runs/&lt;run_id&gt;/run.json</code> + ukládá VLM snímky. Data přežijí i pád aplikace uprostřed běhu.</li>
+                  <li data-i18n-html="help.steps.12">Po posledním kroku se vyhodnotí celkový úspěch, výsledek se zapíše do logu a pošle do UI (<code>orchestration_finished</code>). Daemon zůstává připravený pro další příkaz, E-STOP ho kdykoliv ukončí.</li>
+                </ol>
+              </div>
+            </div>
+
+            <!-- D) Hardware + protokoly -->
+            <div class="setup-section help-two-col">
+              <div class="setup-block help-block">
+                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> <span data-i18n="help.hw.title">Výhradní přístup k hardwaru</span></h3>
+                <div class="setup-block-content">
+                  <ul class="help-list">
+                    <li data-i18n-html="help.hw.1"><strong>Kameru smí v jednu chvíli držet jen jeden proces.</strong> Když si ji vezme nahrávání/teleoperace/inference, náhled v UI se pozastaví a po skončení procesu sám obnoví.</li>
+                    <li data-i18n-html="help.hw.2">Během orchestrace je vlastníkem kamer <strong>inferenční daemon</strong> — proto VLM snímky vydává on (SNAP) a ne náhledové kamery.</li>
+                    <li data-i18n-html="help.hw.3"><strong>Sériové porty</strong> mají registr vlastníků: pokus spustit druhý proces na obsazeném portu je odmítnut se srozumitelnou hláškou, žádné tiché kolize sběrnice.</li>
+                    <li data-i18n-html="help.hw.4">Dvě kamery projektu nesmí mířit na stejné zařízení a hardware scan nikdy nesahá na zařízení, které právě streamuje — obojí dřív dokázalo shodit celou aplikaci.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="setup-block help-block">
+                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> <span data-i18n="help.term.title">Ukončování kroků &amp; zámek úlohy</span></h3>
+                <div class="setup-block-content">
+                  <ul class="help-list">
+                    <li data-i18n-html="help.term.a"><strong>Protokol A — dosednutí:</strong> |cíl − aktuální poloha| &lt; 0,005 rad na všech kloubech po 5 snímků za sebou → pohybová fáze je hotová.</li>
+                    <li data-i18n-html="help.term.b"><strong>Protokol B — kontakt:</strong> proud serva gripperu přes 250 mA = objekt sevřen; ukončuje úchopové kroky dřív, než by policy „tlačila do prázdna".</li>
+                    <li data-i18n-html="help.term.latch"><strong>TaskLatch</strong> chrání běh před chaotickými příkazy: <em>action_chunk</em> čeká na TASK_DONE, <em>timeout</em> odemkne po čase, <em>hybrid</em> podle toho, co nastane dřív. Strategii nastavíš v konfiguraci orchestrace projektu.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- E) Dataset metodika -->
+            <div class="setup-block help-block">
+              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg> <span data-i18n="help.data.title">Jeden dataset, dva způsoby tréninku</span></h3>
+              <div class="setup-block-content">
+                <p class="help-p" data-i18n-html="help.data.p1">Aby šlo orchestrační schéma <strong>férově porovnat s jedním monolitickým modelem</strong>, trénují se oba přístupy ze <strong>stejných demonstrací</strong>: úlohu nahraješ jednou a při nahrávání klikáš na hranice fází („Aktivní fázování" na stránce Sběr dat). Značky se ukládají mimo dataset, takže originál zůstává netknutý.</p>
+                <div class="help-flow help-flow-mini">
+                  <div class="hf-node hf-io"><div class="hf-node-title" data-i18n="help.data.f1">Nahrávka se značkami fází</div></div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node"><div class="hf-node-title" data-i18n="help.data.f2">Sidecar soubor značek (.step_marks.json)</div></div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node"><div class="hf-node-title" data-i18n="help.data.f3">„Rozdělit podle kroků" (Správa datasetů)</div></div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node"><div class="hf-node-title" data-i18n="help.data.f4">Dílčí datasety local/&lt;cíl&gt;/&lt;krok&gt;</div></div>
+                  <div class="hf-arrow" aria-hidden="true"></div>
+                  <div class="hf-node hf-io"><div class="hf-node-title" data-i18n="help.data.f5">Trénink malých per-step modelů</div></div>
+                </div>
+                <p class="help-p" data-i18n-html="help.data.p2"><strong>Baseline</strong> (jeden ACT model) se trénuje na plném nerozřezaném datasetu; <strong>per-step modely</strong> na dílčích datasetech z týchž epizod. Žádná strana nemá data navíc — rozdíl ve výsledcích je tedy rozdílem architektur, ne dat. Značky kotví server k reálnému začátku epizody (přesnost ≈ 0,2 s) a epizody s neúplnými značkami splitter přeskočí a zaloguje.</p>
+              </div>
+            </div>
+
+            <!-- F) Rizika -->
+            <div class="setup-block help-block">
+              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> <span data-i18n="help.risk.title">Rizika a jejich pojistky</span></h3>
+              <div class="setup-block-content">
+                <div class="help-table-wrap">
+                  <table class="help-table">
+                    <thead>
+                      <tr><th data-i18n="help.risk.hProblem">Riziko</th><th data-i18n="help.risk.hSolution">Pojistka ve schématu</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td data-i18n="help.risk.r1p">LLM vymyslí neexistující krok</td><td data-i18n="help.risk.r1s">Resolver plán validuje proti katalogu dovedností; neznámá ID zahodí a zaloguje</td></tr>
+                      <tr><td data-i18n="help.risk.r2p">Krok fyzicky selže (kostka vypadne)</td><td data-i18n="help.risk.r2s">VLM verifikace po každém kroku + re-plán s kontextem chyby, limit 3 pokusy</td></tr>
+                      <tr><td data-i18n="help.risk.r3p">Výměna modelu mezi kroky trvá dlouho</td><td data-i18n="help.risk.r3s">Hot-swap vah v běžícím daemonu — hardware se nepřepojuje; při selhání swapu čistý restart daemonu</td></tr>
+                      <tr><td data-i18n="help.risk.r4p">Dva procesy sahají na kameru/port</td><td data-i18n="help.risk.r4s">Registr vlastníků: konfliktní start je odmítnut, náhledy se pozastavují automaticky</td></tr>
+                      <tr><td data-i18n="help.risk.r5p">Krok se „zasekne" a nikdy neskončí</td><td data-i18n="help.risk.r5s">Hybrid latch s timeoutem + ukončovací protokoly A/B; E-STOP vše okamžitě zabije</td></tr>
+                      <tr><td data-i18n="help.risk.r6p">LM Studio je offline</td><td data-i18n="help.risk.r6s">Test spojení při otevření projektu, chybové stavy v UI; bez plánovače běh vůbec nezačne</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- G) Cesty na disku -->
+            <div class="setup-block help-block">
+              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span data-i18n="help.paths.title">Kde co najdu na disku</span></h3>
+              <div class="setup-block-content">
+                <div class="help-paths">
+                  <div class="help-path-row"><code>&lt;projekt&gt;/orchestration_runs/&lt;run_id&gt;/run.json</code><span data-i18n="help.paths.1">záznam běhu orchestrace: plán, kroky, časy, verdikty + JPEG snímky verifikací</span></div>
+                  <div class="help-path-row"><code>&lt;HF_HOME&gt;/lerobot/local/&lt;cíl&gt;/</code><span data-i18n="help.paths.2">plný nahraný dataset cílové dovednosti (baseline trénink)</span></div>
+                  <div class="help-path-row"><code>&lt;HF_HOME&gt;/lerobot/local/&lt;cíl&gt;.step_marks.json</code><span data-i18n="help.paths.3">značky fází z nahrávání (sidecar — dataset zůstává netknutý)</span></div>
+                  <div class="help-path-row"><code>&lt;HF_HOME&gt;/lerobot/local/&lt;cíl&gt;/&lt;krok&gt;/</code><span data-i18n="help.paths.4">dílčí datasety jednotlivých kroků vytvořené rozdělením podle značek</span></div>
+                  <div class="help-path-row"><code>&lt;úložiště&gt;/outputs/training/&lt;krok&gt;_&lt;typ&gt;/</code><span data-i18n="help.paths.5">natrénované checkpointy policy — odsud je bere inferenční daemon</span></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
         <!-- PAGE 7: HARDWAROVÉ NÁSTROJE (LeRobot CLI utility) -->
         <div id="page-hwtools" class="editor-area">
           <div class="page-header-row">
@@ -1054,7 +1329,10 @@
               <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <span data-i18n="blk.tool.cams">Detekce kamer</span></h3>
               <p class="tool-desc" data-i18n-html="tool.cams.desc">Najde připojené kamery a uloží testovací snímky (<code>lerobot-find-cameras</code>).</p>
               <div class="form-group">
-                <label for="tool-cam-backend" data-i18n="lbl.camTypeFilter">Typ kamer</label>
+                <div class="label-with-tooltip">
+                  <label for="tool-cam-backend" data-i18n="lbl.camTypeFilter">Typ kamer</label>
+                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.toolCamBackend">ⓘ</span>
+                </div>
                 <select id="tool-cam-backend">
                   <option value="" data-i18n="opt.all">Všechny</option>
                   <option value="opencv">OpenCV (USB webkamery)</option>
@@ -1076,7 +1354,10 @@
               <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 10v6M5.6 5.6l4.2 4.2m4.4 4.4l4.2 4.2M1 12h6m10 0h6M5.6 18.4l4.2-4.2m4.4-4.4l4.2-4.2"></path></svg> <span data-i18n="blk.tool.motors">Nastavení ID motorů</span></h3>
               <p class="tool-desc" data-i18n-html="tool.motors.desc">Přiřadí ID servomotorům nového ramene — připojujte motory jeden po druhém dle pokynů v terminálu (<code>lerobot-setup-motors</code>).</p>
               <div class="form-group">
-                <label for="tool-motors-arm" data-i18n="lbl.arm">Rameno</label>
+                <div class="label-with-tooltip">
+                  <label for="tool-motors-arm" data-i18n="lbl.arm">Rameno</label>
+                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.toolMotorsArm">ⓘ</span>
+                </div>
                 <select id="tool-motors-arm">
                   <option value="follower" data-i18n="opt.followerExec">Follower (vykonávací)</option>
                   <option value="leader" data-i18n="opt.leaderCtrl">Leader (řídicí)</option>
@@ -1104,7 +1385,10 @@
               <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg> <span data-i18n="blk.tool.hf">Hugging Face přihlášení</span></h3>
               <p class="tool-desc" data-i18n-html="tool.hf.desc">Přihlášení k HF Hub pro nahrávání datasetů a modelů. Token se nezobrazí v konzoli.</p>
               <div class="form-group">
-                <label for="tool-hf-token" data-i18n="lbl.hfToken">Access token (write)</label>
+                <div class="label-with-tooltip">
+                  <label for="tool-hf-token" data-i18n="lbl.hfToken">Access token (write)</label>
+                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.hfToken">ⓘ</span>
+                </div>
                 <input type="password" id="tool-hf-token" placeholder="hf_..." autocomplete="off" style="font-family:var(--font-mono); font-size:11px;">
               </div>
               <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.hfLogin()" data-i18n="btn.login">Přihlásit se</button>
@@ -1116,7 +1400,12 @@
         <div id="page-datasets" class="editor-area">
           <div class="page-header-row">
             <h2 data-i18n="page.datasets.title">Správa datasetů</h2>
-            <button class="btn btn-xs btn-secondary" style="margin-left:auto;" data-i18n="btn.refreshList" onclick="App.dsRefreshList()">Obnovit seznam</button>
+            <div style="display:flex; gap:8px; margin-left:auto;">
+              <button class="btn btn-xs btn-secondary" data-i18n="btn.importModel" onclick="App.importSkillModel()" title="Importovat natrénovaný model (checkpoint) z jiného zařízení">Importovat model</button>
+              <button class="btn btn-xs btn-secondary" id="ds-btn-export-model" onclick="App.exportSkillModel(App.dsSelectedSkill())" disabled data-i18n="btn.exportModel" title="Exportovat natrénovaný model vybrané dovednosti">Exportovat model</button>
+              <button class="btn btn-xs btn-primary" id="ds-btn-split-steps" onclick="App.splitDatasetSteps()" disabled data-i18n="btn.splitSteps" data-i18n-title="tip.splitSteps" title="Rozdělit dataset podle značek kroků na dílčí datasety pro trénink orchestrace">Rozdělit podle kroků</button>
+              <button class="btn btn-xs btn-secondary" data-i18n="btn.refreshList" onclick="App.dsRefreshList()">Obnovit seznam</button>
+            </div>
           </div>
 
           <div class="setup-section">
@@ -1125,7 +1414,10 @@
               <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg> <span data-i18n="blk.ds.local">Lokální datasety dovedností</span></h3>
               <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:10px;">
                 <div class="form-group">
-                  <label for="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
+                  <div class="label-with-tooltip">
+                    <label for="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsSelect">ⓘ</span>
+                  </div>
                   <select id="ds-select" onchange="App.dsOnSelect()">
                     <option value="" data-i18n="opt.noDatasets">-- Žádné datasety --</option>
                   </select>
@@ -1137,7 +1429,10 @@
                   <div class="ds-stat"><span class="ds-stat-label">Velikost</span><strong id="ds-info-size" class="ds-stat-value">—</strong></div>
                 </div>
                 <div class="form-group">
-                  <label for="ds-viz-episode" data-i18n="lbl.vizEpisode">Epizoda pro vizualizaci (Rerun)</label>
+                  <div class="label-with-tooltip">
+                    <label for="ds-viz-episode" data-i18n="lbl.vizEpisode">Epizoda pro vizualizaci (Rerun)</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsVizEpisode">ⓘ</span>
+                  </div>
                   <div style="display:flex; gap:6px;">
                     <input type="number" id="ds-viz-episode" value="0" min="0" style="width:80px; font-family:var(--font-mono); font-size:12px;">
                     <button class="btn btn-xs btn-secondary" id="ds-btn-viz" onclick="App.dsVisualize()" disabled data-i18n="btn.visualize">▶ Vizualizovat</button>
@@ -1146,11 +1441,15 @@
                   </div>
                 </div>
                 <div class="form-group" style="border-top:1px solid var(--border); padding-top:12px;">
-                  <label for="ds-hub-id" data-i18n="lbl.publishHub">Publikovat na Hugging Face Hub</label>
+                  <div class="label-with-tooltip">
+                    <label for="ds-hub-id" data-i18n="lbl.publishHub">Publikovat na Hugging Face Hub</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubId">ⓘ</span>
+                  </div>
                   <div style="display:flex; gap:6px; align-items:center;">
                     <input type="text" id="ds-hub-id" placeholder="uzivatel/nazev_datasetu" style="flex:1; font-family:var(--font-mono); font-size:11px;">
                     <input type="checkbox" id="ds-hub-private" checked style="width:14px; height:14px;">
                     <label for="ds-hub-private" style="font-size:10px; color:var(--text-muted); font-weight:700;">PRIVATE</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubPrivate">ⓘ</span>
                     <button class="btn btn-xs btn-primary" id="ds-btn-push" onclick="App.dsPush()" disabled data-i18n="btn.pushHub">Push na Hub</button>
                   </div>
                 </div>
@@ -1164,7 +1463,10 @@
 
                 <div class="ds-op-row">
                   <div class="form-group" style="flex:1;">
-                    <label for="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
+                    <div class="label-with-tooltip">
+                      <label for="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsDelIndices">ⓘ</span>
+                    </div>
                     <input type="text" id="ds-del-indices" placeholder="např. 0, 2, 5" style="font-family:var(--font-mono); font-size:12px;" data-i18n-ph="ph.delIndices">
                   </div>
                   <button class="btn btn-xs btn-danger" id="ds-btn-del" onclick="App.dsDeleteEpisodes()" disabled data-i18n="btn.delete">Smazat</button>
@@ -1172,7 +1474,10 @@
 
                 <div class="ds-op-row">
                   <div class="form-group" style="flex:1;">
-                    <label for="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
+                    <div class="label-with-tooltip">
+                      <label for="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsNewTask">ⓘ</span>
+                    </div>
                     <input type="text" id="ds-newtask" placeholder="např. Pick up the cube and place it in the bowl" style="font-size:12px;">
                   </div>
                   <button class="btn btn-xs btn-secondary" id="ds-btn-task" onclick="App.dsModifyTask()" disabled data-i18n="btn.rewriteTask">Přepsat task</button>
@@ -1180,7 +1485,10 @@
 
                 <div class="ds-op-row">
                   <div class="form-group" style="width:110px;">
-                    <label for="ds-split-train" data-i18n="lbl.trainSplit">Train podíl</label>
+                    <div class="label-with-tooltip">
+                      <label for="ds-split-train" data-i18n="lbl.trainSplit">Train podíl</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsSplitTrain">ⓘ</span>
+                    </div>
                     <input type="number" id="ds-split-train" value="0.8" min="0.1" max="0.95" step="0.05" style="font-family:var(--font-mono); font-size:12px;">
                   </div>
                   <div style="flex:1; font-size:10px; color:var(--text-muted); align-self:center;" data-i18n-html="hint.dsSplit">Rozdělí dataset na <code>train</code>/<code>val</code> části.</div>
@@ -1189,11 +1497,17 @@
 
                 <div class="ds-op-row">
                   <div class="form-group" style="flex:1;">
-                    <label for="ds-merge-source" data-i18n="lbl.mergeWith">Sloučit s datasetem (repo id)</label>
+                    <div class="label-with-tooltip">
+                      <label for="ds-merge-source" data-i18n="lbl.mergeWith">Sloučit s datasetem (repo id)</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeSource">ⓘ</span>
+                    </div>
                     <select id="ds-merge-source"><option value="" data-i18n="opt.selectSecondDs">-- Vyberte druhý dataset --</option></select>
                   </div>
                   <div class="form-group" style="flex:1;">
-                    <label for="ds-merge-target" data-i18n="lbl.newRepoId">Nový repo id</label>
+                    <div class="label-with-tooltip">
+                      <label for="ds-merge-target" data-i18n="lbl.newRepoId">Nový repo id</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeTarget">ⓘ</span>
+                    </div>
                     <input type="text" id="ds-merge-target" placeholder="local/merged_dataset" style="font-family:var(--font-mono); font-size:12px;">
                   </div>
                   <button class="btn btn-xs btn-secondary" id="ds-btn-merge" onclick="App.dsMerge()" disabled data-i18n="btn.merge">Sloučit</button>
@@ -1220,7 +1534,10 @@
               <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg> <span data-i18n="blk.adv.resume">Pokračování tréninku (Resume)</span></h3>
               <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:14px; min-height:0;">
                 <div class="form-group">
-                  <label for="adv-resume-skill" data-i18n="lbl.skillWithCkpt">Dovednost s existujícím checkpointem</label>
+                  <div class="label-with-tooltip">
+                    <label for="adv-resume-skill" data-i18n="lbl.skillWithCkpt">Dovednost s existujícím checkpointem</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advResumeSkill">ⓘ</span>
+                  </div>
                   <select id="adv-resume-skill"><option value="">-- Vyberte dovednost --</option></select>
                 </div>
                 <div style="font-size:10.5px; color:var(--text-muted); line-height:1.5;" data-i18n-html="desc.resume">
@@ -1231,12 +1548,18 @@
 
                 <h3 style="margin-top:14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg> <span data-i18n="blk.adv.eval">Simulační evaluace (lerobot-eval)</span></h3>
                 <div class="form-group">
-                  <label for="adv-eval-policy" data-i18n="lbl.policyPathOrHub">Policy (cesta nebo Hub id)</label>
+                  <div class="label-with-tooltip">
+                    <label for="adv-eval-policy" data-i18n="lbl.policyPathOrHub">Policy (cesta nebo Hub id)</label>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalPolicy">ⓘ</span>
+                  </div>
                   <input type="text" id="adv-eval-policy" placeholder="např. lerobot/diffusion_pusht nebo outputs/training/..." style="font-family:var(--font-mono); font-size:11px;" data-i18n-ph="ph.evalPolicy">
                 </div>
                 <div class="form-row" style="margin:0; gap:10px;">
                   <div class="form-group">
-                    <label for="adv-eval-env" data-i18n="lbl.env">Prostředí</label>
+                    <div class="label-with-tooltip">
+                      <label for="adv-eval-env" data-i18n="lbl.env">Prostředí</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalEnv">ⓘ</span>
+                    </div>
                     <select id="adv-eval-env">
                       <option value="pusht" data-i18n="opt.pusht">PushT (2D tlačení)</option>
                       <option value="aloha">ALOHA (bimanual)</option>
@@ -1244,11 +1567,17 @@
                     </select>
                   </div>
                   <div class="form-group" style="width:90px;">
-                    <label for="adv-eval-episodes" data-i18n="lbl.episodes">Epizody</label>
+                    <div class="label-with-tooltip">
+                      <label for="adv-eval-episodes" data-i18n="lbl.episodes">Epizody</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalEpisodes">ⓘ</span>
+                    </div>
                     <input type="number" id="adv-eval-episodes" value="10" min="1" style="font-family:var(--font-mono); font-size:12px;">
                   </div>
                   <div class="form-group">
-                    <label for="adv-eval-device" data-i18n="lbl.device">Zařízení</label>
+                    <div class="label-with-tooltip">
+                      <label for="adv-eval-device" data-i18n="lbl.device">Zařízení</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalDevice">ⓘ</span>
+                    </div>
                     <select id="adv-eval-device">
                       <option value="cuda">CUDA</option>
                       <option value="mps">MPS</option>
@@ -1362,7 +1691,7 @@
             <div class="cameras-dock-body">
               <!-- Camera 1 -->
               <div class="cam-box" style="aspect-ratio: 4/3 !important; width: 48% !important; flex: 1 1 48% !important; max-width: calc(50% - 4px) !important; max-height: 100% !important; position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important;">
-                <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-light);">Globální (Scéna)</span>
+                <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-light);" data-i18n="cam.globalScene">Globální (Scéna)</span>
                 <div id="tele-cam-feed-placeholder-1" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
                   <span style="font-size: 9px; color: var(--text-muted);">Kamera 1 offline</span>
                 </div>
@@ -1408,8 +1737,8 @@
               <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(220, 220, 170, 0.08); display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
               </div>
-              <div style="font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 6px;">Rychlý Setup</div>
-              <div style="font-size: 10px; color: var(--text-muted); line-height: 1.4;">Nakonfiguruje robota a kamery krok za krokem pomocí průvodce.</div>
+              <div style="font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 6px;" data-i18n="wiz.quickSetup">Rychlý Setup</div>
+              <div style="font-size: 10px; color: var(--text-muted); line-height: 1.4;" data-i18n="wiz.quickSetupDesc">Nakonfiguruje robota a kamery krok za krokem pomocí průvodce.</div>
             </div>
             
             <!-- Plain Project Mode Card -->
@@ -1417,8 +1746,8 @@
               <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.03); display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-light)" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg>
               </div>
-              <div style="font-weight: 700; font-size: 13px; color: var(--text-light); margin-bottom: 6px;">Prostý projekt</div>
-              <div style="font-size: 10px; color: var(--text-muted); line-height: 1.4;">Vytvoří čistý projekt bez okamžité konfigurace hardware.</div>
+              <div style="font-weight: 700; font-size: 13px; color: var(--text-light); margin-bottom: 6px;" data-i18n="wiz.plainProject">Prostý projekt</div>
+              <div style="font-size: 10px; color: var(--text-muted); line-height: 1.4;" data-i18n="wiz.plainProjectDesc">Vytvoří čistý projekt bez okamžité konfigurace hardware.</div>
             </div>
           </div>
         </div>
@@ -1426,16 +1755,30 @@
         <!-- Step 2: Name & Details Form (shown only if Plain Project is selected) -->
         <div id="new-project-details-form" style="display: none; flex-direction: column; gap: 12px; animation: fadeIn 0.3s ease;">
           <div class="form-group">
-            <label for="new-project-name" data-i18n="lbl.projectNameCz">Název projektu</label>
+            <div class="label-with-tooltip">
+              <label for="new-project-name" data-i18n="lbl.projectNameCz">Název projektu</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.projectName">ⓘ</span>
+            </div>
             <input type="text" id="new-project-name" placeholder="např. Můj robotický workbench" data-i18n-ph="ph.projectName">
           </div>
           <div class="form-group">
-            <label for="new-project-slug" data-i18n="lbl.slug">Identifikátor (Slug)</label>
+            <div class="label-with-tooltip">
+              <label for="new-project-slug" data-i18n="lbl.slug">Identifikátor (Slug)</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.projectSlug">ⓘ</span>
+            </div>
             <input type="text" id="new-project-slug" readonly placeholder="automaticky-generovany-slug">
           </div>
           <div class="form-group">
-            <label for="new-project-parent-dir" data-i18n="lbl.parentDir">Rodičovský adresář (Nepovinné)</label>
+            <div class="label-with-tooltip">
+              <label for="new-project-parent-dir" data-i18n="lbl.parentDir">Rodičovský adresář (Nepovinné)</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.parentDir">ⓘ</span>
+            </div>
             <input type="text" id="new-project-parent-dir" placeholder="např. /home/verlyba/OrchidayProjects" data-i18n-ph="ph.parentDir">
+          </div>
+          <div class="form-group">
+            <label for="new-project-scene-desc" data-i18n="lbl.sceneDesc">Popis scény <span class="required-mark">*</span></label>
+            <div class="cfg-card-desc" style="margin-bottom: 6px;" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
+            <textarea id="new-project-scene-desc" rows="4" placeholder="např. Robotické rameno SO-101 je upevněno na hraně dřevěného stolu. Kamera 'overhead_cam' snímá stůl shora, kamera 'wrist_cam' je na zápěstí robota. Na stole je bílá miska vlevo a modrá krabice vpravo." data-i18n-ph="ph.sceneDesc"></textarea>
           </div>
         </div>
 
@@ -1458,11 +1801,17 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label for="robot-id" data-i18n="lbl.id">Identifikátor (ID)</label>
+          <div class="label-with-tooltip">
+            <label for="robot-id" data-i18n="lbl.id">Identifikátor (ID)</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.robotId">ⓘ</span>
+          </div>
           <input type="text" id="robot-id" placeholder="např. my_follower_arm" data-i18n-ph="ph.robotId">
         </div>
         <div class="form-group">
-          <label for="robot-type" data-i18n="lbl.robotType">Typ robota (LeRobot --robot.type)</label>
+          <div class="label-with-tooltip">
+            <label for="robot-type" data-i18n="lbl.robotType">Typ robota (LeRobot --robot.type)</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.robotType">ⓘ</span>
+          </div>
           <select id="robot-type">
             <option value="so100_follower">SO-100 Follower</option>
             <option value="so101_follower">SO-101 Follower</option>
@@ -1475,7 +1824,10 @@
           </select>
         </div>
         <div class="form-group">
-          <label for="robot-port" data-i18n="lbl.boardPort">Sériový port desky</label>
+          <div class="label-with-tooltip">
+            <label for="robot-port" data-i18n="lbl.boardPort">Sériový port desky</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.robotPort">ⓘ</span>
+          </div>
           <select id="robot-port" onchange="App.onRobotPortSelectChange()">
             <!-- Populated dynamically -->
           </select>
@@ -1498,18 +1850,27 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label for="camera-id" data-i18n="lbl.id">Identifikátor (ID)</label>
+          <div class="label-with-tooltip">
+            <label for="camera-id" data-i18n="lbl.id">Identifikátor (ID)</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.cameraId">ⓘ</span>
+          </div>
           <input type="text" id="camera-id" placeholder="např. global_scene_cam" data-i18n-ph="ph.cameraId">
         </div>
         <div class="form-group">
-          <label for="camera-source" data-i18n="lbl.hwDeviceIndex">Hardwarové zařízení (Index)</label>
+          <div class="label-with-tooltip">
+            <label for="camera-source" data-i18n="lbl.hwDeviceIndex">Hardwarové zařízení (Index)</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.cameraSource">ⓘ</span>
+          </div>
           <select id="camera-source" onchange="App.onCameraSourceSelectChange()">
             <!-- Populated dynamically -->
           </select>
         </div>
         <input type="hidden" id="camera-source-custom" value="">
         <div class="form-group">
-          <label for="camera-role" data-i18n="lbl.camRole">Role kamery</label>
+          <div class="label-with-tooltip">
+            <label for="camera-role" data-i18n="lbl.camRole">Role kamery</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.cameraRole">ⓘ</span>
+          </div>
           <select id="camera-role">
             <option value="overhead" data-i18n="opt.overheadView">overhead (pohled na scénu)</option>
             <option value="wrist" data-i18n="opt.wristView">wrist (pohled z kleští / ruky)</option>
@@ -1542,8 +1903,8 @@
             <div class="wizard-card-icon-wrapper">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2.5" style="width: 20px; height: 20px;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg>
             </div>
-            <div class="wizard-card-title" style="font-weight: 700; font-size: 14px; color: var(--cyan); margin-bottom: 8px; letter-spacing: 0.3px;">Hlavní dovednost (cíl)</div>
-            <div class="wizard-card-desc" style="font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 0 10px;">Cíl plánovaný LLM modelem (např. Uklidit stůl). Obsahuje dílčí kroky.</div>
+            <div class="wizard-card-title" style="font-weight: 700; font-size: 14px; color: var(--cyan); margin-bottom: 8px; letter-spacing: 0.3px;" data-i18n="wiz.mainSkillTitle">Hlavní dovednost (cíl)</div>
+            <div class="wizard-card-desc" style="font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 0 10px;" data-i18n="wiz.mainSkillDesc">Cíl plánovaný LLM modelem (např. Uklidit stůl). Obsahuje dílčí kroky.</div>
           </div>
           
           <!-- Card 2: Motoric Step -->
@@ -1551,8 +1912,8 @@
             <div class="wizard-card-icon-wrapper">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2.5" style="width: 20px; height: 20px;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
             </div>
-            <div class="wizard-card-title" style="font-weight: 700; font-size: 14px; color: var(--yellow); margin-bottom: 8px; letter-spacing: 0.3px;">Motorický krok (akce)</div>
-            <div class="wizard-card-desc" style="font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 0 10px;">Fyzická akce trénovaná z demonstrací (např. Uchopit kostku). Patří pod cíl.</div>
+            <div class="wizard-card-title" style="font-weight: 700; font-size: 14px; color: var(--yellow); margin-bottom: 8px; letter-spacing: 0.3px;" data-i18n="wiz.stepTitle">Motorický krok (akce)</div>
+            <div class="wizard-card-desc" style="font-size: 11px; color: var(--text-muted); line-height: 1.4; padding: 0 10px;" data-i18n="wiz.stepDesc">Fyzická akce trénovaná z demonstrací (např. Uchopit kostku). Patří pod cíl.</div>
           </div>
         </div>
         
@@ -1565,25 +1926,34 @@
       <!-- STEP 2: Details Form -->
       <div id="skill-wizard-step2" style="display: none; padding: 10px 0;">
         <div class="form-group" id="new-skill-parent-group" style="display: none; margin-bottom: 16px;">
-          <label for="new-skill-parent" data-i18n="lbl.parentSkill">Nadřazená dovednost (Hlavní cíl)</label>
+          <div class="label-with-tooltip">
+            <label for="new-skill-parent" data-i18n="lbl.parentSkill">Nadřazená dovednost (Hlavní cíl)</label>
+            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.skillParent">ⓘ</span>
+          </div>
           <select id="new-skill-parent" style="width: 100%;">
             <!-- Populated dynamically -->
           </select>
         </div>
-        
+
         <div style="display: flex; gap: 16px; margin-bottom: 16px;">
           <div class="form-group" style="flex: 1;">
-            <label for="new-skill-name" id="new-skill-name-label" data-i18n="lbl.name">Název</label>
+            <div class="label-with-tooltip">
+              <label for="new-skill-name" id="new-skill-name-label" data-i18n="lbl.name">Název</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.skillName">ⓘ</span>
+            </div>
             <input type="text" id="new-skill-name" placeholder="např. Uklidit stůl" style="width: 100%;" data-i18n-ph="ph.skillName">
           </div>
           <div class="form-group" style="flex: 1;">
-            <label for="new-skill-slug" data-i18n="lbl.slug">Identifikátor (Slug)</label>
+            <div class="label-with-tooltip">
+              <label for="new-skill-slug" data-i18n="lbl.slug">Identifikátor (Slug)</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.skillSlug">ⓘ</span>
+            </div>
             <input type="text" id="new-skill-slug" readonly placeholder="např. uklidit_stul" style="width: 100%;" data-i18n-ph="ph.skillSlug">
           </div>
         </div>
         
         <div class="form-group" style="margin-bottom: 16px;">
-          <label for="new-skill-desc" id="new-skill-desc-label" data-i18n="lbl.plannerDesc">Bližší popis a instrukce pro plánovač</label>
+          <label for="new-skill-desc" id="new-skill-desc-label" data-i18n="lbl.plannerDesc">Bližší popis a instrukce pro plánovač</label> <span class="required-mark">*</span>
           <div id="new-skill-desc-hint" style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;"></div>
           <textarea id="new-skill-desc" rows="5" placeholder="Zde zadejte podrobný popis..." style="width: 100%;"></textarea>
         </div>
@@ -1637,12 +2007,12 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding: 0 10px;">
           <div id="detect-step-indicator-leader" style="font-size: 11px; font-weight: bold; color: var(--cyan); display: flex; align-items: center; gap: 6px; transition: var(--transition);">
             <span id="detect-step-badge-leader" style="background: rgba(0, 188, 212, 0.15); border: 1px solid var(--cyan); border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;">1</span>
-            Leader Rameno
+            <span data-i18n="wiz.leaderArm">Leader Rameno</span>
           </div>
           <div style="flex-grow: 1; border-bottom: 1px dashed var(--border); margin: 0 12px;"></div>
           <div id="detect-step-indicator-follower" style="font-size: 11px; font-weight: bold; color: var(--text-muted); display: flex; align-items: center; gap: 6px; transition: var(--transition);">
             <span id="detect-step-badge-follower" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;">2</span>
-            Follower Rameno
+            <span data-i18n="wiz.followerArm">Follower Rameno</span>
           </div>
         </div>
 
@@ -1650,11 +2020,11 @@
         <div id="detect-leader-section" class="detect-arm-section">
           <!-- Step 1: Scan -->
           <div id="detect-leader-step-1" class="detect-sub-step">
-            <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin-bottom: 16px;">
+            <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin-bottom: 16px;" data-i18n-html="wiz.leaderScanInstr">
               Ujistěte se, že <strong>Leader (Řídicí)</strong> rameno je připojené k počítači přes USB kabel a zapnuté. Jakmile je připraveno, klikněte na tlačítko níže pro uložení výchozího stavu.
             </p>
             <div style="display: flex; justify-content: center; margin: 20px 0;">
-              <button class="btn btn-primary" id="btn-detect-leader-scan" onclick="App.autoDetectStart('leader')">
+              <button class="btn btn-primary" id="btn-detect-leader-scan" onclick="App.autoDetectStart('leader')" data-i18n="btn.scanDevices">
                 Skenovat připojená zařízení
               </button>
             </div>
@@ -1665,14 +2035,14 @@
             <div style="background: rgba(233, 30, 99, 0.05); border: 1px solid rgba(233, 30, 99, 0.2); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
               <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin: 0; display: flex; align-items: center; gap: 8px;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                Nyní <strong>ODPOJTE</strong> USB kabel Leader ramene od počítače.
+                <span data-i18n-html="wiz.unplugLeader">Nyní <strong>ODPOJTE</strong> USB kabel Leader ramene od počítače.</span>
               </p>
             </div>
-            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;">
+            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;" data-i18n="wiz.detectExplain">
               Systém detekuje, který port zmizel, a tím automaticky identifikuje správné rozhraní. Po odpojení klikněte na tlačítko níže.
             </p>
             <div style="display: flex; justify-content: center; margin: 20px 0;">
-              <button class="btn btn-danger" id="btn-detect-leader-confirm" onclick="App.autoDetectConfirmUnplug('leader')">
+              <button class="btn btn-danger" id="btn-detect-leader-confirm" onclick="App.autoDetectConfirmUnplug('leader')" data-i18n="btn.confirmUnplugCable">
                 Potvrdit odpojení kabelu
               </button>
             </div>
@@ -1682,12 +2052,12 @@
           <div id="detect-leader-step-3" class="detect-sub-step" style="display: none;">
             <div style="background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.2); border-radius: 6px; padding: 16px; text-align: center; margin-bottom: 20px;">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" style="margin-bottom: 8px; display: inline-block;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-              <h5 style="color: var(--green); margin: 0 0 8px 0; font-size: 13px; font-weight: bold;">Leader rameno úspěšně detekováno!</h5>
+              <h5 style="color: var(--green); margin: 0 0 8px 0; font-size: 13px; font-weight: bold;" data-i18n="wiz.leaderDetected">Leader rameno úspěšně detekováno!</h5>
               <p style="font-size: 12px; color: var(--text-light); margin: 0;" id="detect-leader-detected-text">
                 Port: <strong>-</strong> (ID: -)
               </p>
             </div>
-            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;">
+            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;" data-i18n="wiz.leaderReconnect">
               Můžete Leader rameno opět zapojit a pokračovat k detekci Follower ramene.
             </p>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
@@ -1700,11 +2070,11 @@
         <div id="detect-follower-section" class="detect-arm-section" style="display: none;">
           <!-- Step 1: Scan -->
           <div id="detect-follower-step-1" class="detect-sub-step">
-            <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin-bottom: 16px;">
+            <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin-bottom: 16px;" data-i18n-html="wiz.followerScanInstr">
               Ujistěte se, že <strong>Follower (Vykonávací)</strong> rameno je připojené k počítači přes USB kabel a zapnuté. Jakmile je připraveno, klikněte na tlačítko níže pro uložení stavu.
             </p>
             <div style="display: flex; justify-content: center; margin: 20px 0;">
-              <button class="btn btn-primary" id="btn-detect-follower-scan" onclick="App.autoDetectStart('follower')">
+              <button class="btn btn-primary" id="btn-detect-follower-scan" onclick="App.autoDetectStart('follower')" data-i18n="btn.scanDevices">
                 Skenovat připojená zařízení
               </button>
             </div>
@@ -1715,14 +2085,14 @@
             <div style="background: rgba(233, 30, 99, 0.05); border: 1px solid rgba(233, 30, 99, 0.2); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
               <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin: 0; display: flex; align-items: center; gap: 8px;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                Nyní <strong>ODPOJTE</strong> USB kabel Follower ramene od počítače.
+                <span data-i18n-html="wiz.unplugFollower">Nyní <strong>ODPOJTE</strong> USB kabel Follower ramene od počítače.</span>
               </p>
             </div>
-            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;">
+            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;" data-i18n="wiz.detectExplain">
               Systém detekuje, který port zmizel, a tím automaticky identifikuje správné rozhraní. Po odpojení klikněte na tlačítko níže.
             </p>
             <div style="display: flex; justify-content: center; margin: 20px 0;">
-              <button class="btn btn-danger" id="btn-detect-follower-confirm" onclick="App.autoDetectConfirmUnplug('follower')">
+              <button class="btn btn-danger" id="btn-detect-follower-confirm" onclick="App.autoDetectConfirmUnplug('follower')" data-i18n="btn.confirmUnplugCable">
                 Potvrdit odpojení kabelu
               </button>
             </div>
@@ -1732,12 +2102,12 @@
           <div id="detect-follower-step-3" class="detect-sub-step" style="display: none;">
             <div style="background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.2); border-radius: 6px; padding: 16px; text-align: center; margin-bottom: 20px;">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" style="margin-bottom: 8px; display: inline-block;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-              <h5 style="color: var(--green); margin: 0 0 8px 0; font-size: 13px; font-weight: bold;">Follower rameno úspěšně detekováno!</h5>
+              <h5 style="color: var(--green); margin: 0 0 8px 0; font-size: 13px; font-weight: bold;" data-i18n="wiz.followerDetected">Follower rameno úspěšně detekováno!</h5>
               <p style="font-size: 12px; color: var(--text-light); margin: 0;" id="detect-follower-detected-text">
                 Port: <strong>-</strong> (ID: -)
               </p>
             </div>
-            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;">
+            <p style="font-size: 12px; line-height: 1.5; color: var(--text-muted); margin-bottom: 16px;" data-i18n="wiz.followerReconnect">
               Můžete Follower rameno opět zapojit. Detekce portů je kompletní!
             </p>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
@@ -1752,6 +2122,41 @@
       </div>
     </div>
   </div>
+
+  <!-- Modal: Export bundle options -->
+  <div class="modal-overlay" id="modal-export-bundle" role="dialog" aria-modal="true" aria-labelledby="modal-export-title">
+    <div class="modal-container" style="max-width: 480px;">
+      <div class="modal-header">
+        <h4 id="modal-export-title" data-i18n="export.title">Exportovat přenositelný balíček</h4>
+        <button class="modal-close-btn" onclick="App.closeModal('modal-export-bundle')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:11px; color:var(--text-muted); line-height:1.5;" data-i18n="export.desc">
+          Balíček (.orchiday) obsahuje definici projektu a popisy dovedností. Volitelně přidejte nasbírané datasety a natrénované modely — balíček pak plně funguje po přenosu na jiné zařízení.
+        </div>
+        <label class="export-opt">
+          <input type="checkbox" id="export-project" checked disabled>
+          <span><strong data-i18n="export.project">Projekt &amp; dovednosti</strong><small data-i18n="export.projectHint">definice, popisy, roboti, kamery, orchestrace (vždy)</small></span>
+        </label>
+        <label class="export-opt">
+          <input type="checkbox" id="export-datasets" checked>
+          <span><strong data-i18n="export.datasets">Datasety</strong><small data-i18n="export.datasetsHint">nasbírané epizody (pro trénink jinde)</small></span>
+        </label>
+        <label class="export-opt">
+          <input type="checkbox" id="export-models">
+          <span><strong data-i18n="export.models">Natrénované modely</strong><small data-i18n="export.modelsHint">checkpointy policy (velké soubory)</small></span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-xs btn-secondary" onclick="App.closeModal('modal-export-bundle')" data-i18n="btn.cancel">Storno</button>
+        <button class="btn btn-xs btn-primary" onclick="App.doExportBundle()" data-i18n="btn.download">Stáhnout balíček</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file inputs for imports -->
+  <input type="file" id="import-bundle-input" accept=".orchiday,.zip" style="display:none" onchange="App.onImportBundleFile(event)">
+  <input type="file" id="import-model-input" accept=".orchiday,.zip" style="display:none" onchange="App.onImportModelFile(event)">
 
   <div id="setup-wizard-overlay" class="wizard-overlay" style="display: none;">
     <div class="wizard-container">
@@ -1773,7 +2178,15 @@
             <input type="text" id="wizard-project-name" value="Pepe" autocomplete="off" />
           </div>
           <div class="wizard-form-group">
-            <label for="wizard-robot-select" data-i18n="lbl.selectRobot">Select your robot</label>
+            <label for="wizard-scene-desc" data-i18n="lbl.sceneDesc">Popis scény <span class="required-mark">*</span></label>
+            <div class="wizard-field-hint" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
+            <textarea id="wizard-scene-desc" rows="3" placeholder="např. Robotické rameno je upevněno na hraně stolu. Kamera shora snímá pracovní plochu s kostkami a miskou." data-i18n-ph="ph.sceneDesc"></textarea>
+          </div>
+          <div class="wizard-form-group">
+            <div class="label-with-tooltip">
+              <label for="wizard-robot-select" data-i18n="lbl.selectRobot">Select your robot</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.wizardRobotSelect">ⓘ</span>
+            </div>
             <div class="select-wrapper">
               <select id="wizard-robot-select">
                 <option value="SO-ARM 101">SO-ARM 101</option>
@@ -1831,7 +2244,10 @@
         <!-- Option: Connect path selection -->
         <div id="wizard-connect-section" class="wizard-sub-section">
           <div class="wizard-form-group">
-            <label for="wizard-lerobot-path" data-i18n="lbl.lerobotPath">Path to LeRobot directory</label>
+            <div class="label-with-tooltip">
+              <label for="wizard-lerobot-path" data-i18n="lbl.lerobotPath">Path to LeRobot directory</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.wizardLerobotPath">ⓘ</span>
+            </div>
             <div class="input-with-button" style="display:flex; gap:8px;">
               <input type="text" id="wizard-lerobot-path" value="/home/verlyba/robotics/lerobot" autocomplete="off" style="flex:1;" />
               <button class="btn btn-secondary" onclick="App.wizardBrowseLeRobotPath()" style="height:36px; padding:0 12px; background:var(--bg-sidebar); border:1px solid var(--border); color:var(--text-light); border-radius:var(--radius); cursor:pointer;">Browse</button>
@@ -1935,7 +2351,10 @@
         <div class="wizard-form" style="max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 12px;">
           <!-- Select Video Port -->
           <div class="wizard-form-group">
-            <label for="wizard-camera-port-select" data-i18n="lbl.selectVideoEn">Select video port</label>
+            <div class="label-with-tooltip">
+              <label for="wizard-camera-port-select" data-i18n="lbl.selectVideoEn">Select video port</label>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.wizardCameraPort">ⓘ</span>
+            </div>
             <div class="select-wrapper">
               <select id="wizard-camera-port-select" onchange="App.wizardOnCameraPortChange()">
                 <option value="">-- No cameras detected --</option>
@@ -1958,7 +2377,10 @@
             <!-- Role & Add Buttons -->
             <div style="flex: 1; display: flex; flex-direction: column; gap: 12px; justify-content: space-between;">
               <div class="wizard-form-group">
-                <label for="wizard-camera-role-select" data-i18n="lbl.camTypeEn">Camera type</label>
+                <div class="label-with-tooltip">
+                  <label for="wizard-camera-role-select" data-i18n="lbl.camTypeEn">Camera type</label>
+                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.wizardCameraRole">ⓘ</span>
+                </div>
                 <div class="select-wrapper">
                   <select id="wizard-camera-role-select">
                     <option value="overhead" data-i18n="opt.overheadScene">Overhead (Scéna)</option>
@@ -1979,7 +2401,7 @@
           <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px; width: 100%;">
             <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;" data-i18n="hint.configuredCams">Nakonfigurované kamery:</span>
             <div id="wizard-camera-list" style="max-height: 80px; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; display: flex; flex-direction: column; gap: 4px;">
-              <div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 4px;">Žádné přidané kamery.</div>
+              <div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 4px;" data-i18n="hint.noCamsAdded">Žádné přidané kamery.</div>
             </div>
           </div>
         </div>
@@ -2035,7 +2457,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.7.0" defer></script>
-  <script src="/static/app.js?v=3.7.0" defer></script>
+  <script src="/static/i18n.js?v=3.14.0" defer></script>
+  <script src="/static/app.js?v=3.14.0" defer></script>
 </body>
 </html>

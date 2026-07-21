@@ -356,3 +356,164 @@ def test_monitor_hardware_errors_running_slower(bridge):
     finally:
         event_bus.log_message.disconnect(log_slot)
         event_bus.console_output.disconnect(console_slot)
+
+
+# ── Resource arbiter: exclusive serial ports & cameras ───────────────────────
+
+def test_port_guard_blocks_conflicting_start(bridge, monkeypatch):
+    # Simulate a running teleop that owns COM3
+    bridge._process_ports["teleop"] = {"COM3"}
+    bridge._process_kinds["teleop"] = "teleop"
+    monkeypatch.setattr(bridge, "_verify_dataset_exists", lambda name: True)
+
+    bridge.start_recording(
+        robot_type="so100_follower",
+        dataset_name="local/pick_cube",
+        skill_slug="pick_cube",
+        port="COM3",
+        teleop_port="COM4",
+    )
+    assert "cmd" not in bridge._captured
+
+
+def test_port_guard_allows_free_ports(bridge):
+    bridge._process_ports["teleop"] = {"COM7"}
+    bridge._process_kinds["teleop"] = "teleop"
+    bridge.start_recording(
+        robot_type="so100_follower",
+        dataset_name="local/pick_cube",
+        skill_slug="pick_cube",
+        port="COM3",
+        teleop_port="COM4",
+    )
+    assert "cmd" in bridge._captured
+
+
+def test_extract_ports_from_command():
+    cmd = ["python", "-m", "x", "--robot.port=COM3", "--teleop.port=COM4", "--fps=30"]
+    assert LeRobotBridge._extract_ports(cmd) == {"COM3", "COM4"}
+
+
+def test_dataset_dir_does_not_duplicate_local_namespace(bridge):
+    d = bridge._get_dataset_dir("local/parent/pick_cube")
+    parts = [p for p in d.parts if p == "local"]
+    assert len(parts) == 1
+    assert str(d).replace("\\", "/").endswith("lerobot/local/parent/pick_cube")
+
+
+# ── Step marks (sub-task flags during recording) ─────────────────────────────
+
+def test_mark_step_requires_active_recording(bridge):
+    result = bridge.mark_step("pick_cube", 1, "lift")
+    assert result["ok"] is False
+
+
+def test_mark_step_records_in_episode_time(bridge, tmp_path, monkeypatch):
+    import time
+    bridge._active_processes["record_pick_cube"] = object()
+    bridge._record_marks["pick_cube"] = {
+        "dataset": "local/pick_cube",
+        "marks_path": str(tmp_path / "pick_cube.step_marks.json"),
+        "fps": 30,
+        "episodes": {},
+        "current_episode": 2,
+        "episode_started": time.monotonic() - 1.5,
+    }
+    result = bridge.mark_step("pick_cube", 1, "lift")
+    assert result["ok"] is True
+    assert result["episode"] == 2
+    assert 1.0 < result["t"] < 5.0
+    # Persisted sidecar file
+    import json as _json
+    data = _json.loads((tmp_path / "pick_cube.step_marks.json").read_text(encoding="utf-8"))
+    assert data["episodes"]["2"][0]["label"] == "lift"
+
+    # Undo removes it again
+    undo = bridge.undo_step_mark("pick_cube")
+    assert undo["ok"] is True
+    data = _json.loads((tmp_path / "pick_cube.step_marks.json").read_text(encoding="utf-8"))
+    assert data["episodes"]["2"] == []
+
+
+def test_mark_step_before_first_episode(bridge):
+    bridge._active_processes["record_x"] = object()
+    bridge._record_marks["x"] = {
+        "dataset": "local/x", "marks_path": "unused", "fps": 30,
+        "episodes": {}, "current_episode": -1, "episode_started": 0.0,
+    }
+    assert bridge.mark_step("x", 1)["ok"] is False
+
+
+# ── Dataset splitting (per-step orchestration datasets) ──────────────────────
+
+def test_split_requires_marks_file(bridge, tmp_path, monkeypatch):
+    ds_dir = tmp_path / "lerobot" / "local" / "pick_cube"
+    ds_dir.mkdir(parents=True)
+    monkeypatch.setattr(bridge, "_get_dataset_dir", lambda name: ds_dir)
+    ok = bridge.start_dataset_split(
+        "local/pick_cube", "pick_cube",
+        steps=[{"slug": "a", "repo_id": "local/pick_cube/a", "task": "a"},
+               {"slug": "b", "repo_id": "local/pick_cube/b", "task": "b"}],
+    )
+    assert ok is False  # no marks sidecar file
+
+
+def test_split_command_contains_steps_json(bridge, tmp_path, monkeypatch):
+    ds_dir = tmp_path / "lerobot" / "local" / "pick_cube"
+    ds_dir.mkdir(parents=True)
+    (ds_dir.parent / "pick_cube.step_marks.json").write_text(
+        '{"episodes": {"0": [{"t": 2.0, "step": 1, "label": "b"}]}}', encoding="utf-8")
+    monkeypatch.setattr(bridge, "_get_dataset_dir", lambda name: ds_dir)
+    ok = bridge.start_dataset_split(
+        "local/pick_cube", "pick_cube",
+        steps=[{"slug": "a", "repo_id": "local/pick_cube/a", "task": "grab it"},
+               {"slug": "b", "repo_id": "local/pick_cube/b", "task": "place it"}],
+    )
+    assert ok is True
+    cmd = bridge._captured["cmd"]
+    assert any("dataset_splitter.py" in a for a in cmd)
+    assert _arg(cmd, "--repo-id=") == "local/pick_cube"
+    import json as _json
+    steps = _json.loads(_arg(cmd, "--steps-json="))
+    assert [s["slug"] for s in steps] == ["a", "b"]
+
+
+def test_split_requires_two_steps(bridge, tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge, "_get_dataset_dir", lambda name: tmp_path)
+    ok = bridge.start_dataset_split(
+        "local/pick_cube", "pick_cube",
+        steps=[{"slug": "a", "repo_id": "local/pick_cube/a", "task": "a"}],
+    )
+    assert ok is False
+
+
+# ── Daemon request/reply protocol (SNAP / SET_POLICY) ────────────────────────
+
+def test_snapshot_line_resolves_waiter(bridge):
+    import threading
+    event = threading.Event()
+    payload: list = []
+    bridge._daemon_waiters["infer_pick"] = (event, payload)
+    bridge._parse_inference_line("[SNAPSHOT] QUJD", "infer_pick", "pick")
+    assert event.is_set()
+    assert payload == ["SNAPSHOT:QUJD"]
+
+
+def test_policy_loaded_line_resolves_waiter(bridge):
+    import threading
+    event = threading.Event()
+    payload: list = []
+    bridge._daemon_waiters["infer_pick"] = (event, payload)
+    bridge._parse_inference_line("[STATUS] POLICY_LOADED: /models/step2", "infer_pick", "pick")
+    assert event.is_set()
+    assert payload == ["POLICY_LOADED"]
+
+
+def test_release_resources_unblocks_waiter(bridge):
+    import threading
+    event = threading.Event()
+    payload: list = []
+    bridge._daemon_waiters["infer_pick"] = (event, payload)
+    bridge._release_process_resources("infer_pick")
+    assert event.is_set()
+    assert payload == [None]
