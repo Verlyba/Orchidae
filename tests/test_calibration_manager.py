@@ -164,3 +164,59 @@ def test_delete_calibration_file(temp_project_dir, mock_project_manager):
 
     # Binding must be cleared
     assert "follower_calibration" not in mock_project_manager.current_project["robots"][0]
+
+
+# ── Arm visual config (calibration-driven animation) ─────────────────────────
+
+def test_arm_visual_config_uses_bound_calibration(temp_project_dir, mock_project_manager):
+    cm = CalibrationManager(mock_project_manager)
+
+    follower_joints = {
+        "shoulder_pan": {"id": 1, "drive_mode": 0, "homing_offset": -46, "range_min": 815, "range_max": 3283},
+        "shoulder_lift": {"id": 2, "drive_mode": 0, "homing_offset": 12, "range_min": 900, "range_max": 3200},
+    }
+    dev_dir = temp_project_dir / "calibration" / "robots" / "so100_follower"
+    dev_dir.mkdir(parents=True, exist_ok=True)
+    (dev_dir / "F1.json").write_text(json.dumps(follower_joints))
+    mock_project_manager.current_project["robots"][0]["follower_calibration"] = "F1.json"
+
+    config = cm.get_arm_visual_config()
+    assert config["ok"] is True
+    assert config["robot_id"] == "setup_1"
+    assert config["follower"]["source"] == "calibration"
+    assert config["follower"]["joints"]["shoulder_pan"]["id"] == 1
+    assert config["follower"]["joints"]["shoulder_pan"]["range_max"] == 3283
+    # No leader calibration bound -> falls back to generic defaults
+    assert config["leader"]["source"] == "default"
+    assert config["leader"]["joints"]["gripper"]["id"] == 6
+
+
+def test_arm_visual_config_no_project():
+    from orchiday.core.calibration_manager import CalibrationManager
+
+    class EmptyPM:
+        current_project = None
+        current_path = None
+
+    cm = CalibrationManager(EmptyPM())
+    result = cm.get_arm_visual_config()
+    assert result["ok"] is False
+
+
+def test_arm_visual_config_no_robots(mock_project_manager):
+    cm = CalibrationManager(mock_project_manager)
+    mock_project_manager.current_project["robots"] = []
+    result = cm.get_arm_visual_config()
+    assert result["ok"] is False
+
+
+def test_read_calibration_content_missing_file(temp_project_dir, mock_project_manager):
+    cm = CalibrationManager(mock_project_manager)
+    assert cm.read_calibration_content(temp_project_dir / "nope.json") is None
+
+
+def test_read_calibration_content_malformed(tmp_path, mock_project_manager):
+    cm = CalibrationManager(mock_project_manager)
+    bad = tmp_path / "bad.json"
+    bad.write_text("not json{{{")
+    assert cm.read_calibration_content(bad) is None

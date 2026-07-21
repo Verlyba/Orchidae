@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.14.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.15.0">
 </head>
 <body>
 
@@ -341,7 +341,7 @@
                         <label for="tele-fps" style="font-size: 10px; color: var(--text-muted); font-weight: 600;" data-i18n="lbl.fps">Snímková frekvence (FPS)</label>
                         <span class="info-tooltip-trigger" data-i18n-tooltip="tip.teleFps">ⓘ</span>
                       </div>
-                      <input type="number" id="tele-fps" value="60" min="1" max="240" class="form-control" style="background: var(--bg-input); border: 1px solid var(--border); color: var(--text-light); padding: 5px 8px; border-radius: var(--radius); font-size: 11px; width: 100%;">
+                      <input type="number" id="tele-fps" value="30" min="1" max="240" class="form-control" style="background: var(--bg-input); border: 1px solid var(--border); color: var(--text-light); padding: 5px 8px; border-radius: var(--radius); font-size: 11px; width: 100%;">
                     </div>
                     <div class="form-group" style="margin: 0;">
                       <div class="label-with-tooltip" style="margin-bottom: 4px;">
@@ -428,6 +428,30 @@
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Calibration-driven live dual-arm visualization -->
+          <div class="setup-block" style="flex: 0 0 auto; margin-top: 14px;">
+            <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15V9a4 4 0 0 0-8 0v6M6 15V9a4 4 0 0 1 8 0v6"></path><circle cx="12" cy="18" r="3"></circle></svg> <span data-i18n="blk.tele.armVisual">Vizualizace ramen (podle kalibrace)</span>
+              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.armVisual" style="margin-left:6px;">ⓘ</span>
+            </h3>
+            <div class="setup-block-content">
+              <div id="arm-visual-empty" class="empty-state" style="display:none;">
+                <div class="empty-state-text" data-i18n="hint.armVisualNoRobot">Otevřete projekt s nakonfigurovaným robotem, aby se zobrazila vizualizace ramen.</div>
+              </div>
+              <div id="arm-visual-grid" class="arm-visual-grid">
+                <div class="arm-visual-col">
+                  <div class="arm-visual-label" data-i18n="lbl.leaderArm">Leader (řídicí)</div>
+                  <div class="arm-visual-svg-wrap" id="arm-visual-leader-wrap"></div>
+                  <div class="arm-visual-meta" id="arm-visual-leader-meta"></div>
+                </div>
+                <div class="arm-visual-col">
+                  <div class="arm-visual-label" data-i18n="lbl.followerArm">Follower (vykonávací)</div>
+                  <div class="arm-visual-svg-wrap" id="arm-visual-follower-wrap"></div>
+                  <div class="arm-visual-meta" id="arm-visual-follower-meta"></div>
                 </div>
               </div>
             </div>
@@ -2457,7 +2481,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.14.0" defer></script>
-  <script src="/static/app.js?v=3.14.0" defer></script>
+  <script src="/static/i18n.js?v=3.15.0" defer></script>
+  <script src="/static/app.js?v=3.15.0" defer></script>
 </body>
 </html>

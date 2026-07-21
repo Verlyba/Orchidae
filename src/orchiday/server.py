@@ -471,6 +471,14 @@ def scan_hardware():
     }
 
 
+@app.get("/api/calibration/arm_visual_config")
+def get_arm_visual_config(robot_id: str | None = None):
+    """Joint calibration (motor id, range_min/max, homing_offset) for the
+    leader + follower of a robot setup — drives the live arm visualization."""
+    ctrl = _get_controller()
+    return ctrl.calibration_manager.get_arm_visual_config(robot_id)
+
+
 @app.post("/api/hardware/pair")
 def pair_hardware():
     if not pm.current_project:

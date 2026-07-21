@@ -17,6 +17,19 @@ from orchiday.core.events import event_bus
 
 log = logging.getLogger(__name__)
 
+# Base->gripper kinematic chain order for SO-100/SO-101/Koch 6-DOF arms —
+# used as the rendering order when a calibration file is missing so the
+# visualization still shows something reasonable (generic mid-range values,
+# ids 1-6 following the physical bus wiring convention).
+DEFAULT_SO100_CALIBRATION: dict[str, dict[str, Any]] = {
+    "shoulder_pan": {"id": 1, "drive_mode": 0, "homing_offset": 0, "range_min": 0, "range_max": 4095},
+    "shoulder_lift": {"id": 2, "drive_mode": 0, "homing_offset": 0, "range_min": 0, "range_max": 4095},
+    "elbow_flex": {"id": 3, "drive_mode": 0, "homing_offset": 0, "range_min": 0, "range_max": 4095},
+    "wrist_flex": {"id": 4, "drive_mode": 0, "homing_offset": 0, "range_min": 0, "range_max": 4095},
+    "wrist_roll": {"id": 5, "drive_mode": 0, "homing_offset": 0, "range_min": 0, "range_max": 4095},
+    "gripper": {"id": 6, "drive_mode": 0, "homing_offset": 0, "range_min": 0, "range_max": 4095},
+}
+
 
 class CalibrationManager:
     """
@@ -355,6 +368,59 @@ class CalibrationManager:
         except Exception as e:
             log.error("Failed to delete calibration: %s", e)
             return False
+
+    def read_calibration_content(self, path: Path) -> dict[str, Any] | None:
+        """Parse a calibration JSON file's per-joint data (id, homing_offset,
+        range_min/range_max, drive_mode). Returns None if missing/unreadable."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and data:
+                return data
+        except Exception as e:
+            log.warning("Failed to read calibration file %s: %s", path, e)
+        return None
+
+    def get_arm_visual_config(self, robot_setup_id: str | None = None) -> dict[str, Any]:
+        """
+        Resolve joint calibration data (motor id, range_min/max, homing_offset)
+        for both the leader and follower of a robot setup, to drive a visual
+        arm animation. Falls back to DEFAULT_SO100_CALIBRATION for whichever
+        side has no calibration file bound yet, so the visualization always has
+        something reasonable to render (e.g. before the user ever calibrates).
+        """
+        if not self._pm.current_project:
+            return {"ok": False, "error": "No project open"}
+
+        robots = self._pm.current_project.get("robots", [])
+        setup = None
+        if robot_setup_id:
+            setup = next((r for r in robots if r.get("id") == robot_setup_id), None)
+        elif robots:
+            setup = robots[0]
+        if not setup:
+            return {"ok": False, "error": "No robot configured in this project"}
+
+        cal_dir = self.get_project_calibration_dir()
+
+        def _resolve(category: str, device_type: str, filename: str | None) -> dict[str, Any]:
+            if filename and cal_dir:
+                content = self.read_calibration_content(cal_dir / category / device_type / filename)
+                if content:
+                    return {"source": "calibration", "filename": filename, "joints": content}
+            return {"source": "default", "filename": None, "joints": DEFAULT_SO100_CALIBRATION}
+
+        follower_type = setup.get("follower_type", "so100_follower")
+        leader_type = setup.get("leader_type", "so100_leader")
+
+        return {
+            "ok": True,
+            "robot_id": setup.get("id"),
+            "follower": {"device_type": follower_type,
+                        **_resolve("robots", follower_type, setup.get("follower_calibration"))},
+            "leader": {"device_type": leader_type,
+                      **_resolve("teleoperators", leader_type, setup.get("leader_calibration"))},
+        }
 
     def _update_setup_binding(self, robot_setup_id: str, arm_category: str, filename: str) -> None:
         """Helper to save the calibration binding in the project config."""

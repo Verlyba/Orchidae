@@ -58,6 +58,9 @@ class LeRobotBridge(QObject):
         self._pm = project_manager
         self._active_processes: dict[str, QProcess] = {}
         self._teleop_state: dict[str, float] = {}
+        # Counts consecutive bus packet-drop warnings per process so we can
+        # escalate to an actionable suggestion instead of repeating forever.
+        self._packet_drop_counts: dict[str, int] = {}
         self._record_totals: dict[str, int] = {}
         self._pending_infer_tasks: dict[str, str] = {}
         self._process_kinds: dict[str, str] = {}
@@ -1668,6 +1671,11 @@ except Exception as e:
             waiter[1].append(payload)
             waiter[0].set()
 
+    # Threshold at which repeated bus packet-drop warnings escalate to an
+    # actionable one-time suggestion (lower FPS / check power) instead of
+    # repeating the same generic line for every dropped frame.
+    _PACKET_DROP_ESCALATE_AT = 5
+
     def _monitor_hardware_errors(self, line: str, key: str) -> None:
         """Scan subprocess output for critical hardware errors or performance alerts."""
         if "Overload error!" in line:
@@ -1681,11 +1689,47 @@ except Exception as e:
             log.warning(msg)
             event_bus.log_message.emit("WARN", msg)
             event_bus.console_output.emit(f"<span style='color:var(--warning); font-weight:bold;'>{msg}</span>")
+
+            count = self._packet_drop_counts.get(key, 0) + 1
+            self._packet_drop_counts[key] = count
+            if count == self._PACKET_DROP_ESCALATE_AT:
+                tip = ("[DOPORUČENÍ] Opakované ztráty packetů obvykle znamenají nedostatečné napájení "
+                       "nebo příliš vysoké FPS. Zkuste: 1) snížit FPS na 30 (Teleoperace/Sběr dat), "
+                       "2) použít silnější napájecí zdroj pro serva, 3) zkrátit/zkontrolovat kabeláž sběrnice.")
+                log.warning(tip)
+                event_bus.log_message.emit("WARN", tip)
+                event_bus.console_output.emit(f"<span style='color:var(--warning); font-weight:bold;'>{tip}</span>")
         elif "running slower" in line:
             msg = "[VAROVÁNÍ] Počítač nestíhá (přetížené GPU/CPU)."
             log.warning(msg)
             event_bus.log_message.emit("WARN", msg)
             event_bus.console_output.emit(f"<span style='color:var(--warning);'>{msg}</span>")
+        elif ("Homing_Offset" in line and ("exceeds" in line or "Magnitude" in line)) or \
+                ("Magnitude" in line and "exceeds" in line):
+            msg = ("[KALIBRACE SELHALA] Kloub je mechanicky přetočený mimo referenční bod 0/4095 "
+                   "(homing offset mimo rozsah ±2047). Postup: 1) ručně srovnejte postižený kloub "
+                   "(často wrist_roll) do neutrální polohy, 2) v Hardware → Kalibrace smažte starý "
+                   "kalibrační soubor tohoto ramene, 3) spusťte kalibraci znovu.")
+            log.error(msg)
+            event_bus.log_message.emit("ERROR", msg)
+            event_bus.console_output.emit(f"<span style='color:var(--error); font-weight:bold;'>{msg}</span>")
+
+    # Canonical base->gripper kinematic chain order for SO-100/SO-101/Koch arms —
+    # matches LeRobot's own robot.get_observation() ordering and the joint keys
+    # used in calibration JSON files.
+    CANONICAL_JOINT_ORDER = (
+        "shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper",
+    )
+
+    def _joint_sort_key(self, name: str) -> tuple:
+        """Rank a joint/motor name by its position in CANONICAL_JOINT_ORDER;
+        unrecognized names (other robot types) fall back to alphabetical,
+        matching the previous behavior exactly."""
+        lname = name.lower()
+        for idx, canon in enumerate(self.CANONICAL_JOINT_ORDER):
+            if canon in lname:
+                return (0, idx, lname)
+        return (1, 0, lname)
 
     def _parse_teleop_line(self, line: str) -> None:
         """Extract joints state from teleop output name | value and format as [TELEMETRY] log."""
@@ -1704,8 +1748,12 @@ except Exception as e:
                     pass
         elif "Teleop loop time:" in clean_line:
             if self._teleop_state:
-                # Sort keys alphabetically to keep mapping consistent
-                sorted_keys = sorted(self._teleop_state.keys())
+                # Sort by the arm's physical kinematic chain (base -> gripper) so
+                # the J1..J6 slots line up with shoulder_pan..gripper the same way
+                # the inference daemon's robot.get_observation() already orders
+                # them — a plain alphabetical sort would scramble that order
+                # (e.g. "elbow_flex" < "gripper" < "shoulder_lift" alphabetically).
+                sorted_keys = sorted(self._teleop_state.keys(), key=self._joint_sort_key)
                 joint_vals = [self._teleop_state[k] for k in sorted_keys]
                 
                 # Format to match what the frontend parses:
@@ -1724,6 +1772,7 @@ except Exception as e:
         associated with a finished/killed process."""
         self._process_ports.pop(key, None)
         self._infer_policy_paths.pop(key, None)
+        self._packet_drop_counts.pop(key, None)
         waiter = self._daemon_waiters.pop(key, None)
         if waiter is not None:
             # Unblock anyone waiting for a daemon reply that will never come

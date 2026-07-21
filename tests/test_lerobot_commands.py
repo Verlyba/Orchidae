@@ -517,3 +517,73 @@ def test_release_resources_unblocks_waiter(bridge):
     bridge._release_process_resources("infer_pick")
     assert event.is_set()
     assert payload == [None]
+
+
+# ── Field-report robustness fixes ────────────────────────────────────────────
+# (serial-number port ID, camera arg format, repo_id/single_task, resume/
+#  FileExistsError were already covered above; these cover the newly-fixed
+#  gaps: canonical joint ordering, packet-drop escalation, calibration errors)
+
+def test_joint_sort_key_matches_kinematic_chain(bridge):
+    names = ["wrist_roll.pos", "gripper.pos", "shoulder_pan.pos",
+             "elbow_flex.pos", "wrist_flex.pos", "shoulder_lift.pos"]
+    ordered = sorted(names, key=bridge._joint_sort_key)
+    assert ordered == ["shoulder_pan.pos", "shoulder_lift.pos", "elbow_flex.pos",
+                        "wrist_flex.pos", "wrist_roll.pos", "gripper.pos"]
+
+
+def test_joint_sort_key_falls_back_alphabetically_for_unknown_names(bridge):
+    names = ["zeta", "alpha", "beta"]
+    ordered = sorted(names, key=bridge._joint_sort_key)
+    assert ordered == ["alpha", "beta", "zeta"]
+
+
+def test_teleop_telemetry_emits_in_kinematic_order(bridge):
+    from orchiday.core.events import event_bus
+    emitted = []
+    slot = lambda s: emitted.append(s)
+    event_bus.console_output.connect(slot)
+    try:
+        for name, val in [("gripper.pos", 6.0), ("shoulder_pan.pos", 1.0),
+                           ("elbow_flex.pos", 3.0), ("shoulder_lift.pos", 2.0),
+                           ("wrist_flex.pos", 4.0), ("wrist_roll.pos", 5.0)]:
+            bridge._parse_teleop_line(f"{name} | {val}")
+        bridge._parse_teleop_line("Teleop loop time: 10ms")
+
+        assert len(emitted) == 1
+        assert "joints:1.0000,2.0000,3.0000,4.0000,5.0000,6.0000" in emitted[0]
+    finally:
+        event_bus.console_output.disconnect(slot)
+
+
+def test_packet_drop_escalates_after_threshold(bridge):
+    from orchiday.core.events import event_bus
+    messages = []
+    slot = lambda level, msg: messages.append(msg)
+    event_bus.log_message.connect(slot)
+    try:
+        for _ in range(bridge._PACKET_DROP_ESCALATE_AT):
+            bridge._monitor_hardware_errors("Incorrect status packet!", "record_pick")
+        assert any("DOPORUČENÍ" in m for m in messages)
+    finally:
+        event_bus.log_message.disconnect(slot)
+
+
+def test_packet_drop_count_resets_on_process_release(bridge):
+    bridge._monitor_hardware_errors("Incorrect status packet!", "record_pick")
+    assert bridge._packet_drop_counts.get("record_pick") == 1
+    bridge._release_process_resources("record_pick")
+    assert "record_pick" not in bridge._packet_drop_counts
+
+
+def test_calibration_homing_offset_error_detected(bridge):
+    from orchiday.core.events import event_bus
+    messages = []
+    slot = lambda level, msg: messages.append(msg)
+    event_bus.log_message.connect(slot)
+    try:
+        bridge._monitor_hardware_errors(
+            "ValueError: Homing_Offset Magnitude 3147 exceeds 2047", "calibrate_arm")
+        assert any("KALIBRACE SELHALA" in m for m in messages)
+    finally:
+        event_bus.log_message.disconnect(slot)

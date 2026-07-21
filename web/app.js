@@ -32,6 +32,8 @@ const App = {
     taggingPoints: [],
     taggingInterval: null,
     taggingEpisode: -1,
+    armVisualConfig: null,
+    armJointRanges: { leader: {}, follower: {} },
     wizardActivePage: 1,
     wizardSelectedOption: 'install', // 'install' or 'connect'
     wizardLeaderPort: '',
@@ -663,6 +665,9 @@ const App = {
         }
         else if (tabId === 'advancedtraining') {
             this.advPopulateResumeSkills();
+        }
+        else if (tabId === 'teleoperation') {
+            this.loadArmVisualConfig();
         }
     },
     // ── Policy architecture picker (learning page) ──────────────────────
@@ -2148,7 +2153,7 @@ const App = {
         const tId = document.getElementById('tele-leader-id').value;
         const displayData = document.getElementById('tele-display-data').checked;
         const fpsVal = document.getElementById('tele-fps')?.value;
-        const fps = fpsVal ? parseInt(fpsVal, 10) : 60;
+        const fps = fpsVal ? parseInt(fpsVal, 10) : 30;
         const timeSVal = document.getElementById('tele-time-s')?.value;
         const timeS = timeSVal ? parseFloat(timeSVal) : null;
         if (!rPort || !tPort) {
@@ -4327,6 +4332,7 @@ const App = {
                     updateEl(`joint-val-${idx}`, val.toFixed(4));
                     updateEl(`tele-joint-val-${idx}`, val.toFixed(4));
                 });
+                this.updateArmVisualization(joints);
             }
             if (targetMatch) {
                 const targets = targetMatch[1].split(',').map(x => parseFloat(x.trim()));
@@ -4409,6 +4415,165 @@ const App = {
                 this.log('SUCCESS', `✓ Sub-task '${subSkill}' byl úspěšně dokončen (detekováno dynamické ukončení!).`);
             }
         }
+    },
+    // ── Calibration-driven live arm visualization ───────────────────────
+    // Base->gripper kinematic chain order — matches the backend's
+    // CANONICAL_JOINT_ORDER and the position of each value in the
+    // [TELEMETRY] joints:v0,v1,... array.
+    ARM_JOINT_ORDER: ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'],
+    // Visual rotation sweep (degrees) mapped from each joint's normalized
+    // 0..1 fraction. These are display ranges, not physical limits — the
+    // fraction itself is auto-ranged from live data (see updateArmVisualization),
+    // which sidesteps not knowing whether LeRobot reports degrees, radians or
+    // a normalized percentage for a given version/robot.
+    ARM_JOINT_SWEEP: {
+        shoulder_pan: [-70, 70], shoulder_lift: [-55, 35], elbow_flex: [-15, 110],
+        wrist_flex: [-80, 80], wrist_roll: [0, 340], gripper: [0, 26],
+    },
+    ARM_GEOM: { baseX: 100, baseY: 175, upperLen: 55, foreLen: 50, wristLen: 26 },
+    async loadArmVisualConfig() {
+        if (!this.project)
+            return;
+        const res = await this.api('GET', '/calibration/arm_visual_config');
+        const emptyEl = document.getElementById('arm-visual-empty');
+        const gridEl = document.getElementById('arm-visual-grid');
+        if (!res || res.ok === false) {
+            if (emptyEl)
+                emptyEl.style.display = 'flex';
+            if (gridEl)
+                gridEl.style.display = 'none';
+            this.armVisualConfig = null;
+            return;
+        }
+        if (emptyEl)
+            emptyEl.style.display = 'none';
+        if (gridEl)
+            gridEl.style.display = 'grid';
+        this.armVisualConfig = res;
+        this.armJointRanges = { leader: {}, follower: {} };
+        this.renderArmSchematic('leader', res.leader);
+        this.renderArmSchematic('follower', res.follower);
+    },
+    renderArmSchematic(side, armCfg) {
+        const wrap = document.getElementById(`arm-visual-${side}-wrap`);
+        const meta = document.getElementById(`arm-visual-${side}-meta`);
+        if (!wrap)
+            return;
+        const joints = armCfg?.joints || {};
+        const idBadges = this.ARM_JOINT_ORDER
+            .map(name => (joints[name] ? `<span class="arm-id-badge">${name}: <strong>#${joints[name].id}</strong></span>` : ''))
+            .filter(Boolean).join('');
+        if (meta) {
+            const sourceLabel = armCfg?.source === 'calibration' ? this.t('hint.armVisualCalibrated') : this.t('hint.armVisualDefault');
+            meta.innerHTML =
+                `<div class="arm-visual-source">${this.esc(sourceLabel)}${armCfg?.filename ? ' · ' + this.esc(armCfg.filename) : ''}</div>` +
+                    `<div class="arm-visual-ids">${idBadges}</div>` +
+                    `<div class="arm-visual-idle-hint" id="arm-visual-${side}-idle-hint">${this.esc(this.t('hint.armVisualIdle'))}</div>`;
+        }
+        const g = this.ARM_GEOM;
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('viewBox', '0 0 200 200');
+        svg.setAttribute('class', 'arm-visual-svg');
+        // Every id'd <g> below only ever receives a pure rotate() transform —
+        // pivot positioning is baked into static wrapper <g translate(...)>
+        // elements so per-frame updates are a single attribute write each.
+        svg.innerHTML = `
+      <line x1="15" y1="${g.baseY}" x2="185" y2="${g.baseY}" class="arm-floor" />
+      <g transform="translate(${g.baseX},${g.baseY})">
+        <circle r="9" class="arm-base" />
+        <g id="arm-${side}-shoulder_pan" transform="rotate(0)">
+          <line x1="0" y1="0" x2="0" y2="-13" class="arm-pan-indicator" />
+          <g id="arm-${side}-shoulder_lift" transform="rotate(0)">
+            <line x1="0" y1="0" x2="0" y2="-${g.upperLen}" class="arm-link arm-link-upper" />
+            <g transform="translate(0,-${g.upperLen})">
+              <g id="arm-${side}-elbow_flex" transform="rotate(0)">
+                <line x1="0" y1="0" x2="0" y2="-${g.foreLen}" class="arm-link arm-link-fore" />
+                <g transform="translate(0,-${g.foreLen})">
+                  <g id="arm-${side}-wrist_flex" transform="rotate(0)">
+                    <line x1="0" y1="0" x2="0" y2="-${g.wristLen}" class="arm-link arm-link-wrist" />
+                    <g transform="translate(0,-${g.wristLen})">
+                      <circle r="3.5" class="arm-roll-hub" />
+                      <line id="arm-${side}-wrist_roll" x1="0" y1="0" x2="6" y2="0" class="arm-roll-indicator" transform="rotate(0)" />
+                      <g id="arm-${side}-gripper-l" transform="rotate(-13)">
+                        <line x1="0" y1="0" x2="0" y2="-9" class="arm-gripper-jaw" />
+                      </g>
+                      <g id="arm-${side}-gripper-r" transform="rotate(13)">
+                        <line x1="0" y1="0" x2="0" y2="-9" class="arm-gripper-jaw" />
+                      </g>
+                    </g>
+                  </g>
+                </g>
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    `;
+        wrap.innerHTML = '';
+        wrap.appendChild(svg);
+        // Idle pose: mid-range on every joint until live telemetry arrives.
+        this.applyArmPose(side, [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]);
+    },
+    updateArmVisualization(rawValues) {
+        if (!this.armVisualConfig)
+            return;
+        const order = this.ARM_JOINT_ORDER;
+        ['leader', 'follower'].forEach(side => {
+            // Teleoperation mirrors the leader's pose onto the follower 1:1, so both
+            // panels are driven from the same telemetry stream. Ranges are tracked
+            // per side (rather than globally) so a future per-arm telemetry source
+            // (e.g. distinct leader/follower feeds) would need no rework here.
+            const ranges = this.armJointRanges[side];
+            const fractions = [];
+            order.forEach((name, idx) => {
+                const val = rawValues[idx];
+                if (val === undefined || Number.isNaN(val)) {
+                    fractions[idx] = 0.5;
+                    return;
+                }
+                let r = ranges[name];
+                if (!r) {
+                    r = { min: val - 0.001, max: val + 0.001 };
+                    ranges[name] = r;
+                }
+                if (val < r.min)
+                    r.min = val;
+                if (val > r.max)
+                    r.max = val;
+                const span = r.max - r.min;
+                fractions[idx] = span > 1e-6 ? (val - r.min) / span : 0.5;
+            });
+            this.applyArmPose(side, fractions);
+            const idleHint = document.getElementById(`arm-visual-${side}-idle-hint`);
+            if (idleHint)
+                idleHint.style.display = 'none';
+        });
+    },
+    applyArmPose(side, fractions) {
+        const order = this.ARM_JOINT_ORDER;
+        const sweep = this.ARM_JOINT_SWEEP;
+        const angleFor = (idx, name) => {
+            const [lo, hi] = sweep[name];
+            const f = fractions[idx] ?? 0.5;
+            return lo + f * (hi - lo);
+        };
+        order.forEach((name, idx) => {
+            if (name === 'gripper')
+                return;
+            const el = document.getElementById(`arm-${side}-${name}`);
+            if (el)
+                el.setAttribute('transform', `rotate(${angleFor(idx, name).toFixed(1)})`);
+        });
+        const gIdx = order.indexOf('gripper');
+        const [glo, ghi] = sweep.gripper;
+        const openDeg = glo + (fractions[gIdx] ?? 0.5) * (ghi - glo);
+        const lJaw = document.getElementById(`arm-${side}-gripper-l`);
+        const rJaw = document.getElementById(`arm-${side}-gripper-r`);
+        if (lJaw)
+            lJaw.setAttribute('transform', `rotate(${(-13 - openDeg).toFixed(1)})`);
+        if (rJaw)
+            rJaw.setAttribute('transform', `rotate(${(13 + openDeg).toFixed(1)})`);
     },
     // ── Setup Wizard ───────────────────────────────────────────────────
     showSetupWizard(mode = 'initial') {

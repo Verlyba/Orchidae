@@ -4297,3 +4297,143 @@ body { min-width: 320px; }
     letter-spacing: normal;
     font-weight: 400;
 }
+
+/* ============================================================
+   v3.15 — Calibration-driven live dual-arm visualization
+   ============================================================ */
+
+.arm-visual-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 760px) {
+    .arm-visual-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.arm-visual-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+}
+
+.arm-visual-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.arm-visual-svg-wrap {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.arm-visual-svg {
+    width: 100%;
+    height: 100%;
+}
+
+.arm-floor {
+    stroke: var(--border);
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+}
+
+.arm-base {
+    fill: rgba(78, 201, 176, 0.15);
+    stroke: var(--cyan);
+    stroke-width: 1.5;
+}
+
+.arm-pan-indicator {
+    stroke: var(--cyan);
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.arm-link {
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: d 0.05s linear;
+}
+
+.arm-link-upper {
+    stroke: var(--text-light);
+}
+
+.arm-link-fore {
+    stroke: var(--yellow);
+}
+
+.arm-link-wrist {
+    stroke: var(--text-muted);
+    stroke-width: 4;
+}
+
+.arm-roll-hub {
+    fill: var(--bg-editor);
+    stroke: var(--text-muted);
+    stroke-width: 1;
+}
+
+.arm-roll-indicator {
+    stroke: var(--red, #e06c75);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+}
+
+.arm-gripper-jaw {
+    stroke: var(--green);
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.arm-visual-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 10px;
+}
+
+.arm-visual-source {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.arm-visual-ids {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.arm-id-badge {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-light);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+}
+
+.arm-id-badge strong {
+    color: var(--cyan);
+}
+
+.arm-visual-idle-hint {
+    color: var(--text-muted);
+    font-size: 9.5px;
+}
