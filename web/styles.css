@@ -119,11 +119,6 @@ body {
     to { opacity: 1; transform: scale(1); }
 }
 
-@keyframes pulse-glow {
-    0%, 100% { box-shadow: none; }
-    50% { box-shadow: none; }
-}
-
 @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
@@ -141,6 +136,17 @@ body {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Referenced by dynamically-rendered cards/rows (project cards, active
+   orchestration/tagging steps) — previously missing, so those elements
+   rendered with no animation at all. */
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+.pulse-light-cyan {
+    animation: pulse-dot 1.6s ease-in-out infinite;
 }
 
 /* --- APP LAYOUT SHELL --- */
@@ -1082,6 +1088,16 @@ input[readonly] {
     box-shadow: none;
     transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     overflow: hidden;
+}
+
+/* Brief feedback while a project-open request is in flight — opening a
+   project runs hardware auto-detection + calibration deploy server-side,
+   which can take a noticeable moment. */
+.project-card.opening,
+.sidebar-project-item.opening {
+    opacity: 0.55;
+    pointer-events: none;
+    animation: pulse-dot 1s ease-in-out infinite;
 }
 
 .project-card::before {
@@ -3489,12 +3505,12 @@ body.resizing * {
 
 .cfg-card {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     align-items: flex-start;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 14px;
+    padding: 10px;
     transition: var(--transition-fast);
 }
 
@@ -4302,26 +4318,44 @@ body { min-width: 320px; }
    v3.15 — Calibration-driven live dual-arm visualization
    ============================================================ */
 
+/* Both arms stacked in one block — they share the same base->gripper
+   chain order, so a single legend row above them replaces two identical
+   per-arm id-badge lists. */
 .arm-visual-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
-@media (max-width: 760px) {
-    .arm-visual-grid {
-        grid-template-columns: 1fr;
-    }
+.arm-visual-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.arm-visual-legend-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 2px;
 }
 
 .arm-visual-col {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 10px;
+    padding: 8px 12px;
 }
 
 .arm-visual-label {
@@ -4330,15 +4364,29 @@ body { min-width: 320px; }
     color: var(--cyan);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    flex: 0 0 auto;
 }
 
 .arm-visual-svg-wrap {
-    width: 100%;
+    flex: 0 0 auto;
+    width: 140px;
     aspect-ratio: 1 / 1;
-    max-height: 220px;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+@media (max-width: 500px) {
+    .arm-visual-col {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .arm-visual-label {
+        writing-mode: horizontal-tb;
+        transform: none;
+    }
 }
 
 .arm-visual-svg {
@@ -4402,6 +4450,8 @@ body { min-width: 320px; }
 }
 
 .arm-visual-meta {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;

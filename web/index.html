@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.15.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.20.0">
 </head>
 <body>
 
@@ -371,57 +371,53 @@
               
               <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px; justify-content: stretch; height: 100%;">
                 <!-- Real-Time Telemetry Dashboard -->
-                <div style="flex: 1; padding: 14px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); display: flex; flex-direction: column; justify-content: space-between; gap: 10px; height: 100%;">
-                  <!-- Metrics list -->
-                  <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
-                      <span>Metrika</span>
-                      <span>Hodnota</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; align-items: center;">
-                      <span style="color: var(--text-muted);" data-i18n="hint.settleStatus">Settle Status (Uklidnění)</span>
+                <div style="flex: 1; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); display: flex; flex-direction: column; justify-content: space-between; gap: 8px; height: 100%;">
+                  <!-- Metrics — compact single row of stat tiles -->
+                  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                    <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
+                      <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" data-i18n="hint.settleStatus" title="Settle Status (Uklidnění)">Settle Status</span>
                       <span id="tele-infer-settle-frames" style="font-family: var(--font-mono); font-weight: bold; color: var(--cyan); font-size: 13px;">0/5</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; align-items: center;">
-                      <span style="color: var(--text-muted);">Proud gripperu (Load)</span>
+                    <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
+                      <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap;" data-i18n="hint.gripperLoadShort">Proud gripperu</span>
                       <span id="tele-infer-gripper-load" style="font-family: var(--font-mono); font-weight: bold; color: var(--yellow); font-size: 13px;">0.0 mA</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; align-items: center;">
-                      <span style="color: var(--text-muted);">Max odchylka kloubů</span>
+                    <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
+                      <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap;" data-i18n="hint.maxDeltaShort">Max odchylka</span>
                       <span id="tele-infer-max-delta" style="font-family: var(--font-mono); font-weight: bold; color: var(--text-light); font-size: 13px;">0.0000 rad</span>
                     </div>
                   </div>
-                  
+
                   <!-- Joint telemetry list -->
-                  <div style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px; flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; min-height: 0;">
+                  <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; min-height: 0;">
                     <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="hint.jointAngles">Úhly kloubů (Aktuální vs Cíl)</div>
-                    <div id="tele-joints-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; flex: 1; align-items: stretch;">
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 4px; transition: border-color 0.2s, background 0.2s;">
+                    <div id="tele-joints-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: 1; align-items: stretch;">
+                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
                         <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J1</div>
                         <div id="tele-joint-val-0" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
                         <div id="tele-joint-tgt-0" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
                       </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 4px; transition: border-color 0.2s, background 0.2s;">
+                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
                         <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J2</div>
                         <div id="tele-joint-val-1" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
                         <div id="tele-joint-tgt-1" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
                       </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 4px; transition: border-color 0.2s, background 0.2s;">
+                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
                         <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J3</div>
                         <div id="tele-joint-val-2" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
                         <div id="tele-joint-tgt-2" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
                       </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 4px; transition: border-color 0.2s, background 0.2s;">
+                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
                         <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J4</div>
                         <div id="tele-joint-val-3" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
                         <div id="tele-joint-tgt-3" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
                       </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 4px; transition: border-color 0.2s, background 0.2s;">
+                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
                         <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J5</div>
                         <div id="tele-joint-val-4" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
                         <div id="tele-joint-tgt-4" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
                       </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 4px; transition: border-color 0.2s, background 0.2s;">
+                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
                         <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J6 (Grip)</div>
                         <div id="tele-joint-val-5" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
                         <div id="tele-joint-tgt-5" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
@@ -443,6 +439,9 @@
                 <div class="empty-state-text" data-i18n="hint.armVisualNoRobot">Otevřete projekt s nakonfigurovaným robotem, aby se zobrazila vizualizace ramen.</div>
               </div>
               <div id="arm-visual-grid" class="arm-visual-grid">
+                <!-- Joint legend shown ONCE — both arms share the same base->gripper
+                     chain order, so per-arm id badges would just repeat this. -->
+                <div class="arm-visual-legend" id="arm-visual-legend"></div>
                 <div class="arm-visual-col">
                   <div class="arm-visual-label" data-i18n="lbl.leaderArm">Leader (řídicí)</div>
                   <div class="arm-visual-svg-wrap" id="arm-visual-leader-wrap"></div>
@@ -1006,35 +1005,40 @@
             </div>
           </div>
 
-          <!-- Language section -->
-          <div class="setup-block lang-block" style="flex: 0 0 auto;">
-            <div class="lang-row">
-              <div class="lang-info">
-                <div class="cfg-card-title" data-i18n="settings.language.title">Jazyk aplikace / Application language</div>
-                <div class="cfg-card-desc" data-i18n="settings.language.desc">Zvolte jazyk uživatelského rozhraní. Změna se projeví okamžitě.</div>
-              </div>
-              <div class="lang-toggle" role="group" aria-label="Language">
-                <button type="button" data-lang="cs" onclick="App.setLang('cs')">Čeština</button>
-                <button type="button" data-lang="en" onclick="App.setLang('en')">English</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Scene description (required, prompt grounding for CEO + VLM) -->
-          <div class="setup-block" style="flex: 0 0 auto;">
-            <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> <span data-i18n="lbl.sceneDesc">Popis scény</span> <span class="required-mark">*</span></h3>
-            <div class="setup-block-content">
-              <div class="cfg-card-desc" style="margin-bottom: 8px;" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
-              <textarea id="settings-scene-desc" rows="4" style="width: 100%;" placeholder="např. Robotické rameno SO-101 je upevněno na hraně dřevěného stolu. Kamera 'overhead_cam' snímá stůl shora, kamera 'wrist_cam' je na zápěstí robota. Na stole je bílá miska vlevo a modrá krabice vpravo." data-i18n-ph="ph.sceneDesc"></textarea>
-            </div>
-          </div>
-
           <div class="setup-section" style="grid-template-columns: 1.15fr 1fr;">
-            <!-- Left block: Environment Settings -->
+            <!-- Left block: Environment & Project settings (language, scene, paths — all
+                 "things you configure" grouped together, so the page opens straight into
+                 content instead of two full-width rows pushing it down). -->
             <div class="setup-block" style="display: flex; flex-direction: column;">
               <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg> <span data-i18n="settings.paths.title">Cesty & Prostředí</span></h3>
 
-              <div class="setup-block-content cfg-stack" style="flex: 1; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
+              <div class="setup-block-content cfg-stack" style="flex: 1; display: flex; flex-direction: column; gap: 6px; min-height: 0;">
+                <div class="cfg-card lang-card">
+                  <div class="cfg-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  </div>
+                  <div class="cfg-card-body lang-row">
+                    <div class="lang-info">
+                      <div class="cfg-card-title" data-i18n="settings.language.title">Jazyk aplikace / Application language</div>
+                    </div>
+                    <div class="lang-toggle" role="group" aria-label="Language">
+                      <button type="button" data-lang="cs" onclick="App.setLang('cs')">Čeština</button>
+                      <button type="button" data-lang="en" onclick="App.setLang('en')">English</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="cfg-card">
+                  <div class="cfg-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </div>
+                  <div class="cfg-card-body">
+                    <div class="cfg-card-title"><span data-i18n="lbl.sceneDesc">Popis scény</span> <span class="required-mark">*</span></div>
+                    <div class="cfg-card-desc" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
+                    <textarea id="settings-scene-desc" rows="2" style="width: 100%; margin-top: 6px; resize: vertical;" placeholder="např. Robotické rameno SO-101 je upevněno na hraně dřevěného stolu. Kamera 'overhead_cam' snímá stůl shora, kamera 'wrist_cam' je na zápěstí robota. Na stole je bílá miska vlevo a modrá krabice vpravo." data-i18n-ph="ph.sceneDesc"></textarea>
+                  </div>
+                </div>
+
                 <div class="cfg-card">
                   <div class="cfg-card-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
@@ -2274,7 +2278,7 @@
             </div>
             <div class="input-with-button" style="display:flex; gap:8px;">
               <input type="text" id="wizard-lerobot-path" value="/home/verlyba/robotics/lerobot" autocomplete="off" style="flex:1;" />
-              <button class="btn btn-secondary" onclick="App.wizardBrowseLeRobotPath()" style="height:36px; padding:0 12px; background:var(--bg-sidebar); border:1px solid var(--border); color:var(--text-light); border-radius:var(--radius); cursor:pointer;">Browse</button>
+              <button class="btn btn-secondary" onclick="App.wizardBrowseLeRobotPath()" style="height:36px; padding:0 12px;">Browse</button>
             </div>
           </div>
         </div>
@@ -2481,7 +2485,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.15.0" defer></script>
-  <script src="/static/app.js?v=3.15.0" defer></script>
+  <script src="/static/i18n.js?v=3.20.0" defer></script>
+  <script src="/static/app.js?v=3.20.0" defer></script>
 </body>
 </html>

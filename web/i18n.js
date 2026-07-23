@@ -184,6 +184,7 @@ window.I18N = {
     "hint.armVisualNoRobot": "Otevřete projekt s nakonfigurovaným robotem, aby se zobrazila vizualizace ramen.",
     "lbl.leaderArm": "Leader (řídicí)",
     "lbl.followerArm": "Follower (vykonávací)",
+    "lbl.jointLegend": "Klouby:",
     "hint.armVisualDefault": "Bez kalibračního souboru (obecné rozsahy)",
     "hint.armVisualCalibrated": "Podle kalibračního souboru",
     "hint.armVisualIdle": "Čeká na živá data z teleoperace...",
@@ -325,6 +326,8 @@ window.I18N = {
     "wiz.unplugFollower": "Nyní <strong>ODPOJTE</strong> USB kabel Follower ramene od počítače.",
     "wiz.detectExplain": "Systém detekuje, který port zmizel, a tím automaticky identifikuje správné rozhraní. Po odpojení klikněte na tlačítko níže.",
     "hint.settleStatus": "Settle Status (Uklidnění)",
+    "hint.gripperLoadShort": "Proud gripperu",
+    "hint.maxDeltaShort": "Max odchylka",
     // -- Skill tree & datacollection (increment 8) --
     "tip.editSkill": "Upravit dovednost",
     "tip.addStep": "Přidat krok (Sub-skill)",
@@ -827,6 +830,7 @@ window.I18N = {
     "hint.armVisualNoRobot": "Open a project with a configured robot to see the arm visualization.",
     "lbl.leaderArm": "Leader (control)",
     "lbl.followerArm": "Follower (execution)",
+    "lbl.jointLegend": "Joints:",
     "hint.armVisualDefault": "No calibration file (generic ranges)",
     "hint.armVisualCalibrated": "From calibration file",
     "hint.armVisualIdle": "Waiting for live teleoperation data...",
@@ -968,6 +972,8 @@ window.I18N = {
     "wiz.unplugFollower": "Now <strong>UNPLUG</strong> the Follower arm's USB cable from the computer.",
     "wiz.detectExplain": "The system detects which port disappeared, automatically identifying the correct interface. After unplugging, click the button below.",
     "hint.settleStatus": "Settle status",
+    "hint.gripperLoadShort": "Gripper current",
+    "hint.maxDeltaShort": "Max joint delta",
     // -- Skill tree & datacollection (increment 8) --
     "tip.editSkill": "Edit skill",
     "tip.addStep": "Add step (sub-skill)",

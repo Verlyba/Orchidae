@@ -150,8 +150,9 @@ DEFAULT_LLM_TIMEOUT_S = 30.0
 # Training defaults
 # ---------------------------------------------------------------------------
 
-# Policy types from lerobot_train --policy.type help
-# {act,diffusion,groot,pi0,pi0_fast,pi05,smolvla,tdmpc,vqbet,wall_x,xvla,sac,reward_classifier,sarm}
+# Policy types from lerobot_train --policy.type help (LeRobot 0.6.x; the RL
+# stack's "sac" was renamed to "gaussian_actor" in 0.6.0)
+# {act,diffusion,groot,pi0,pi0_fast,pi05,smolvla,tdmpc,vqbet,wall_x,xvla,gaussian_actor,reward_classifier,sarm}
 SUPPORTED_ARCHITECTURES = [
     "act",           # Action Chunking with Transformers (most common for SO-100/Koch)
     "diffusion",     # Diffusion Policy

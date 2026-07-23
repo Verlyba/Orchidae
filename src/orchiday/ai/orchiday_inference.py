@@ -5,9 +5,11 @@ Orchiday Persistent Inference Daemon — Model 3 (Svaly).
 Loads a trained imitation learning policy (ACT / Diffusion / ...) once into memory
 and manages a persistent evaluation loop over standard I/O (stdin/stdout).
 
-Designed for LeRobot >= 0.5 (lerobot.robots / lerobot.policies API).
-If LeRobot or the hardware is unavailable, the daemon degrades to a
-simulated mock mode so the UI pipeline stays testable.
+Designed for LeRobot >= 0.5 (lerobot.robots / lerobot.policies API), with
+version-adaptive imports verified against both 0.5.x and 0.6.x (see
+`_import_first()` below for what moved between them). If LeRobot or the
+hardware is unavailable, the daemon degrades to a simulated mock mode so
+the UI pipeline stays testable.
 
 Stdin protocol:
     SET_TASK:<task_name>     -> switch to RUNNING and condition the policy on the task
@@ -33,6 +35,8 @@ import os
 import sys
 import threading
 import time
+from contextlib import nullcontext
+from copy import copy
 
 import numpy as np
 
@@ -54,19 +58,88 @@ except ImportError:
     TORCH_OK = False
     log.warning("PyTorch not importable — running in pure mock mode.")
 
-# ── LeRobot imports (modern >= 0.5 layout) ───────────────────────────────────
+# ── LeRobot imports (version-adaptive: tested against 0.5.x and 0.6.x) ───────
+#
+# `lerobot.utils.feature_utils` (0.6.0+) / `lerobot.datasets.feature_utils`
+# (0.4.x-0.5.x) has moved at least twice across releases, and 0.6.0 removed
+# `lerobot.utils.control_utils.predict_action` entirely (inference was split
+# out of lerobot-record into a separate `lerobot-rollout` command). Rather
+# than chase whichever module happens to house these helpers this month, we
+# resolve the handful of pieces that DO stay stable across versions
+# (`prepare_observation_for_inference`, `policy.select_action`) and rebuild
+# `predict_action` ourselves — see `predict_action()` below.
 LEROBOT_OK = False
+
+
+def _import_first(*candidates: tuple[str, str]):
+    """Try a list of (module, attribute) pairs in order, return the first hit.
+
+    Raises the last ImportError/AttributeError if none of them resolve, so
+    the caller's own try/except still reports a meaningful failure.
+    """
+    last_err: Exception | None = None
+    for module_name, attr_name in candidates:
+        try:
+            mod = __import__(module_name, fromlist=[attr_name])
+            return getattr(mod, attr_name)
+        except (ImportError, AttributeError) as e:
+            last_err = e
+    assert last_err is not None
+    raise last_err
+
+
 try:
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
     from lerobot.robots import RobotConfig  # noqa: F401 — triggers subclass registration
     from lerobot.robots.utils import make_robot_from_config
-    from lerobot.datasets.utils import hw_to_dataset_features, build_dataset_frame
-    from lerobot.utils.control_utils import predict_action
+
+    # Moved from lerobot.datasets.utils -> lerobot.datasets.feature_utils (0.5.x)
+    # -> lerobot.utils.feature_utils (0.6.0+). Try newest-first.
+    hw_to_dataset_features = _import_first(
+        ("lerobot.utils.feature_utils", "hw_to_dataset_features"),
+        ("lerobot.datasets.feature_utils", "hw_to_dataset_features"),
+        ("lerobot.datasets.utils", "hw_to_dataset_features"),
+    )
+    build_dataset_frame = _import_first(
+        ("lerobot.utils.feature_utils", "build_dataset_frame"),
+        ("lerobot.datasets.feature_utils", "build_dataset_frame"),
+        ("lerobot.datasets.utils", "build_dataset_frame"),
+    )
+    # Stable across 0.5.x and 0.6.0 (same module + signature both times) —
+    # this is what predict_action() below is built on.
+    prepare_observation_for_inference = _import_first(
+        ("lerobot.policies.utils", "prepare_observation_for_inference"),
+        ("lerobot.utils.control_utils", "prepare_observation_for_inference"),
+    )
     LEROBOT_OK = True
-    log.info("Successfully imported LeRobot >= 0.5 components.")
-except ImportError as e:
+    log.info("Successfully imported LeRobot components.")
+except (ImportError, AttributeError) as e:
     log.warning("Could not import LeRobot (%s). Falling back to VIRTUAL MOCK mode.", e)
+
+
+def predict_action(observation, policy, device, preprocessor, postprocessor,
+                   use_amp: bool, task: str | None = None, robot_type: str | None = None):
+    """
+    Single-step inference: observation -> action, reimplemented locally.
+
+    LeRobot 0.5.x shipped this as `lerobot.utils.control_utils.predict_action`;
+    0.6.0 removed it (inference moved to the separate `lerobot-rollout`
+    command) but kept `prepare_observation_for_inference` unchanged. Owning
+    this thin wrapper means Orchiday's persistent daemon doesn't depend on
+    LeRobot exporting a ready-made helper that keeps moving between releases.
+    Body matches the removed 0.5.x implementation exactly.
+    """
+    observation = copy(observation)
+    with (
+        torch.inference_mode(),
+        torch.autocast(device_type=device.type) if device.type == "cuda" and use_amp else nullcontext(),
+    ):
+        observation = prepare_observation_for_inference(observation, device, task, robot_type)
+        observation = preprocessor(observation)
+        action = policy.select_action(observation)
+        action = postprocessor(action)
+    return action
 
 # ── Global State ─────────────────────────────────────────────────────────────
 state = "WAITING"  # WAITING or RUNNING

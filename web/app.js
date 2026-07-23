@@ -26,6 +26,8 @@ const App = {
     availablePorts: [],
     availableCameras: [],
     isProjectLoading: false,
+    projectOpenInFlight: false,
+    wsConnectedOnce: false,
     collapsedFolders: new Set(),
     taggingStartTime: 0,
     taggingActiveIndex: 0,
@@ -228,6 +230,12 @@ const App = {
             this.log('SUCCESS', 'Connected to Orchiday server');
             // Re-sync subprocess state after every (re)connect so button gating is accurate
             this.syncRunningProcesses();
+            // On a RECONNECT (not the first connect — init() already loads once),
+            // re-hydrate project state in case the server restarted or project
+            // state changed while the socket was down.
+            if (this.wsConnectedOnce)
+                this.loadProjects();
+            this.wsConnectedOnce = true;
         };
         this.ws.onclose = () => {
             const el = document.getElementById('status-ws');
@@ -1290,9 +1298,20 @@ const App = {
         }
     },
     async openProject(path) {
-        if (!path)
+        if (!path || this.projectOpenInFlight)
             return;
-        await this.api('POST', '/projects/open', { path });
+        if (this.project && this.project.path === path)
+            return; // already the active project — nothing to do
+        this.projectOpenInFlight = true;
+        const cards = document.querySelectorAll(`[data-path="${CSS.escape(path)}"]`);
+        cards.forEach(c => c.classList.add('opening'));
+        try {
+            await this.api('POST', '/projects/open', { path });
+        }
+        finally {
+            this.projectOpenInFlight = false;
+            cards.forEach(c => c.classList.remove('opening'));
+        }
     },
     async deleteProject(path, event) {
         event.stopPropagation();
@@ -3670,42 +3689,55 @@ const App = {
         sections.forEach(sec => {
             if (sec.dataset.resizableInit)
                 return;
+            // Mark immediately so a second changeTab() call before the deferred
+            // measurement below runs can't queue this section twice.
+            sec.dataset.resizableInit = '1';
             const blocks = [...sec.children].filter(c => c.classList.contains('setup-block') || c.classList.contains('datacollection-block'));
             if (blocks.length < 2)
                 return;
-            // Capture current widths, then switch to a flex split layout using those
-            // widths as flex-grow ratios so the layout looks unchanged until dragged.
-            const widths = blocks.map(b => b.getBoundingClientRect().width || 1);
-            sec.classList.add('has-col-resizers');
-            blocks.forEach((b, i) => {
-                b.style.flex = `${widths[i]} 1 0`;
-                b.style.minWidth = '0';
-            });
-            for (let i = 0; i < blocks.length - 1; i++) {
-                const rz = document.createElement('div');
-                rz.className = 'col-resizer';
-                rz.setAttribute('role', 'separator');
-                rz.setAttribute('aria-orientation', 'vertical');
-                rz.title = this.t('resizer.title');
-                blocks[i].after(rz);
-                rz.addEventListener('mousedown', (e) => {
-                    const left = rz.previousElementSibling;
-                    const right = rz.nextElementSibling;
-                    if (!left || !right)
-                        return;
-                    this._colResize = {
-                        left, right,
-                        startX: e.clientX,
-                        lw: left.getBoundingClientRect().width,
-                        rw: right.getBoundingClientRect().width,
-                    };
-                    document.body.style.cursor = 'ew-resize';
-                    document.body.style.userSelect = 'none';
-                    e.preventDefault();
-                });
-            }
-            sec.dataset.resizableInit = '1';
+            // Defer to the next frame: the page was just made visible this same
+            // tick (display:none -> flex), so getBoundingClientRect() here would
+            // still reflect the pre-layout state and lock in degenerate widths
+            // (e.g. every block collapsing toward 0) for the rest of the session.
+            requestAnimationFrame(() => this._setupColumnResizers(sec, blocks));
         });
+    },
+    _setupColumnResizers(sec, blocks) {
+        // Capture current widths, then switch to a flex split layout using those
+        // widths as flex-grow ratios so the layout looks unchanged until dragged.
+        // A too-small reading means layout still hadn't settled — fall back to
+        // an even split rather than locking in a broken ratio.
+        const raw = blocks.map(b => b.getBoundingClientRect().width);
+        const usable = raw.every(w => w >= 40);
+        const widths = usable ? raw : blocks.map(() => 1);
+        sec.classList.add('has-col-resizers');
+        blocks.forEach((b, i) => {
+            b.style.flex = `${widths[i]} 1 0`;
+            b.style.minWidth = '0';
+        });
+        for (let i = 0; i < blocks.length - 1; i++) {
+            const rz = document.createElement('div');
+            rz.className = 'col-resizer';
+            rz.setAttribute('role', 'separator');
+            rz.setAttribute('aria-orientation', 'vertical');
+            rz.title = this.t('resizer.title');
+            blocks[i].after(rz);
+            rz.addEventListener('mousedown', (e) => {
+                const left = rz.previousElementSibling;
+                const right = rz.nextElementSibling;
+                if (!left || !right)
+                    return;
+                this._colResize = {
+                    left, right,
+                    startX: e.clientX,
+                    lw: left.getBoundingClientRect().width,
+                    rw: right.getBoundingClientRect().width,
+                };
+                document.body.style.cursor = 'ew-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+        }
     },
     bindResizers() {
         const termHandle = document.getElementById('terminal-drag-handle');
@@ -4451,23 +4483,33 @@ const App = {
             gridEl.style.display = 'grid';
         this.armVisualConfig = res;
         this.armJointRanges = { leader: {}, follower: {} };
+        this.renderArmVisualLegend(res.follower?.source === 'calibration' ? res.follower : res.leader);
         this.renderArmSchematic('leader', res.leader);
         this.renderArmSchematic('follower', res.follower);
+    },
+    /** Motor-ID legend shown ONCE for the whole stacked block — both arms
+     * follow the same base->gripper joint order, so per-arm id badges would
+     * just repeat this list twice. */
+    renderArmVisualLegend(armCfg) {
+        const legend = document.getElementById('arm-visual-legend');
+        if (!legend)
+            return;
+        const joints = armCfg?.joints || {};
+        const badges = this.ARM_JOINT_ORDER
+            .map(name => (joints[name] ? `<span class="arm-id-badge">${name}: <strong>#${joints[name].id}</strong></span>` : ''))
+            .filter(Boolean).join('');
+        const label = `<span class="arm-visual-legend-label">${this.esc(this.t('lbl.jointLegend'))}</span>`;
+        legend.innerHTML = badges ? label + badges : '';
     },
     renderArmSchematic(side, armCfg) {
         const wrap = document.getElementById(`arm-visual-${side}-wrap`);
         const meta = document.getElementById(`arm-visual-${side}-meta`);
         if (!wrap)
             return;
-        const joints = armCfg?.joints || {};
-        const idBadges = this.ARM_JOINT_ORDER
-            .map(name => (joints[name] ? `<span class="arm-id-badge">${name}: <strong>#${joints[name].id}</strong></span>` : ''))
-            .filter(Boolean).join('');
         if (meta) {
             const sourceLabel = armCfg?.source === 'calibration' ? this.t('hint.armVisualCalibrated') : this.t('hint.armVisualDefault');
             meta.innerHTML =
                 `<div class="arm-visual-source">${this.esc(sourceLabel)}${armCfg?.filename ? ' · ' + this.esc(armCfg.filename) : ''}</div>` +
-                    `<div class="arm-visual-ids">${idBadges}</div>` +
                     `<div class="arm-visual-idle-hint" id="arm-visual-${side}-idle-hint">${this.esc(this.t('hint.armVisualIdle'))}</div>`;
         }
         const g = this.ARM_GEOM;
