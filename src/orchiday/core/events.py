@@ -30,6 +30,7 @@ class EventBus(QObject):
     robot_error = Signal(str, str)       # robot_id, error_message
     robot_calibrating = Signal(str)      # robot_id
     robot_calibrated = Signal(str)       # robot_id
+    calibration_progress = Signal(str, dict)  # robot_id, {motor: {min, pos, max}}
     calibration_list_changed = Signal()  # Emitted when project calibration list changes
 
     # ── Cameras ──────────────────────────────────────────────────────────

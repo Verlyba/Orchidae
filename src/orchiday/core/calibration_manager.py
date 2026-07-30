@@ -54,6 +54,81 @@ class CalibrationManager:
         (p_dir / "teleoperators").mkdir(exist_ok=True)
         return p_dir
 
+    # ── User-facing metadata (display name, favorite) ──────────────────────
+    # LeRobot's own calibration JSON is a flat {motor: {id, homing_offset,
+    # range_min, range_max, drive_mode}} map with no room for extra keys
+    # (it's parsed straight into MotorCalibration objects) — a stray key
+    # would either be silently dropped or crash that parse. Naming/favorite
+    # state is kept in a small sidecar file next to the calibration files
+    # instead, keyed by filename.
+
+    def _meta_path(self) -> Path | None:
+        cal_dir = self.get_project_calibration_dir()
+        return cal_dir / "meta.json" if cal_dir else None
+
+    def _load_meta(self) -> dict[str, dict[str, Any]]:
+        path = self._meta_path()
+        if not path or not path.exists():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            log.warning("Failed to read calibration meta.json: %s", e)
+            return {}
+
+    def _save_meta(self, meta: dict[str, dict[str, Any]]) -> None:
+        path = self._meta_path()
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2)
+        except Exception as e:
+            log.error("Failed to write calibration meta.json: %s", e)
+
+    def set_calibration_meta(
+        self, filename: str, display_name: str | None = None, favorite: bool | None = None
+    ) -> bool:
+        """Set the user-facing display name and/or favorite flag for a
+        project calibration file, keyed by filename (unique within a
+        project's calibration folder — timestamped on creation)."""
+        meta = self._load_meta()
+        entry = meta.setdefault(filename, {})
+        if display_name is not None:
+            entry["display_name"] = display_name.strip()
+        if favorite is not None:
+            entry["favorite"] = bool(favorite)
+        self._save_meta(meta)
+        event_bus.calibration_list_changed.emit()
+        return True
+
+    def list_calibrations(self) -> dict[str, Any]:
+        """Project calibration files enriched with display name, favorite
+        flag, and whether each is the currently ACTIVE (bound) calibration
+        for its robot setup — everything the file-manager UI needs in one call."""
+        meta = self._load_meta()
+        active_by_key: set[tuple[str, str, str]] = set()
+        if self._pm.current_project:
+            for r in self._pm.current_project.get("robots", []):
+                setup_id = r.get("id", "")
+                if r.get("follower_calibration"):
+                    active_by_key.add((setup_id, "robots", r["follower_calibration"]))
+                if r.get("leader_calibration"):
+                    active_by_key.add((setup_id, "teleoperators", r["leader_calibration"]))
+
+        files = self.scan_project_calibrations()
+        for f in files:
+            entry = meta.get(f["name"], {})
+            f["display_name"] = entry.get("display_name") or f["name"]
+            f["favorite"] = bool(entry.get("favorite", False))
+            f["active_for"] = [
+                setup_id for (setup_id, cat, name) in active_by_key
+                if cat == f["category"] and name == f["name"]
+            ]
+        return {"files": files}
+
     def scan_project_calibrations(self) -> list[dict[str, Any]]:
         """
         Scan all calibration files in the active project directory.
@@ -349,6 +424,10 @@ class CalibrationManager:
             target_file.unlink()
             log.info("Deleted calibration file %s", target_file)
 
+            meta = self._load_meta()
+            if meta.pop(filename, None) is not None:
+                self._save_meta(meta)
+
             # Clean bindings in project config
             if self._pm.current_project:
                 changed = False
@@ -361,7 +440,7 @@ class CalibrationManager:
                         changed = True
                 if changed:
                     self._pm.save_project()
-                    event_bus.project_opened.emit(self._pm.current_project)
+                    event_bus.calibration_list_changed.emit()
 
             event_bus.calibration_list_changed.emit()
             return True
@@ -423,7 +502,16 @@ class CalibrationManager:
         }
 
     def _update_setup_binding(self, robot_setup_id: str, arm_category: str, filename: str) -> None:
-        """Helper to save the calibration binding in the project config."""
+        """Helper to save the calibration binding in the project config.
+
+        Deliberately emits calibration_list_changed, NOT project_opened:
+        apply_calibration() is itself called from deploy_active_bindings(),
+        which runs INSIDE the project_opened handler (Controller.
+        _on_project_opened) on every project open. Re-emitting project_opened
+        from here would re-enter that handler, which re-deploys bindings,
+        which calls apply_calibration() again — infinite recursion the
+        instant any calibration is bound (verified: crashes the process).
+        """
         if not self._pm.current_project:
             return
 
@@ -436,4 +524,4 @@ class CalibrationManager:
                 break
 
         self._pm.save_project()
-        event_bus.project_opened.emit(self._pm.current_project)
+        event_bus.calibration_list_changed.emit()

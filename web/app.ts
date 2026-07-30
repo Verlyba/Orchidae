@@ -34,6 +34,10 @@ interface Robot {
   device_id?: string;
   label?: string;
   cameras?: string[];
+  leader_port?: string;
+  follower_port?: string;
+  leader_calibration?: string;
+  follower_calibration?: string;
 }
 
 interface Camera {
@@ -80,6 +84,11 @@ const App = {
   _consoleLines: 0,
   activeStep: 1,
   activeSkill: null as string | null,
+  calibratingRobotId: null as string | null,
+  // Whether `import lerobot` actually succeeds in the configured Python
+  // interpreter — checked live via /api/settings/sysinfo, never assumed.
+  // Starts false (safe default) so calibrate/teleop stay gated until confirmed.
+  lerobotAvailable: false,
   activeTrainingSkill: null as string | null,
   trainingQueue: [] as string[],
   _trainTotalSteps: 0,
@@ -328,6 +337,9 @@ const App = {
       case 'process_finished':
         delete this.runningProcs[data.key];
         this.updateActionButtonStates();
+        // robot_calibrated only fires on success — also hide the live table
+        // here so a FAILED calibration doesn't leave it stuck on screen.
+        if (data.kind === 'calibrate') this.hideCalibrationLivePanel();
         break;
       case 'console_output':
         if (data.startsWith('[TELEMETRY]')) {
@@ -382,11 +394,38 @@ const App = {
         this.renderCameras();
         this.log('INFO', `Camera ${data} feed offline`);
         break;
+      case 'camera_error':
+        // The backend already retries/guards internally — this is purely
+        // "tell the user why", which was previously silent (no case here at
+        // all), so a failing camera looked like an endless unexplained retry.
+        if (this.activeCameras) this.activeCameras = this.activeCameras.filter(cid => cid !== data?.id);
+        this.renderCameras();
+        this.log('ERROR', `Kamera '${data?.id}': ${data?.error || 'neznámá chyba'}`);
+        break;
       case 'camera_suspended':
         // A robot process took exclusive access — preview resumes automatically
         if (this.activeCameras) this.activeCameras = this.activeCameras.filter(cid => cid !== data);
         this.renderCameras();
         this.log('INFO', this.t('log.camSuspended', {c: data}));
+        break;
+      case 'robot_calibrating':
+        this.showCalibrationLivePanel(data);
+        break;
+      case 'robot_calibrated':
+        this.hideCalibrationLivePanel();
+        break;
+      case 'calibration_progress':
+        this.renderCalibrationLiveTable(data?.id, data?.values);
+        break;
+      case 'calibration_list_changed':
+        // Keep robots[].leader_calibration/follower_calibration (and thus the
+        // teleop-requires-calibration button gate) in sync without the heavy
+        // full project_opened re-init (AI models, hardware rescan, LM Studio
+        // reconnect) — a plain GET /api/project is enough here.
+        this.refreshProject();
+        if (document.getElementById('modal-calibration-files')?.classList.contains('open')) {
+          this.loadCalibrationFiles();
+        }
         break;
       case 'recording_started':
         this.log('INFO', `Demonstration recording started for skill: ${data}`);
@@ -532,10 +571,10 @@ const App = {
   // Maps a tab id to its parent navigation category (two-level nav)
   _navCategoryOf(tabId: string): string | null {
     const map: Record<string, string> = {
-      hardware: 'hardware', hwtools: 'hardware',
-      datacollection: 'datasets', datasets: 'datasets',
-      learning: 'learning', advancedtraining: 'learning',
-      modelrun: 'orchestration', orchestration: 'orchestration',
+      setup: 'setup', hwtools: 'setup',
+      datasety: 'datasets',
+      uceni: 'learning',
+      modelrun: 'orchestration',
     };
     return map[tabId] || null;
   },
@@ -624,8 +663,8 @@ const App = {
       return;
     }
 
-    // Stop camera preview if leaving hardware page
-    if (tabId !== 'hardware') {
+    // Stop camera preview if leaving the setup page
+    if (tabId !== 'setup') {
       this.hwStopCameraPreview();
     }
 
@@ -656,34 +695,28 @@ const App = {
     const bcFile = document.getElementById('breadcrumb-file');
     if (bcSection) {
       if (tabId === 'projects') bcSection.textContent = 'projects';
-      else if (tabId === 'hardware') bcSection.textContent = 'hardware';
+      else if (tabId === 'setup') bcSection.textContent = 'setup';
       else if (tabId === 'hwtools') bcSection.textContent = 'hardware_tools';
       else if (tabId === 'teleoperation') bcSection.textContent = 'teleoperation';
-      else if (tabId === 'orchestration') bcSection.textContent = 'orchestration';
-      else if (tabId === 'datacollection') bcSection.textContent = 'data_collection';
-      else if (tabId === 'datasets') bcSection.textContent = 'dataset_tools';
-      else if (tabId === 'learning') bcSection.textContent = 'learning';
-      else if (tabId === 'advancedtraining') bcSection.textContent = 'advanced_training';
+      else if (tabId === 'datasety') bcSection.textContent = 'datasets';
+      else if (tabId === 'uceni') bcSection.textContent = 'learning';
       else if (tabId === 'modelrun') bcSection.textContent = 'model_run';
       else if (tabId === 'settings') bcSection.textContent = 'settings';
       else if (tabId === 'help') bcSection.textContent = 'help';
     }
     if (bcFile) {
       if (tabId === 'projects') bcFile.textContent = 'projects.json';
-      else if (tabId === 'hardware') bcFile.textContent = 'hardware_config.json';
+      else if (tabId === 'setup') bcFile.textContent = 'setup.json';
       else if (tabId === 'hwtools') bcFile.textContent = 'lerobot_cli_tools';
       else if (tabId === 'teleoperation') bcFile.textContent = 'teleoperation.json';
-      else if (tabId === 'orchestration') bcFile.textContent = 'orchestration.json';
-      else if (tabId === 'datacollection') bcFile.textContent = this.activeSkill || 'pick_cube';
-      else if (tabId === 'datasets') bcFile.textContent = 'edit_dataset';
-      else if (tabId === 'learning') bcFile.textContent = 'policy_training.json';
-      else if (tabId === 'advancedtraining') bcFile.textContent = 'eval_and_resume';
+      else if (tabId === 'datasety') bcFile.textContent = this.activeSkill || 'pick_cube';
+      else if (tabId === 'uceni') bcFile.textContent = 'policy_training.json';
       else if (tabId === 'modelrun') bcFile.textContent = 'ceo_execution.json';
       else if (tabId === 'settings') bcFile.textContent = 'config.json';
       else if (tabId === 'help') bcFile.textContent = 'orchestration_schema';
     }
 
-    if (tabId === 'learning') {
+    if (tabId === 'uceni') {
       // Sync the policy picker cards with the project's stored architecture
       this.syncPolicyCards();
       // Force chart redraw to fill container
@@ -700,13 +733,59 @@ const App = {
         });
     } else if (tabId === 'settings') {
       this.loadSysInfo();
-    } else if (tabId === 'datasets') {
+    } else if (tabId === 'datasety') {
       this.dsRefreshList();
-    } else if (tabId === 'advancedtraining') {
-      this.advPopulateResumeSkills();
-    } else if (tabId === 'teleoperation') {
+    } else if (tabId === 'teleoperation' || tabId === 'setup') {
+      // Also needed on 'setup': the calibration tab's mini arm SVG and
+      // joint-ID legend reuse this same config.
       this.loadArmVisualConfig();
     }
+  },
+
+  /** Switches between the Setup wizard's Connect / Kalibrace / Modely tabs.
+   * All three live in the same page-setup DOM (not separate pages), so this
+   * is pure show/hide — no data reload needed on its own. */
+  switchSetupTab(tab: 'connect' | 'calibrate' | 'models'): void {
+    const page = document.getElementById('page-setup');
+    if (!page) return;
+    page.querySelectorAll('.setup-wizard-tab-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tab);
+    });
+    page.querySelectorAll('.setup-wizard-panel').forEach(panel => {
+      (panel as HTMLElement).style.display = (panel as HTMLElement).dataset.tabPanel === tab ? '' : 'none';
+    });
+    if (tab === 'calibrate') {
+      const leaderEl = document.getElementById('cal-tab-leader-port');
+      const followerEl = document.getElementById('cal-tab-follower-port');
+      if (leaderEl) leaderEl.textContent = (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value || '-';
+      if (followerEl) followerEl.textContent = (document.getElementById('tele-follower-port') as HTMLSelectElement | null)?.value || '-';
+    }
+  },
+
+  /** Switches between the Datasety wizard's Sběr / Správa tabs — both live
+   * in the same page-datasety DOM, pure show/hide like switchSetupTab. */
+  switchDatasetyTab(tab: 'collect' | 'manage'): void {
+    const page = document.getElementById('page-datasety');
+    if (!page) return;
+    page.querySelectorAll('.setup-wizard-tab-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tab);
+    });
+    page.querySelectorAll('.setup-wizard-panel').forEach(panel => {
+      (panel as HTMLElement).style.display = (panel as HTMLElement).dataset.tabPanel === tab ? '' : 'none';
+    });
+  },
+
+  /** Switches between the Učení wizard's Imitační učení / Pokročilé tabs. */
+  switchUceniTab(tab: 'train' | 'advanced'): void {
+    const page = document.getElementById('page-uceni');
+    if (!page) return;
+    page.querySelectorAll('.setup-wizard-tab-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tab);
+    });
+    page.querySelectorAll('.setup-wizard-panel').forEach(panel => {
+      (panel as HTMLElement).style.display = (panel as HTMLElement).dataset.tabPanel === tab ? '' : 'none';
+    });
+    if (tab === 'advanced') this.advPopulateResumeSkills();
   },
 
   // ── Policy architecture picker (learning page) ──────────────────────
@@ -1004,8 +1083,9 @@ const App = {
       const extra = document.getElementById('train-extra-args') as HTMLInputElement | null;
       if (extra) {
         extra.value = (extra.value ? extra.value + ' ' : '') + tpl;
-        this.log('INFO', 'PEFT/LoRA argumenty vloženy do pole „Vlastní CLI argumenty“ na stránce Imitační učení.');
-        this.changeTab('learning');
+        this.log('INFO', 'PEFT/LoRA argumenty vloženy do pole „Vlastní CLI argumenty“ na kartě Imitační učení.');
+        this.changeTab('uceni');
+        this.switchUceniTab('train');
         return;
       }
     }
@@ -1051,12 +1131,34 @@ const App = {
 
         const lblMinicondaPath = document.getElementById('diag-miniconda-path');
         if (lblMinicondaPath) lblMinicondaPath.textContent = sysinfo.miniconda_path || 'Nenalezeno';
-        
+
+        this.lerobotAvailable = !!(sysinfo.lerobot_version && sysinfo.lerobot_version !== 'Nenalezeno');
+        this.updateHardwareButtonStates();
+
         this.log('SUCCESS', 'System diagnostic information loaded');
       }
     } catch (err) {
+      this.lerobotAvailable = false;
+      this.updateHardwareButtonStates();
       this.log('ERROR', 'Failed to load system diagnostics info.');
     }
+  },
+
+  async installLerobotFromSettings(): Promise<void> {
+    if (!confirm(this.t('cal.confirmInstallLerobot'))) return;
+    this.log('INFO', this.t('log.installingLerobot'));
+    try {
+      const res = await this.api('POST', '/setup/install-lerobot', {parent_dir: ''});
+      (res.logs || []).forEach((line: string) => this.log('INFO', line));
+      if (res.ok) {
+        this.log('SUCCESS', this.t('log.lerobotInstalled'));
+      } else {
+        this.log('ERROR', `${this.t('log.lerobotInstallFailed')}: ${res.error || ''}`);
+      }
+    } catch (err) {
+      this.log('ERROR', this.t('log.lerobotInstallFailed'));
+    }
+    await this.loadSysInfo();
   },
 
   async saveGlobalSettings(): Promise<void> {
@@ -1341,6 +1443,9 @@ const App = {
       this.prefillWorkflowData();
       this.isProjectLoading = false;
       this.startAllProjectCameras();
+      // Live check — never assume lerobot is installed just because a
+      // previous session or a different machine had it.
+      this.loadSysInfo();
     }).catch(() => {
       this.isProjectLoading = false;
     });
@@ -1610,29 +1715,36 @@ const App = {
     const btnCalLeader = document.getElementById('btn-calibrate-leader');
     const btnCalFollower = document.getElementById('btn-calibrate-follower');
     const btnStartTele = document.getElementById('btn-start-teleop');
+    const noLerobotTip = this.t('tip.lerobotMissing');
 
     if (btnCalLeader) {
-      if (leaderPort) {
+      if (leaderPort && this.lerobotAvailable) {
         btnCalLeader.className = 'btn btn-xs btn-success';
         (btnCalLeader as HTMLButtonElement).disabled = false;
+        btnCalLeader.title = '';
       } else {
         btnCalLeader.className = 'btn btn-xs btn-secondary';
         (btnCalLeader as HTMLButtonElement).disabled = true;
+        btnCalLeader.title = !this.lerobotAvailable ? noLerobotTip : '';
       }
     }
 
     if (btnCalFollower) {
-      if (followerPort) {
+      if (followerPort && this.lerobotAvailable) {
         btnCalFollower.className = 'btn btn-xs btn-success';
         (btnCalFollower as HTMLButtonElement).disabled = false;
+        btnCalFollower.title = '';
       } else {
         btnCalFollower.className = 'btn btn-xs btn-secondary';
         (btnCalFollower as HTMLButtonElement).disabled = true;
+        btnCalFollower.title = !this.lerobotAvailable ? noLerobotTip : '';
       }
     }
 
     if (btnStartTele) {
-      const canStart = !!leaderPort && !!followerPort;
+      const activeRobot = (this.project?.robots || [])[0];
+      const isCalibrated = !!activeRobot?.leader_calibration && !!activeRobot?.follower_calibration;
+      const canStart = !!leaderPort && !!followerPort && isCalibrated && this.lerobotAvailable;
 
       if (canStart) {
         btnStartTele.className = 'btn btn-xs btn-primary';
@@ -1641,7 +1753,11 @@ const App = {
       } else {
         btnStartTele.className = 'btn btn-xs btn-secondary';
         (btnStartTele as HTMLButtonElement).disabled = true;
-        btnStartTele.title = 'Nejprve vyberte leader i follower port (Hardware → Konfigurace)';
+        btnStartTele.title = !this.lerobotAvailable
+          ? noLerobotTip
+          : !leaderPort || !followerPort
+          ? 'Nejprve vyberte leader i follower port (Setup → Connect)'
+          : 'Nejprve zkalibruj obě ramena (Setup → Kalibrace)';
       }
     }
 
@@ -1905,11 +2021,156 @@ const App = {
     }
 
     this.log('INFO', `Spouštím kalibraci pro ${role} rameno (${id}) na portu ${port}...`);
-    await this.api('POST', '/hardware/calibrate', {
-      robot_type: type,
-      robot_id: id,
-      port: port
-    });
+    // lerobot_calibrate.py takes EITHER --teleop.* (leader) OR --robot.* (follower) —
+    // a leader type like "so100_leader" is not a valid --robot.type choice at all.
+    const payload = role === 'leader'
+      ? { robot_id: id, teleop_type: type, teleop_port: port }
+      : { robot_id: id, robot_type: type, port: port };
+    await this.api('POST', '/hardware/calibrate', payload);
+  },
+
+  // ── Live calibration table (mirrors what LeRobot's own CLI prints while
+  // recording each joint's range of motion: NAME | MIN | POS | MAX) ────────
+  showCalibrationLivePanel(robotId: string): void {
+    this.calibratingRobotId = robotId;
+    const panel = document.getElementById('calibration-live-panel');
+    const label = document.getElementById('calibration-live-robot');
+    const tbody = document.getElementById('calibration-live-tbody');
+    if (label) label.textContent = robotId;
+    if (tbody) tbody.innerHTML = '';
+    if (panel) panel.style.display = 'block';
+    this.renderArmSchematic('cal', null);
+    this.renderCalibrationJointLegend(robotId);
+  },
+
+  /** Joint-name → motor-ID legend for whichever side (leader/follower) is
+   * currently being calibrated — reuses the arm_visual_config already
+   * fetched for the Teleoperation page's arm animation. */
+  renderCalibrationJointLegend(robotId: string): void {
+    const legend = document.getElementById('cal-live-legend');
+    if (!legend) return;
+    const activeRobot = (this.project?.robots || [])[0];
+    const side = activeRobot?.leader_id === robotId ? 'leader'
+      : activeRobot?.follower_id === robotId ? 'follower' : null;
+    const joints = (side && this.armVisualConfig?.[side]?.joints) || {};
+    const badges = this.ARM_JOINT_ORDER
+      .map(name => joints[name] ? `<span class="arm-id-badge">${name}: <strong>#${joints[name].id}</strong></span>` : '')
+      .filter(Boolean).join('');
+    legend.innerHTML = badges;
+  },
+
+  hideCalibrationLivePanel(): void {
+    this.calibratingRobotId = null;
+    const panel = document.getElementById('calibration-live-panel');
+    if (panel) panel.style.display = 'none';
+  },
+
+  // lerobot_calibrate.py is interactive on stdin: it waits for Enter once
+  // after "move to the middle", then again to stop recording the range of
+  // motion. QProcess isn't attached to a real terminal, so without this the
+  // process just hangs forever — it can never finish OR save.
+  async confirmCalibrationStep(): Promise<void> {
+    if (!this.calibratingRobotId) return;
+    await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/confirm`);
+  },
+
+  async cancelCalibration(): Promise<void> {
+    if (!this.calibratingRobotId) return;
+    await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/cancel`);
+    this.hideCalibrationLivePanel();
+  },
+
+  renderCalibrationLiveTable(robotId: string, values: Record<string, {min: number; pos: number; max: number}>): void {
+    const panel = document.getElementById('calibration-live-panel');
+    const tbody = document.getElementById('calibration-live-tbody');
+    if (!panel || !tbody || !values) return;
+    // A calibration_progress event always implies the process is live —
+    // show the panel even if the earlier robot_calibrating event was missed.
+    if (panel.style.display === 'none') this.showCalibrationLivePanel(robotId);
+    // Preserve kinematic-chain order (base → gripper) instead of raw object
+    // insertion order, which follows whatever order the joints were moved in.
+    const rows = this.ARM_JOINT_ORDER.filter(name => values[name]).map(name => [name, values[name]] as const);
+    tbody.innerHTML = rows.map(([motor, v]) => `
+      <tr>
+        <td>${this.esc(motor)}</td>
+        <td>${v.min}</td>
+        <td class="cal-live-pos">${v.pos}</td>
+        <td>${v.max}</td>
+      </tr>
+    `).join('');
+    this.updateArmVisualizationFromCalibration(robotId, values);
+    // Cheap + idempotent — covers the case where arm_visual_config was still
+    // loading when the panel first opened.
+    this.renderCalibrationJointLegend(robotId);
+  },
+
+  // ── Calibration file manager ────────────────────────────────────────
+  async openCalibrationFilesModal(): Promise<void> {
+    this.openModal('modal-calibration-files');
+    await this.loadCalibrationFiles();
+  },
+
+  async loadCalibrationFiles(): Promise<void> {
+    const res = await this.api('GET', '/calibration/list');
+    this.renderCalibrationFilesList(res.files || []);
+  },
+
+  renderCalibrationFilesList(files: any[]): void {
+    const el = document.getElementById('cal-files-list');
+    if (!el) return;
+    if (!files.length) {
+      el.innerHTML = `<p class="cfg-card-desc">${this.t('cal.noFiles')}</p>`;
+      return;
+    }
+    const catLabel = (c: string) => c === 'robots' ? this.t('cal.follower') : this.t('cal.leader');
+    const sorted = [...files].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0)
+      || (b.last_modified || '').localeCompare(a.last_modified || ''));
+    el.innerHTML = sorted.map(f => `
+      <div class="cal-file-row" data-filename="${this.esc(f.name)}">
+        <label class="cal-file-fav" title="${this.t('cal.favorite')}">
+          <input type="checkbox" ${f.favorite ? 'checked' : ''} onchange="App.toggleCalibrationFavorite('${this.esc(f.name)}', this.checked)">
+          ★
+        </label>
+        <div class="cal-file-main">
+          <input type="text" class="cal-file-name-input" value="${this.esc(f.display_name)}"
+                 onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)">
+          <div class="cal-file-meta">
+            ${catLabel(f.category)} · ${this.esc(f.device_type)} · ${new Date(f.last_modified).toLocaleString()}
+            ${f.active_for && f.active_for.length ? `<span class="cal-file-active-badge">${this.t('cal.active')}</span>` : ''}
+          </div>
+        </div>
+        <div class="cal-file-actions">
+          <button class="btn btn-xs btn-secondary" onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')" data-i18n="cal.activate">Aktivovat</button>
+          <button class="btn btn-xs btn-danger" onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  async renameCalibrationFile(filename: string, displayName: string): Promise<void> {
+    await this.api('POST', '/calibration/meta', {filename, display_name: displayName});
+  },
+
+  async toggleCalibrationFavorite(filename: string, favorite: boolean): Promise<void> {
+    await this.api('POST', '/calibration/meta', {filename, favorite});
+    await this.loadCalibrationFiles();
+  },
+
+  async applyCalibrationFile(category: string, filename: string): Promise<void> {
+    const activeRobot = (this.project?.robots || [])[0];
+    if (!activeRobot) return;
+    const res = await this.api('POST', '/calibration/apply', {robot_id: activeRobot.id, category, filename});
+    if (res.ok) {
+      this.log('SUCCESS', `Kalibrace '${filename}' aktivována.`);
+      await this.refreshProject();
+      await this.loadCalibrationFiles();
+    }
+  },
+
+  async deleteCalibrationFileEntry(category: string, deviceType: string, filename: string): Promise<void> {
+    if (!confirm(this.t('cal.confirmDelete'))) return;
+    await this.api('DELETE', `/calibration/${category}/${deviceType}/${filename}`);
+    await this.loadCalibrationFiles();
   },
 
   // ── Camera Management ───────────────────────────────────────────────
@@ -2150,8 +2411,11 @@ const App = {
       leaderIdEl.value = `${activeRobot.id.replace('_follower', '')}_leader`;
     }
     
-    // Prefill leader port ONLY if it is physically scanned and available
-    const savedLeaderPort = this.project?.leader_port || "";
+    // Prefill leader port ONLY if it is physically scanned and available.
+    // The Quick Setup wizard only saves leader/follower ports onto the robot
+    // record (robot.leader_port), never onto the project itself, so that
+    // must be checked first or a wizard-configured leader port never prefills.
+    const savedLeaderPort = this.project?.leader_port || activeRobot.leader_port || "";
     const isLeaderAvailable = this.availablePorts.some(p => p.device === savedLeaderPort);
     this.setDropdownOrCustomValue('tele-leader-port', isLeaderAvailable ? savedLeaderPort : "");
     
@@ -2165,7 +2429,7 @@ const App = {
     }
     
     // Prefill follower port ONLY if it is physically scanned and available
-    const savedFollowerPort = this.project?.follower_port || activeRobot.port || "";
+    const savedFollowerPort = this.project?.follower_port || activeRobot.follower_port || activeRobot.port || "";
     const isFollowerAvailable = this.availablePorts.some(p => p.device === savedFollowerPort);
     this.setDropdownOrCustomValue('tele-follower-port', isFollowerAvailable ? savedFollowerPort : "");
     
@@ -2217,6 +2481,18 @@ const App = {
 
     if (rPort === tPort) {
       const msg = `Serial Port Conflict! Leader and Follower cannot share the same port: '${rPort}'`;
+      this.log('ERROR', `Validation Failed: ${msg}`);
+      alert(msg);
+      return;
+    }
+
+    const activeRobot = (this.project?.robots || [])[0];
+    if (!activeRobot?.leader_calibration || !activeRobot?.follower_calibration) {
+      const missing = [
+        !activeRobot?.leader_calibration ? 'leader' : null,
+        !activeRobot?.follower_calibration ? 'follower' : null,
+      ].filter(Boolean).join(' + ');
+      const msg = `Rameno (${missing}) není zkalibrované. Nejprve dokonči kalibraci na kartě Setup → Kalibrace — bez ní by teleoperace pohybovala rameny mimo bezpečný rozsah.`;
       this.log('ERROR', `Validation Failed: ${msg}`);
       alert(msg);
       return;
@@ -4583,7 +4859,37 @@ const App = {
   } as Record<string, [number, number]>,
   ARM_GEOM: { baseX: 100, baseY: 175, upperLen: 55, foreLen: 50, wristLen: 26 },
 
+  /** Collapse/expand the arm-visualization side column — collapsing shrinks
+   * it to a thin strip so the panel's width is actually given back to the
+   * control/telemetry columns next to it, not just hidden-but-still-wide. */
+  toggleArmVisualPanel(): void {
+    const block = document.getElementById('arm-visual-block');
+    const btn = document.getElementById('arm-visual-toggle-btn');
+    if (!block) return;
+    const collapsed = block.classList.toggle('collapsed');
+    localStorage.setItem('orchiday_armvisual_collapsed', collapsed ? '1' : '0');
+    if (btn) {
+      btn.title = this.t(collapsed ? 'tip.showArmVisual' : 'tip.toggleArmVisual');
+      const arrow = btn.querySelector('polyline');
+      if (arrow) arrow.setAttribute('points', collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6');
+    }
+  },
+
+  restoreArmVisualCollapsedState(): void {
+    const block = document.getElementById('arm-visual-block');
+    const btn = document.getElementById('arm-visual-toggle-btn');
+    if (!block) return;
+    const collapsed = localStorage.getItem('orchiday_armvisual_collapsed') === '1';
+    block.classList.toggle('collapsed', collapsed);
+    if (btn) {
+      btn.title = this.t(collapsed ? 'tip.showArmVisual' : 'tip.toggleArmVisual');
+      const arrow = btn.querySelector('polyline');
+      if (arrow) arrow.setAttribute('points', collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6');
+    }
+  },
+
   async loadArmVisualConfig(): Promise<void> {
+    this.restoreArmVisualCollapsedState();
     if (!this.project) return;
     const res = await this.api('GET', '/calibration/arm_visual_config');
     const emptyEl = document.getElementById('arm-visual-empty');
@@ -4617,7 +4923,7 @@ const App = {
     legend.innerHTML = badges ? label + badges : '';
   },
 
-  renderArmSchematic(side: 'leader' | 'follower', armCfg: any): void {
+  renderArmSchematic(side: string, armCfg: any): void {
     const wrap = document.getElementById(`arm-visual-${side}-wrap`);
     const meta = document.getElementById(`arm-visual-${side}-meta`);
     if (!wrap) return;
@@ -4704,7 +5010,27 @@ const App = {
     });
   },
 
-  applyArmPose(side: 'leader' | 'follower', fractions: number[]): void {
+  /** Drives the mini calibration-panel arm SVG straight from the calibration
+   * table's own running min/pos/max (server-tracked, see calibration_progress)
+   * instead of the client-side auto-ranging updateArmVisualization() uses for
+   * teleop telemetry — the calibration payload already has exact extremes. */
+  updateArmVisualizationFromCalibration(robotId: string, values: Record<string, {min: number; pos: number; max: number}>): void {
+    const activeRobot = (this.project?.robots || [])[0];
+    let side: 'leader' | 'follower' | null = null;
+    if (activeRobot?.leader_id === robotId) side = 'leader';
+    else if (activeRobot?.follower_id === robotId) side = 'follower';
+    if (!side) return;
+
+    const fractions = this.ARM_JOINT_ORDER.map(name => {
+      const v = values[name];
+      if (!v) return 0.5;
+      const span = v.max - v.min;
+      return span > 1e-6 ? (v.pos - v.min) / span : 0.5;
+    });
+    this.applyArmPose('cal', fractions);
+  },
+
+  applyArmPose(side: string, fractions: number[]): void {
     const order = this.ARM_JOINT_ORDER;
     const sweep = this.ARM_JOINT_SWEEP;
     const angleFor = (idx: number, name: string): number => {
@@ -5157,7 +5483,7 @@ const App = {
 
     try {
       const res = await this.api('POST', '/setup/install-lerobot', {
-        parent_dir: this.wizardLeRobotParentDir || '/home/verlyba/robotics'
+        parent_dir: this.wizardLeRobotParentDir || ''
       });
       const logs = res.logs || [];
       const finalPath = res.path || '/home/verlyba/robotics/lerobot';

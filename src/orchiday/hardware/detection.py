@@ -5,9 +5,20 @@ with robust, persistent physical device identification signatures.
 
 import os
 import logging
+import threading
+import time
 import cv2
 
 log = logging.getLogger(__name__)
+
+# Camera scanning (OpenCV index probing) is slow on Windows and multiple
+# concurrent callers (project-open flow + several frontend triggers firing
+# around the same event) would otherwise each run their own full 6-index
+# probe loop in parallel/back-to-back, multiplying an already-slow operation.
+# Serialize scans and let near-simultaneous callers share one recent result.
+_scan_lock = threading.Lock()
+_scan_cache: tuple[float, list[dict]] | None = None
+_SCAN_CACHE_TTL_S = 3.0
 
 
 def detect_serial_ports() -> list[dict]:
@@ -71,6 +82,16 @@ def detect_cameras() -> list[dict]:
         List of dicts containing camera indexes, device paths, models,
         and persistent unique identifiers.
     """
+    global _scan_cache
+    with _scan_lock:
+        if _scan_cache is not None and (time.monotonic() - _scan_cache[0]) < _SCAN_CACHE_TTL_S:
+            return _scan_cache[1]
+        result = _detect_cameras_uncached()
+        _scan_cache = (time.monotonic(), result)
+        return result
+
+
+def _detect_cameras_uncached() -> list[dict]:
     cameras = []
     v4l_path = "/sys/class/video4linux"
 

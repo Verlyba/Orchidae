@@ -93,6 +93,10 @@ class WebEventBridge:
             lambda rid: self.broadcast("robot_calibrating", rid))
         event_bus.robot_calibrated.connect(
             lambda rid: self.broadcast("robot_calibrated", rid))
+        event_bus.calibration_progress.connect(
+            lambda rid, values: self.broadcast("calibration_progress", {"id": rid, "values": values}))
+        event_bus.calibration_list_changed.connect(
+            lambda: self.broadcast("calibration_list_changed", None))
 
         # ── Camera events ────────────────────────────────────────────
         event_bus.camera_added.connect(

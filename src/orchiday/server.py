@@ -402,6 +402,23 @@ async def calibrate_hardware(body: ArmCalibrateConfig):
     return {"ok": True}
 
 
+@app.post("/api/robots/{robot_id}/calibrate/confirm")
+async def confirm_calibration(robot_id: str):
+    # lerobot_calibrate.py is interactive on stdin (move-to-middle, then
+    # stop-recording-range) — this sends Enter so the web UI can advance
+    # or finish (and thereby save) a running calibration.
+    ctrl = _get_controller()
+    ok = ctrl.lerobot_bridge.confirm_calibration_step(robot_id)
+    return {"ok": ok}
+
+
+@app.post("/api/robots/{robot_id}/calibrate/cancel")
+async def cancel_calibration(robot_id: str):
+    ctrl = _get_controller()
+    ok = ctrl.lerobot_bridge.cancel_calibration(robot_id)
+    return {"ok": ok}
+
+
 # ── Cameras ──────────────────────────────────────────────────────────────
 
 @app.post("/api/cameras")
@@ -477,6 +494,70 @@ def get_arm_visual_config(robot_id: str | None = None):
     leader + follower of a robot setup — drives the live arm visualization."""
     ctrl = _get_controller()
     return ctrl.calibration_manager.get_arm_visual_config(robot_id)
+
+
+class CalibrationMetaUpdate(BaseModel):
+    filename: str
+    display_name: str | None = None
+    favorite: bool | None = None
+
+
+class CalibrationBackupRequest(BaseModel):
+    robot_id: str
+    category: str  # "robots" (follower) or "teleoperators" (leader)
+
+
+class CalibrationApplyRequest(BaseModel):
+    robot_id: str
+    category: str
+    filename: str
+
+
+@app.get("/api/calibration/list")
+def list_calibrations():
+    """All calibration files saved in the active project, with display name,
+    favorite flag, and which robot setup (if any) currently has each bound."""
+    ctrl = _get_controller()
+    return ctrl.calibration_manager.list_calibrations()
+
+
+@app.post("/api/calibration/meta")
+def update_calibration_meta(body: CalibrationMetaUpdate):
+    ctrl = _get_controller()
+    ok = ctrl.calibration_manager.set_calibration_meta(
+        body.filename, display_name=body.display_name, favorite=body.favorite)
+    return {"ok": ok}
+
+
+@app.post("/api/calibration/backup")
+def backup_calibration(body: CalibrationBackupRequest):
+    """Copy the currently active LeRobot-cache calibration for this robot's
+    leader/follower into the project's calibration folder as a named file."""
+    ctrl = _get_controller()
+    filename = ctrl.calibration_manager.backup_active_calibration(body.robot_id, body.category)
+    if not filename:
+        return JSONResponse({"ok": False, "error": "No active calibration found to back up"}, status_code=400)
+    return {"ok": True, "filename": filename}
+
+
+@app.post("/api/calibration/apply")
+def apply_calibration(body: CalibrationApplyRequest):
+    """Bind a saved project calibration file as the active one for this
+    robot's leader/follower, deploying it into LeRobot's global cache."""
+    ctrl = _get_controller()
+    ok = ctrl.calibration_manager.apply_calibration(body.robot_id, body.category, body.filename)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "Failed to apply calibration"}, status_code=400)
+    return {"ok": True}
+
+
+@app.delete("/api/calibration/{category}/{device_type}/{filename}")
+def delete_calibration(category: str, device_type: str, filename: str):
+    ctrl = _get_controller()
+    ok = ctrl.calibration_manager.delete_calibration_file(category, device_type, filename)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "Calibration file not found"}, status_code=404)
+    return {"ok": True}
 
 
 @app.post("/api/hardware/pair")
@@ -1937,12 +2018,13 @@ def get_env_executables(conda_path: str, env_name: str = "lerobot") -> tuple[str
 
 
 def download_miniconda(target_file: str) -> str:
+    import ssl
     import urllib.request
     import platform
-    
+
     system = platform.system().lower()
     machine = platform.machine().lower()
-    
+
     if system == "linux":
         if "arm" in machine or "aarch64" in machine:
             url = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
@@ -1957,8 +2039,23 @@ def download_miniconda(target_file: str) -> str:
         url = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
     else:
         raise Exception(f"Unsupported operating system: {system}")
-        
-    urllib.request.urlretrieve(url, target_file)
+
+    # The system/OpenSSL default CA trust store is stale on some machines
+    # (an outdated bundle can flag a perfectly valid server cert as
+    # "expired" even with the correct clock) — prefer certifi's regularly
+    # refreshed bundle when available and fall back to the default context.
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
+    with urllib.request.urlopen(url, context=ctx) as resp, open(target_file, "wb") as out:
+        while True:
+            chunk = resp.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
     return url
 
 
@@ -2104,7 +2201,7 @@ def setup_install_lerobot(body: InstallConfig):
     import tempfile
     from pathlib import Path
     
-    parent = body.parent_dir.strip() if body.parent_dir else os.path.expanduser("~/robotics")
+    parent = body.parent_dir.strip() if body.parent_dir else os.path.normpath(os.path.expanduser("~/robotics"))
     os.makedirs(parent, exist_ok=True)
     
     path = str(Path(parent) / "lerobot")
@@ -2130,7 +2227,10 @@ def setup_install_lerobot(body: InstallConfig):
             log_lines.append(f"Miniconda installer downloaded successfully from: {url}")
             log_lines.append("Installing Miniconda silently...")
             
-            install_dir = os.path.expanduser("~/miniconda3")
+            # normpath is required on Windows: expanduser leaves the "~"-relative
+            # suffix with forward slashes, and the Miniconda NSIS installer's
+            # /D= argument silently fails (exit code 2) on mixed separators.
+            install_dir = os.path.normpath(os.path.expanduser("~/miniconda3"))
             if platform.system().lower() == "windows":
                 subprocess.run(
                     [installer_path, "/S", "/RegisterPython=0", f"/D={install_dir}"],
@@ -2193,6 +2293,23 @@ def setup_install_lerobot(body: InstallConfig):
     # 4. Check if lerobot conda env exists
     env_exists = check_conda_env_exists(conda_path, "lerobot")
     if not env_exists:
+        # Recent conda versions refuse to create envs from the default
+        # Anaconda channels non-interactively until their Terms of Service
+        # is explicitly accepted. Older conda releases don't have the `tos`
+        # subcommand at all, so failures here are ignored on purpose.
+        for tos_channel in (
+            "https://repo.anaconda.com/pkgs/main",
+            "https://repo.anaconda.com/pkgs/r",
+            "https://repo.anaconda.com/pkgs/msys2",
+        ):
+            try:
+                subprocess.run(
+                    [conda_path, "tos", "accept", "--override-channels", "--channel", tos_channel],
+                    capture_output=True, text=True, timeout=30
+                )
+            except Exception:
+                pass
+
         # LeRobot >= 0.5 requires Python 3.12+
         log_lines.append("Conda environment 'lerobot' does not exist. Creating it (Python 3.12)...")
         try:

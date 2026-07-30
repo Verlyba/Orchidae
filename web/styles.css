@@ -194,20 +194,6 @@ body {
     filter: none;
 }
 
-.title-menu-items {
-    display: flex;
-    gap: 12px;
-}
-
-.title-menu-items span {
-    cursor: pointer;
-    transition: var(--transition);
-}
-
-.title-menu-items span:hover {
-    color: var(--text-light);
-}
-
 .title-bar-center {
     font-weight: 600;
     color: var(--text-muted);
@@ -219,18 +205,6 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-}
-
-.conn-status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-}
-
-.conn-status-badge.ok {
-    color: var(--green);
 }
 
 /* --- 2. MULTI-PANE BODY --- */
@@ -407,59 +381,6 @@ body {
     user-select: none;
 }
 
-.sidebar-header {
-    padding: 8px 14px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border-dark);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.sidebar-badge {
-    font-size: 10px;
-    text-transform: none;
-    letter-spacing: 0;
-    background: var(--bg-activity);
-    color: var(--text-light);
-    padding: 2px 6px;
-    border-radius: 2px;
-}
-
-.sidebar-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 0;
-}
-
-.sidebar-info-group {
-    padding: 8px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 12.5px;
-}
-
-.sidebar-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.sidebar-row .lbl { color: var(--text-muted); }
-.sidebar-row .val { color: var(--text-light); }
-.sidebar-row .val.mono { font-family: var(--font-mono); color: var(--syntax-variable); }
-
-.sidebar-divider {
-    height: 1px;
-    background-color: var(--border-dark);
-    margin: 8px 0;
-}
-
 .sidebar-subtitle {
     font-size: 10px;
     font-weight: 700;
@@ -467,40 +388,6 @@ body {
     letter-spacing: 0.8px;
     color: var(--text-muted);
     margin-bottom: 4px;
-}
-
-.sidebar-status-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12.5px;
-    padding: 4px 0;
-}
-
-.sidebar-status-row .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: var(--text-muted);
-    transition: var(--transition);
-}
-
-.sidebar-status-row .status-dot.connected {
-    background-color: var(--green);
-    box-shadow: none;
-    animation: pulse-dot 2s infinite;
-}
-
-.sidebar-status-row .status-dot.error {
-    background-color: var(--red);
-    box-shadow: none;
-}
-
-.sidebar-status-row .detail {
-    margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-muted);
 }
 
 /* Collapsible Skills Tree in Sidebar */
@@ -544,20 +431,6 @@ body {
     width: 10px;
     height: 10px;
     stroke-width: 2.5px;
-}
-
-.skills-tree-folder .folder-icon {
-    color: var(--syntax-function);
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    filter: none;
-    transition: var(--transition);
-}
-
-.skills-tree-folder:hover .folder-icon {
-    color: var(--yellow);
-    filter: none;
 }
 
 .skills-tree-folder .count-badge {
@@ -624,20 +497,6 @@ body {
     border-left: 3px solid var(--cyan) !important;
     border-top-left-radius: 0 !important;
     border-bottom-left-radius: 0 !important;
-}
-
-.skills-tree-item svg.item-icon {
-    width: 12px;
-    height: 12px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    transition: var(--transition);
-}
-
-.skills-tree-item:hover svg.item-icon { color: var(--cyan); }
-.skills-tree-item.active svg.item-icon {
-    color: var(--cyan);
-    filter: none;
 }
 
 .skills-tree-item .ep-badge {
@@ -1057,10 +916,6 @@ input[readonly] {
     margin-top: 4px !important;
 }
 
-.mt-2 {
-    margin-top: 8px !important;
-}
-
 /* ═══════════════════════════════════════════════════════════════════
    PROJECT CARDS
    ═══════════════════════════════════════════════════════════════════ */
@@ -1442,12 +1297,6 @@ input[readonly] {
 /* Removed setup card actions footer */
 
 /* Compact hardware list */
-.compact-hw-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
 .compact-row {
     display: flex;
     justify-content: space-between;
@@ -1581,14 +1430,6 @@ input[readonly] {
     min-height: 0;
 }
 
-.mini-cameras {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    flex: 1;
-    min-height: 0;
-}
-
 .cam-box {
     aspect-ratio: 4/3;
     background: #000;
@@ -1649,106 +1490,6 @@ input[readonly] {
     font-size: 10px;
     text-align: center;
     letter-spacing: 0.3px;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   LEARNING & BRAIN PAGE DESIGN
-   ═══════════════════════════════════════════════════════════════════ */
-
-.learning-main-area {
-    flex: 1;
-    display: flex;
-    gap: 14px;
-    min-height: 0;
-}
-
-.learning-main-area > .learning-block:first-child {
-    width: 62%;
-    min-width: 350px;
-    max-width: 75%;
-    flex-shrink: 0;
-}
-
-.learning-main-area > .learning-block:last-child {
-    flex: 1;
-    min-width: 250px;
-}
-
-.learning-block {
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-    transition: border-color 0.3s ease;
-}
-
-.learning-block:hover {
-    /* border-color hover removed */
-}
-
-.learning-block:has(.card-actions-fixed),
-.learning-block.has-actions {
-    position: relative;
-    padding-bottom: 50px;
-}
-
-.learning-block.transparent-card {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-}
-
-.learning-block.transparent-card:hover {
-    border-color: transparent;
-}
-
-.learning-block.transparent-card .learning-block-header {
-    background: transparent;
-    border-bottom: none;
-    padding-left: 0;
-    padding-right: 0;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-white);
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-}
-
-.learning-block.transparent-card .learning-block-body {
-    padding: 0;
-}
-
-.learning-block-header {
-    padding: 10px 14px;
-    font-size: 10.5px;
-    font-weight: 800;
-    color: var(--text-light);
-    background: oklch(0.22 0.012 250);
-    border-bottom: 1px solid var(--border-dark);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.learning-block-header svg {
-    color: var(--cyan);
-    filter: none;
-}
-
-.learning-block-body {
-    padding: 12px;
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-height: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2144,27 +1885,6 @@ input[readonly] {
     font-size: 11px;
 }
 
-.terminal-controls .latch-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 2px;
-}
-
-.terminal-controls .latch-badge.locked {
-    background: var(--red-light);
-    color: var(--red);
-    border: 1px solid var(--red);
-}
-
-.terminal-controls .latch-badge.released {
-    background: var(--green-light);
-    color: var(--green);
-    border: 1px solid var(--green);
-}
-
 .terminal-body {
     flex: 1;
     overflow-y: auto;
@@ -2532,8 +2252,6 @@ body.modal-open {
     pointer-events: none;
 }
 
-/* Removed obsolete .btn-yellow */
-
 /* Wizard page 2 styling */
 .wizard-description-text {
     font-size: 13px;
@@ -2794,9 +2512,6 @@ input[type="number"]::-webkit-outer-spin-button {
     /* transform removed */
     box-shadow: none;
 }
-.setup-block:hover .wizard-card-icon {
-    /* transform removed */
-}
 .setup-block.active {
     box-shadow: none;
 }
@@ -2987,43 +2702,6 @@ textarea:focus-visible {
 }
 
 /* --- Screen-reader-only utility --- */
-.sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-}
-
-/* --- Workflow navigation: numbered lifecycle steps --- */
-.nav-step {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    margin-right: 6px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid var(--border-light);
-    color: var(--text-muted);
-    font-size: 9px;
-    font-weight: 800;
-    font-family: var(--font-mono);
-    flex-shrink: 0;
-    transition: var(--transition-fast);
-}
-
-.activity-btn.active .nav-step {
-    background: var(--accent);
-    border-color: var(--accent-hover);
-    color: var(--text-white);
-}
-
 .activity-btn span {
     display: inline-flex;
     align-items: center;
@@ -3031,10 +2709,6 @@ textarea:focus-visible {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.nav-title-secondary {
-    margin-top: 14px;
 }
 
 /* --- Reduced motion preference (WCAG 2.3.3) --- */
@@ -3556,6 +3230,225 @@ body.resizing * {
     line-height: 1.45;
 }
 
+.cal-live-panel {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-inset);
+}
+
+.cal-live-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.cal-live-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cal-live-table th {
+    text-align: right;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 2px 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+.cal-live-table th:first-child,
+.cal-live-table td:first-child {
+    text-align: left;
+}
+
+.cal-live-table td {
+    text-align: right;
+    padding: 2px 6px;
+    color: var(--text-light);
+}
+
+.cal-live-table td.cal-live-pos {
+    color: var(--cyan);
+    font-weight: 700;
+}
+
+.cal-live-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.setup-wizard-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.setup-wizard-tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: var(--transition);
+}
+
+.setup-wizard-tab-btn:hover {
+    color: var(--text-light);
+}
+
+.setup-wizard-tab-btn.active {
+    color: var(--text-white);
+    border-bottom-color: var(--cyan);
+}
+
+.setup-wizard-tab-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 9px;
+}
+
+.setup-wizard-tab-btn.active .setup-wizard-tab-num {
+    background: var(--cyan);
+    color: var(--bg-editor);
+}
+
+.setup-wizard-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+}
+
+/* The base .setup-section stretches (flex:1) and its grid rows fill that
+   stretched height (grid-template-rows: 1fr) — right for content-dense tabs
+   (Connect, Sběr dat, Imitační učení), wrong for the shorter ones below:
+   that combination left a large empty box under short content. Only these
+   specific short tabs get sized to their actual content instead. */
+#page-setup .setup-wizard-panel[data-tab-panel="calibrate"] .setup-section,
+#page-setup .setup-wizard-panel[data-tab-panel="models"] .setup-section {
+    flex: 0 0 auto;
+    grid-template-rows: none;
+    align-items: start;
+    max-width: 640px;
+}
+
+#page-datasety .setup-wizard-panel[data-tab-panel="manage"] .setup-section,
+#page-uceni .setup-wizard-panel[data-tab-panel="advanced"] .setup-section {
+    flex: 0 0 auto;
+    grid-template-rows: none;
+    align-items: start;
+}
+
+.setup-wizard-next-hint {
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.cal-live-visual {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.cal-live-visual .arm-visual-svg-wrap {
+    max-width: 100px;
+    flex-shrink: 0;
+}
+
+.cal-live-visual .arm-visual-legend {
+    flex: 1;
+    min-width: 140px;
+    padding: 4px 6px;
+}
+
+.cal-file-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+.cal-file-row:last-child {
+    border-bottom: none;
+}
+
+.cal-file-fav {
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.cal-file-fav input {
+    display: none;
+}
+
+.cal-file-fav:has(input:checked) {
+    color: var(--yellow, gold);
+}
+
+.cal-file-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.cal-file-name-input {
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-light);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.cal-file-name-input:hover,
+.cal-file-name-input:focus {
+    border-color: var(--border);
+    background: var(--bg-inset);
+}
+
+.cal-file-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.cal-file-active-badge {
+    color: var(--cyan);
+    font-weight: 700;
+    margin-left: 6px;
+}
+
+.cal-file-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
 .cfg-card-input {
     display: flex;
     gap: 8px;
@@ -3651,10 +3544,6 @@ body.resizing * {
 /* ═══════════════════════════════════════════════════════════════════════
    LANGUAGE SELECTOR (Settings) v3.0
    ═══════════════════════════════════════════════════════════════════════ */
-.lang-block {
-    overflow: visible;
-}
-
 .lang-row {
     display: flex;
     align-items: center;
@@ -3798,7 +3687,6 @@ body { min-width: 320px; }
 }
 
 /* Inline button groups align to a consistent baseline & gap */
-.card-actions-fixed,
 .modal-footer {
     display: flex;
     align-items: center;
@@ -4347,46 +4235,37 @@ body { min-width: 320px; }
     margin-right: 2px;
 }
 
+/* Column layout throughout — this now always lives in a narrow side panel
+   (Teleoperation's 3rd column), never full page width, so label/SVG/meta
+   stack top-to-bottom rather than trying to fit side by side. */
 .arm-visual-col {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 8px 12px;
+    padding: 8px;
 }
 
 .arm-visual-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--cyan);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    flex: 0 0 auto;
+    text-align: center;
 }
 
 .arm-visual-svg-wrap {
-    flex: 0 0 auto;
-    width: 140px;
+    width: 100%;
+    max-width: 160px;
     aspect-ratio: 1 / 1;
+    margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-@media (max-width: 500px) {
-    .arm-visual-col {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .arm-visual-label {
-        writing-mode: horizontal-tb;
-        transform: none;
-    }
 }
 
 .arm-visual-svg {
@@ -4458,15 +4337,36 @@ body { min-width: 320px; }
     font-size: 10px;
 }
 
+/* Collapsed side panel — shrinks to a thin strip showing only the toggle
+   button, so hiding it actually gives the other two columns room back
+   (rather than just hiding content while still holding its column share). */
+#arm-visual-block.collapsed {
+    flex: 0 0 38px !important;
+    min-width: 38px;
+    /* max-width covers the brief window before the column-resizer converts
+       the section from grid to flex (flex-basis has no effect on a grid
+       item) — without it, a very fast click right after page load could
+       collapse-in-place instead of shrinking. */
+    max-width: 38px;
+    overflow: hidden;
+}
+
+#arm-visual-block.collapsed .setup-block-content {
+    display: none;
+}
+
+#arm-visual-block.collapsed .block-head-row {
+    justify-content: center;
+    border-bottom: none !important;
+}
+
+#arm-visual-block.collapsed .block-head-row h3 {
+    display: none;
+}
+
 .arm-visual-source {
     color: var(--text-muted);
     font-style: italic;
-}
-
-.arm-visual-ids {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
 }
 
 .arm-id-badge {

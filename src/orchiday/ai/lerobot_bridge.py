@@ -20,6 +20,8 @@ import os
 import re
 import shlex
 import sys
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -80,6 +82,11 @@ class LeRobotBridge(QObject):
         # ── Step-mark state (sub-task flags clicked during recording) ─────
         # skill_slug -> {dataset, marks_path, fps, episodes, current_episode, episode_started}
         self._record_marks: dict[str, dict] = {}
+        # ── Calibration live-table state ───────────────────────────────────
+        # process key -> {motor: {min, pos, max}}, accumulated while
+        # lerobot_calibrate.py streams its live range-of-motion table.
+        self._calibration_readings: dict[str, dict] = {}
+        self._calibration_last_emit: dict[str, float] = {}
 
     @staticmethod
     def _autodetect_python() -> str | None:
@@ -614,7 +621,7 @@ except Exception as e:
         if not self._guard_ports(teleop_port if use_teleop else port):
             return
 
-        cmd = [self._python, "-m", "lerobot.scripts.lerobot_calibrate"]
+        cmd = [self._python, self._ensure_calibration_wrapper()]
 
         if use_teleop:
             cmd.append(f"--teleop.type={teleop_type or 'so100_leader'}")
@@ -1203,6 +1210,82 @@ except Exception as e:
             return True
         return False
 
+    # LeRobot's range-of-motion recorder (motors_bus.record_ranges_of_motion)
+    # decides "was Enter pressed" via enter_pressed(), which on Windows calls
+    # msvcrt.kbhit()/getch() — reading the process's own CONSOLE input buffer
+    # directly, NOT sys.stdin. A QProcess's stdin is a pipe, not a console, so
+    # writing "\n" to it is invisible to that check and the loop can never be
+    # stopped that way (the earlier plain input() prompts DO read sys.stdin
+    # correctly and are unaffected). To work around this we run calibration
+    # through a tiny wrapper that monkeypatches enter_pressed() to instead
+    # check for a sentinel file — "Confirm step" touches it, cross-platform,
+    # no console/TTY involved at all.
+    _CALIBRATION_WRAPPER_SRC = '''\
+import os
+import sys
+
+def _orchiday_enter_pressed():
+    flag_path = os.environ.get("ORCHIDAY_CALIBRATION_CONFIRM_FILE", "")
+    if flag_path and os.path.exists(flag_path):
+        try:
+            os.remove(flag_path)
+        except OSError:
+            pass
+        return True
+    return False
+
+import lerobot.motors.motors_bus as _motors_bus
+_motors_bus.enter_pressed = _orchiday_enter_pressed
+
+from lerobot.scripts.lerobot_calibrate import main
+
+if __name__ == "__main__":
+    main()
+'''
+
+    def _ensure_calibration_wrapper(self) -> str:
+        """Write (or reuse) the stdin-bypass wrapper script and return its path."""
+        path = Path(tempfile.gettempdir()) / "orchiday_calibrate_wrapper.py"
+        try:
+            if not path.exists() or path.read_text(encoding="utf-8") != self._CALIBRATION_WRAPPER_SRC:
+                path.write_text(self._CALIBRATION_WRAPPER_SRC, encoding="utf-8")
+        except OSError:
+            pass
+        return str(path)
+
+    def _calibration_confirm_file(self, key: str) -> Path:
+        return Path(tempfile.gettempdir()) / f"orchiday_calib_confirm_{key}.flag"
+
+    def confirm_calibration_step(self, robot_id: str) -> bool:
+        """Advance/finish a running calibration.
+
+        Touches the sentinel file the wrapper's patched enter_pressed()
+        checks (covers the range-of-motion "press Enter to stop" gate, which
+        is unreachable via stdin on Windows — see _CALIBRATION_WRAPPER_SRC),
+        and also writes a real newline to stdin (covers the earlier plain
+        input() "move to the middle" prompt, which works fine via stdin on
+        every platform). One button, whichever gate is currently active.
+        """
+        key = f"calibrate_{robot_id}"
+        process = self._active_processes.get(key)
+        if not (process and process.state() == QProcess.ProcessState.Running):
+            return False
+        log.info("Confirming calibration step for %s", key)
+        try:
+            self._calibration_confirm_file(key).write_text("1", encoding="utf-8")
+        except OSError as e:
+            log.warning("Could not write calibration confirm flag for %s: %s", key, e)
+        self._write_requested.emit(key, "\n")
+        return True
+
+    def cancel_calibration(self, robot_id: str) -> bool:
+        """Abort a running calibration process without saving."""
+        key = f"calibrate_{robot_id}"
+        if key in self._active_processes:
+            self._kill_process(key)
+            return True
+        return False
+
     @Slot(str, str)
     def _write_process_impl(self, key: str, payload: str) -> None:
         """Perform the QProcess stdin write on the owning thread."""
@@ -1387,6 +1470,13 @@ except Exception as e:
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("HF_HOME", hf_home)
+        if kind == "calibrate":
+            confirm_file = self._calibration_confirm_file(key)
+            try:
+                confirm_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+            env.insert("ORCHIDAY_CALIBRATION_CONFIRM_FILE", str(confirm_file))
         process.setProcessEnvironment(env)
 
         # Wire up slot callbacks
@@ -1420,8 +1510,14 @@ except Exception as e:
             line = line.rstrip()
             if not line:
                 continue
+
+            # The calibration range-of-motion table reprints at ~50 Hz — swallow
+            # those specific lines from the raw console (they're forwarded as a
+            # throttled structured event instead) or they flood it unreadably.
+            is_calibration_table_line = kind == "calibrate" and self._parse_calibration_line(line, key, skill_slug)
+
             # Snapshot payloads are huge base64 blobs — keep them out of the console
-            if not line.startswith("[SNAPSHOT]"):
+            if not is_calibration_table_line and not line.startswith("[SNAPSHOT]"):
                 event_bus.console_output.emit(line)
 
             # Monitor hardware errors and warnings in real time
@@ -1767,12 +1863,54 @@ except Exception as e:
                 )
                 event_bus.console_output.emit(tele_str)
 
+    _CALIBRATION_EMIT_INTERVAL_S = 0.15
+
+    def _parse_calibration_line(self, line: str, key: str, robot_id: str) -> bool:
+        """Parse the NAME|MIN|POS|MAX table lerobot_calibrate.py streams while
+        recording each joint's range of motion (motors_bus.py's
+        record_ranges_of_motion), and re-broadcast it as a structured event so
+        the UI can show live numbers the same way LeRobot's own CLI does.
+
+        LeRobot reprints this table at ~50 Hz (it redraws in place via ANSI
+        cursor-up in a real terminal), so the broadcast is throttled — the
+        cumulative min/max are still tracked on every line, only the rate at
+        which the UI is told about it is capped.
+
+        Returns True when the line belonged to this table (header, separator,
+        or a motor row) so the caller can skip echoing it into the raw
+        console log, which otherwise floods into unreadable scroll.
+        """
+        clean_line = re.sub(r'\x1B[@-_][0-?]*[ -/]*[@-~]', '', line).strip()
+        if clean_line.startswith("---") or clean_line.startswith("NAME"):
+            return True
+
+        match = re.match(r"^([a-zA-Z0-9_\-]+)\s*\|\s*(-?\d+)\s*\|\s*(-?\d+)\s*\|\s*(-?\d+)$", clean_line)
+        if not match:
+            return False
+
+        motor, min_s, pos_s, max_s = match.groups()
+        readings = self._calibration_readings.setdefault(key, {})
+        readings[motor] = {"min": int(min_s), "pos": int(pos_s), "max": int(max_s)}
+
+        now = time.monotonic()
+        last_emit = self._calibration_last_emit.get(key, 0.0)
+        if now - last_emit >= self._CALIBRATION_EMIT_INTERVAL_S:
+            self._calibration_last_emit[key] = now
+            event_bus.calibration_progress.emit(robot_id, dict(readings))
+        return True
+
     def _release_process_resources(self, key: str) -> None:
         """Release serial ports, restore preview cameras, and drop daemon state
         associated with a finished/killed process."""
         self._process_ports.pop(key, None)
         self._infer_policy_paths.pop(key, None)
         self._packet_drop_counts.pop(key, None)
+        self._calibration_readings.pop(key, None)
+        self._calibration_last_emit.pop(key, None)
+        try:
+            self._calibration_confirm_file(key).unlink(missing_ok=True)
+        except OSError:
+            pass
         waiter = self._daemon_waiters.pop(key, None)
         if waiter is not None:
             # Unblock anyone waiting for a daemon reply that will never come
