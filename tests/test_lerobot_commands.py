@@ -69,7 +69,11 @@ def test_record_command_has_required_modern_args(bridge):
         reset_time_s=5,
     )
     cmd = bridge._captured["cmd"]
-    assert "-m" in cmd and "lerobot.scripts.lerobot_record" in cmd
+    # Recording runs through Orchiday's wrapper rather than `-m
+    # lerobot.scripts.lerobot_record`: the wrapper swaps in a file-driven
+    # replacement for init_keyboard_listener, without which the episode
+    # controls (next / re-record / stop) can never fire in a subprocess.
+    assert cmd[1].endswith("orchiday_record_wrapper.py")
     assert _arg(cmd, "--robot.type=") == "so100_follower"
     assert _arg(cmd, "--robot.port=") == "COM3"
     assert _arg(cmd, "--robot.id=") == "my_follower_arm"
@@ -590,3 +594,45 @@ def test_calibration_homing_offset_error_detected(bridge):
         assert any("KALIBRACE SELHALA" in m for m in messages)
     finally:
         event_bus.log_message.disconnect(slot)
+
+
+# ── Recording episode controls (next / re-record / stop) ──────────────────
+# lerobot_record only installs a keyboard listener when pynput is importable
+# or stdin is a TTY. Under a QProcess neither holds, so the controls are
+# routed through sentinel files that Orchiday's record wrapper watches.
+
+def test_record_wrapper_patches_keyboard_listener():
+    from orchiday.ai.lerobot_bridge import LeRobotBridge
+    src = LeRobotBridge._RECORD_WRAPPER_SRC
+    assert "init_keyboard_listener" in src
+    # Must set exactly the three flags lerobot's record_loop polls.
+    for flag in ("exit_early", "rerecord_episode", "stop_recording"):
+        assert flag in src
+
+
+def test_send_record_control_writes_sentinel(bridge, tmp_path, monkeypatch):
+    from PySide6.QtCore import QProcess
+
+    class _FakeProc:
+        def state(self):
+            return QProcess.ProcessState.Running
+
+    key = "record_pick_cube"
+    bridge._active_processes[key] = _FakeProc()
+    monkeypatch.setattr(bridge, "_record_control_dir", lambda k: tmp_path / k)
+
+    assert bridge.send_record_control("pick_cube", "next") is True
+    assert (tmp_path / key / "next").exists()
+
+    assert bridge.send_record_control("pick_cube", "reset") is True
+    assert (tmp_path / key / "rerecord").exists()
+
+    assert bridge.send_record_control("pick_cube", "stop") is True
+    assert (tmp_path / key / "stop").exists()
+
+    # Unknown action is rejected rather than silently writing a stray file.
+    assert bridge.send_record_control("pick_cube", "bogus") is False
+
+
+def test_send_record_control_requires_running_process(bridge):
+    assert bridge.send_record_control("not_running", "next") is False

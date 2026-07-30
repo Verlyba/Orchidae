@@ -12,6 +12,31 @@ authors = [
     {name = "Orchiday Team"}
 ]
 
+# Runtime dependencies of the Orchiday app itself.
+#
+# NOTE: `torch` and `lerobot` are deliberately NOT listed. They live in a
+# separate Python environment (the conda env Orchiday points at via
+# python_path); the app only ever talks to them by spawning subprocesses, so
+# pinning them here would force a multi-GB install on a machine that may only
+# be used to drive a remote trainer.
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "pydantic>=2.0",
+    "httpx>=0.26",
+    "PySide6>=6.6",
+    "opencv-python>=4.8",
+    "numpy>=1.24",
+    "pyserial>=3.5",
+    "certifi>=2024.2.2",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
 orchiday = "orchiday.server:main"
 

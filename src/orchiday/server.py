@@ -413,6 +413,15 @@ async def confirm_calibration(robot_id: str):
     return {"ok": ok}
 
 
+@app.post("/api/robots/{robot_id}/calibrate/recalibrate")
+async def recalibrate_arm(robot_id: str):
+    """Answer LeRobot's "reuse existing calibration file?" prompt with 'c'
+    to force a fresh calibration instead of loading the stored one."""
+    ctrl = _get_controller()
+    ok = ctrl.lerobot_bridge.force_new_calibration(robot_id)
+    return {"ok": ok}
+
+
 @app.post("/api/robots/{robot_id}/calibrate/cancel")
 async def cancel_calibration(robot_id: str):
     ctrl = _get_controller()
@@ -1247,20 +1256,30 @@ async def stop_recording(body: dict):
 
 @app.post("/api/recording/action")
 async def recording_action(body: dict):
+    """Advance / re-record / stop the running recording.
+
+    Routed through the bridge's sentinel-file control channel rather than a
+    simulated global keypress: lerobot only installs a keyboard listener when
+    pynput is available or stdin is a real TTY, neither of which holds for a
+    subprocess — so a synthetic keypress had nothing listening for it.
+    """
     action = body.get("action", "")
-    try:
-        import keyboard  # type: ignore
-        if action == "next":
-            keyboard.send("right")
-        elif action == "reset":
-            keyboard.send("left")
-        elif action == "stop":
-            keyboard.send("esc")
-        return {"ok": True}
-    except Exception as e:
-        log.warning("Failed to simulate global keyboard press: %s", e)
-        event_bus.log_message.emit("WARN", f"Global keypress simulation failed: {e}")
-        return {"ok": False, "error": str(e)}
+    skill = body.get("skill", "")
+    ctrl = _get_controller()
+
+    if not skill:
+        running = [k for k, v in ctrl.lerobot_bridge._process_kinds.items() if v == "record"]
+        if len(running) == 1:
+            skill = running[0][len("record_"):]
+
+    if not skill:
+        return JSONResponse({"ok": False, "error": "No running recording found"}, status_code=409)
+
+    ok = ctrl.lerobot_bridge.send_record_control(skill, action)
+    if not ok:
+        return JSONResponse(
+            {"ok": False, "error": f"Recording for '{skill}' is not running"}, status_code=409)
+    return {"ok": True, "skill": skill}
 
 
 # ── Step marks: sub-task boundary flags during recording ────────────────────
@@ -2374,22 +2393,28 @@ def setup_install_lerobot(body: InstallConfig):
     except Exception as e:
         log_lines.append(f"Failed to install base package: {str(e)}")
 
-    log_lines.append("Installing LeRobot hardware extra dependencies (pip install -e '.[feetech]')...")
+    # "feetech" alone only covers the SO-100/SO-101 servo bus. The CLI scripts
+    # this app drives (record / replay / calibrate / teleoperate) additionally
+    # need lerobot's "core_scripts" extra — dataset (datasets/pyarrow/torchcodec),
+    # hardware (pyserial/pynput/deepdiff) and viz (rerun). Without the dataset
+    # part, `lerobot-record` aborts at import time and data collection is
+    # impossible, so this is installed as part of a normal setup, not opt-in.
+    log_lines.append("Installing LeRobot CLI extras (pip install -e '.[feetech,core_scripts]')...")
     try:
-        feetech_res = subprocess.run(
-            [pip_path, "install", "-e", ".[feetech]"],
+        extras_res = subprocess.run(
+            [pip_path, "install", "-e", ".[feetech,core_scripts]"],
             cwd=path,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=900
         )
-        if feetech_res.returncode == 0:
-            log_lines.append("LeRobot Feetech extra packages installed successfully.")
+        if extras_res.returncode == 0:
+            log_lines.append("LeRobot CLI extras (servo bus + dataset + hardware + viz) installed.")
         else:
-            log_lines.append(f"Pip install Feetech extras warning: {feetech_res.stderr}")
+            log_lines.append(f"Pip install extras warning: {extras_res.stderr}")
     except Exception as e:
-        log_lines.append(f"Failed to install Feetech extras: {str(e)}")
-        
+        log_lines.append(f"Failed to install LeRobot extras: {str(e)}")
+
     log_lines.append("Installation completed successfully!")
     return {"ok": True, "logs": log_lines, "path": path}
 

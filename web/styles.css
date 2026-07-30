@@ -796,116 +796,155 @@ input[readonly] {
    BUTTON SYSTEM
    ═══════════════════════════════════════════════════════════════════ */
 
+/* Flat, instrument-panel style: every button is a bordered rectangle with a
+   3px radius. Variants differ by border/text colour and a low-alpha fill, not
+   by saturated blocks of colour — so a dense toolbar reads as one control
+   surface instead of competing buttons. No shadows, glows or transforms. */
+
 .btn {
-    background: var(--accent);
-    color: var(--text-white);
-    border: 1px solid transparent;
-    padding: 7px 14px;
-    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-light);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 3px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: var(--transition);
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     line-height: 1.4;
     user-select: none;
-    position: relative;
-    overflow: hidden;
-}
-
-.btn::after {
-    display: none;
+    white-space: nowrap;
 }
 
 .btn:hover:not(:disabled) {
-    background: var(--accent-hover);
-    box-shadow: none;
-    /* transform removed */
+    background: rgba(255, 255, 255, 0.09);
+    border-color: var(--border-light);
 }
 
 .btn:active:not(:disabled) {
-    transform: translateY(0);
-    box-shadow: none;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.btn:focus-visible {
+    outline: 1px solid var(--cyan);
+    outline-offset: 1px;
 }
 
 .btn:disabled {
-    opacity: 0.35;
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
+/* Size tiers */
 .btn-xs {
-    padding: 6px 12px;
-    font-size: 11.5px;
-    border-radius: var(--radius);
-    font-weight: 700;
+    padding: 4px 10px;
+    font-size: 11px;
+    min-height: 26px;
     letter-spacing: 0.2px;
+}
+
+.btn-sm {
+    padding: 5px 12px;
+    font-size: 11.5px;
     min-height: 28px;
 }
 
-.btn-danger {
-    background: var(--red);
+/* Variants — tinted border + text, dark fill */
+.btn-primary {
+    background: rgba(0, 188, 212, 0.10);
+    border-color: rgba(0, 188, 212, 0.45);
+    color: var(--cyan);
+}
+.btn-primary:hover:not(:disabled) {
+    background: rgba(0, 188, 212, 0.18);
+    border-color: var(--cyan);
 }
 
+.btn-danger {
+    background: rgba(218, 55, 60, 0.10);
+    border-color: rgba(218, 55, 60, 0.45);
+    color: var(--red);
+}
 .btn-danger:hover:not(:disabled) {
-    background: var(--red-hover);
-    box-shadow: none;
+    background: rgba(218, 55, 60, 0.20);
+    border-color: var(--red);
 }
 
 .btn-success {
-    background: var(--green);
+    background: rgba(76, 175, 80, 0.10);
+    border-color: rgba(76, 175, 80, 0.45);
+    color: var(--green);
 }
-
 .btn-success:hover:not(:disabled) {
-    background: var(--green-hover);
-    box-shadow: none;
+    background: rgba(76, 175, 80, 0.20);
+    border-color: var(--green);
 }
 
+/* .btn-secondary is the base look — kept as an explicit alias so existing
+   markup stays valid and the intent stays readable. */
 .btn-secondary {
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border);
-    color: var(--text-main);
+    border-color: var(--border);
+    color: var(--text-light);
 }
 
-.btn-secondary:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--border-light);
-    /* transform removed */
-}
-
-.btn-primary {
-    background: var(--accent);
-}
-
-/* ── Unified Button System Extensions ── */
+/* Legacy aliases retained so older markup keeps a consistent look. */
 .btn-cyan-dashed {
     background: rgba(0, 188, 212, 0.08);
-    border: 1.5px dashed rgba(0, 188, 212, 0.4);
+    border-color: rgba(0, 188, 212, 0.35);
     color: var(--cyan);
-    font-weight: 700;
     width: 100%;
 }
 .btn-cyan-dashed:hover:not(:disabled) {
-    background: rgba(0, 188, 212, 0.15);
+    background: rgba(0, 188, 212, 0.16);
     border-color: var(--cyan);
 }
 
 .btn-success-light {
-    background: rgba(76, 175, 80, 0.1);
-    border: 1px solid var(--green);
+    background: rgba(76, 175, 80, 0.10);
+    border-color: rgba(76, 175, 80, 0.45);
     color: var(--green);
     width: 100%;
 }
 .btn-success-light:hover:not(:disabled) {
-    background: rgba(76, 175, 80, 0.18);
+    background: rgba(76, 175, 80, 0.20);
 }
 
+/* Square icon-only button — same visual weight as a text button of the same tier */
 .btn-icon {
-    padding: 0 8px;
-    font-size: 14px;
+    padding: 0;
+    width: 26px;
+    min-width: 26px;
+    flex-shrink: 0;
+}
+
+/* Toolbar: a row of related controls sharing one baseline, used at the top of
+   a panel body rather than floating in the page header. */
+.panel-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-dark);
+}
+
+.panel-toolbar-spacer {
+    flex: 1;
+}
+
+.panel-toolbar-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
     color: var(--text-muted);
+    margin-right: 2px;
 }
 
 .w-full {
@@ -1947,15 +1986,16 @@ input[readonly] {
    MODAL DIALOG POPUPS
    ═══════════════════════════════════════════════════════════════════ */
 
+/* Plain dimmed backdrop — no blur. A blurred backdrop smears the live
+   telemetry/camera panels behind the dialog, which is exactly the context the
+   user needs while a dialog is open. */
 .modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: var(--overlay-bg);
-    backdrop-filter: var(--overlay-blur);
-    -webkit-backdrop-filter: var(--overlay-blur);
+    background: rgba(0, 0, 0, 0.55);
     display: none;
     align-items: center;
     justify-content: center;
@@ -1974,55 +2014,56 @@ body.modal-open {
 
 .modal-container {
     background: var(--bg-sidebar);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-light);
     width: 450px;
     max-width: 90vw;
     max-height: 88vh;
-    border-radius: var(--radius-lg);
+    border-radius: 3px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: var(--shadow-lg);
-    animation: fadeInScale 0.2s ease-out;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
 .modal-header {
-    padding: 10px 14px;
-    background: oklch(0.22 0.012 250);
-    border-bottom: 1px solid var(--border-dark);
+    padding: 9px 12px;
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 10px;
 }
 
 .modal-header h4 {
-    font-size: 12px;
-    font-weight: 800;
+    font-size: 11px;
+    font-weight: 700;
     color: var(--text-white);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.7px;
 }
 
 .modal-close-btn {
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     color: var(--text-muted);
-    font-size: 16px;
+    font-size: 14px;
     cursor: pointer;
     line-height: 1;
-    transition: var(--transition);
-    width: 28px;
-    height: 28px;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    width: 24px;
+    height: 24px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: var(--radius);
+    border-radius: 3px;
 }
 
 .modal-close-btn:hover {
     color: var(--text-white);
-    background: rgba(255,255,255,0.06);
+    background: rgba(255, 255, 255, 0.07);
+    border-color: var(--border);
 }
 
 .modal-body {
@@ -2036,13 +2077,13 @@ body.modal-open {
 }
 
 .modal-footer {
-    padding: 10px 14px;
-    background: oklch(0.20 0.011 250);
-    border-top: 1px solid var(--border-dark);
+    padding: 9px 12px;
+    background: var(--bg-inset);
+    border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
     flex-shrink: 0;
 }
 
@@ -2077,22 +2118,29 @@ body.modal-open {
     animation: fadeIn 0.3s ease;
 }
 
+/* The dialog is a fixed frame; the step inside it owns the free space.
+   `justify-content: space-between` used to live here, but both the footer and
+   the skip button are position:absolute — so the container had a single
+   in-flow child and space-between did nothing except leave the step pinned to
+   the top with a large void underneath. */
 .wizard-container {
     width: 80vw;
     height: 80vh;
     max-width: 1200px;
     max-height: 90vh;
-    padding: 40px;
+    /* Bottom padding reserves the band the absolutely-positioned footer and
+       skip button occupy, so step content can never collide with them. */
+    padding: 40px 40px 84px;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-start;
     position: relative;
     background: var(--bg-editor);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    justify-content: space-between;
-    overflow-y: auto;
+    border-radius: 3px;
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
 }
 
 .wizard-close-btn {
@@ -2120,16 +2168,38 @@ body.modal-open {
     background: rgba(255, 255, 255, 0.06);
 }
 
+/* Each step claims the whole free area and centres its own content in it.
+   Filling the frame this way keeps every step the same size (no jumping
+   between steps) WITHOUT stretching inputs, menus or buttons — those keep
+   their natural size and the layout absorbs the slack. Tall steps scroll
+   inside the step instead of resizing the dialog. */
 .wizard-page {
     display: none;
     width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     flex-direction: column;
     align-items: center;
+    /* `safe` matters: with plain `center`, content taller than the frame
+       overflows in BOTH directions and its first ~40-70px become permanently
+       unreachable (scrollTop is already 0). `safe center` falls back to
+       start-alignment exactly in that case. The plain value is declared first
+       as a fallback for engines that don't parse the safe keyword. */
+    justify-content: center;
+    justify-content: safe center;
+    gap: 4px;
     animation: fadeIn 0.4s ease forwards;
 }
 
 .wizard-page.active {
     display: flex;
+}
+
+/* A step whose content is taller than the frame must start at the top,
+   otherwise centring would clip its beginning above the scroll area. */
+.wizard-page > * {
+    flex-shrink: 0;
 }
 
 .wizard-header {
@@ -3283,8 +3353,49 @@ body.resizing * {
 
 .cal-live-actions {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
     margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-dark);
+}
+
+.rec-live-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+}
+
+.rec-live-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.rec-live-buttons .btn {
+    flex: 1;
+    min-width: 120px;
+}
+
+/* Which interactive LeRobot gate is currently waiting for an answer. */
+.cal-live-phase {
+    display: block;
+    margin-top: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--yellow);
+}
+
+/* Port shown inline on a run button, so the action and its target read as one control. */
+.btn-port-hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    opacity: 0.75;
 }
 
 .setup-wizard-tabs {
@@ -3388,71 +3499,143 @@ body.resizing * {
     padding: 4px 6px;
 }
 
-.cal-file-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 6px;
-    border-bottom: 1px solid var(--border);
+.cal-files-scroll {
+    max-height: 420px;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
-.cal-file-row:last-child {
+/* Calibration file manager — a dense data table, not a card list: these rows
+   are records with fixed attributes (pin / name / target / date / actions),
+   so aligned columns are far easier to scan than free-floating boxes. */
+.cal-file-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.cal-file-table thead th {
+    text-align: left;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 0 6px 6px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.cal-file-table tbody td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border-dark);
+    vertical-align: middle;
+}
+
+.cal-file-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-.cal-file-fav {
-    cursor: pointer;
-    font-size: 14px;
-    color: var(--text-muted);
-    user-select: none;
+.cal-file-table tbody tr.is-active {
+    background: rgba(0, 188, 212, 0.05);
 }
 
-.cal-file-fav input {
+.cal-col-pin,
+.cal-col-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.cal-col-target,
+.cal-col-date {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+/* Pin = "keep at the top of the list". A checkbox styled as a toggle button
+   so it matches the surrounding controls instead of being a star glyph. */
+.cal-file-pin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    user-select: none;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.cal-file-pin:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-light);
+}
+
+.cal-file-pin input {
     display: none;
 }
 
-.cal-file-fav:has(input:checked) {
-    color: var(--yellow, gold);
-}
-
-.cal-file-main {
-    flex: 1;
-    min-width: 0;
+.cal-file-pin:has(input:checked) {
+    background: rgba(0, 188, 212, 0.14);
+    border-color: rgba(0, 188, 212, 0.5);
+    color: var(--cyan);
 }
 
 .cal-file-name-input {
     width: 100%;
+    min-width: 120px;
     background: transparent;
     border: 1px solid transparent;
     color: var(--text-light);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
-    padding: 2px 4px;
-    border-radius: 4px;
+    padding: 3px 5px;
+    border-radius: 3px;
 }
 
-.cal-file-name-input:hover,
-.cal-file-name-input:focus {
+.cal-file-name-input:hover {
     border-color: var(--border);
-    background: var(--bg-inset);
 }
 
-.cal-file-meta {
-    font-size: 10px;
-    color: var(--text-muted);
-    margin-top: 2px;
+.cal-file-name-input:focus {
+    border-color: var(--cyan);
+    background: var(--bg-inset);
+    outline: none;
 }
 
 .cal-file-active-badge {
-    color: var(--cyan);
+    display: inline-block;
+    font-size: 8.5px;
     font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--cyan);
+    border: 1px solid rgba(0, 188, 212, 0.4);
+    border-radius: 2px;
+    padding: 0 4px;
     margin-left: 6px;
+    vertical-align: middle;
 }
 
 .cal-file-actions {
     display: flex;
     gap: 4px;
-    flex-shrink: 0;
+    justify-content: flex-end;
+}
+
+/* Empty state inside a modal body */
+.modal-empty-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 18px 8px;
+    border: 1px dashed var(--border);
+    border-radius: 3px;
 }
 
 .cfg-card-input {
@@ -3668,28 +3851,23 @@ body { min-width: 320px; }
     box-sizing: border-box;
 }
 
-/* --- Buttons: consistent box model, height and alignment --- */
+/* --- Buttons: consistent box model and alignment.
+   Sizing itself lives with the button system above; this only adds the
+   box-model guarantees that keep buttons aligned inside flex rows. --- */
 .btn {
     box-sizing: border-box;
-    min-height: 30px;
-    white-space: nowrap;
     flex-shrink: 0;
     vertical-align: middle;
 }
 
 .btn-xs {
-    height: 28px;
-    min-height: 28px;
+    height: 26px;
     padding-top: 0;
     padding-bottom: 0;
 }
 
-/* Square icon-only buttons (e.g. the ✕ remove button) match text-button height */
 .btn-icon {
-    padding: 0;
-    width: 28px;
-    min-width: 28px;
-    height: 28px;
+    height: 26px;
 }
 
 /* Inline button groups align to a consistent baseline & gap */

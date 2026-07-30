@@ -2,7 +2,7 @@
  * Orchiday Web Frontend — Upgraded Application Logic (TypeScript)
  * 
  * Strict alignment with the PySide6 unified architecture:
- * - 2 Main stacked pages: Setup / Konfigurace (⚙️) and Learning / Sběr dat (🏋️).
+ * - 2 Main stacked pages: Setup / Konfigurace and Learning / Sber dat.
  * - Coordinates Environment, Camera feeds, Model Config + CEO Planner split, and Motor Skills + Telemetry split.
  * - Exposes real-time WebSocket bindings for log console, orchestration pipeline, and loss chart telemetry.
  */
@@ -2043,7 +2043,7 @@ const App = {
     const oldText = btn ? btn.innerHTML : '';
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = `⏳ Spouštím (${role})...`;
+      btn.innerHTML = `Spouštím (${role})…`;
     }
 
     try {
@@ -2075,8 +2075,20 @@ const App = {
     if (label) label.textContent = robotId;
     if (tbody) tbody.innerHTML = '';
     if (panel) panel.style.display = 'block';
+    this.setCalibrationPhase('start');
     this.renderArmSchematic('cal', null);
     this.renderCalibrationJointLegend(robotId);
+  },
+
+  /** Shows which of LeRobot's interactive gates is currently waiting, so the
+   * buttons below read as answers to a specific question rather than guesses.
+   * 'range' is inferred from the first min/pos/max row arriving. */
+  setCalibrationPhase(phase: 'start' | 'range'): void {
+    const el = document.getElementById('cal-live-phase');
+    if (!el) return;
+    el.textContent = phase === 'range'
+      ? 'Projeďte rozsah kloubů, pak potvrďte Enter'
+      : 'Čeká na potvrzení — přesuňte rameno do středu rozsahu';
   },
 
   /** Joint-name → motor-ID legend for whichever side (leader/follower) is
@@ -2110,6 +2122,14 @@ const App = {
     await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/confirm`);
   },
 
+  /** Answers LeRobot's "reuse stored calibration file?" prompt with 'c' to
+   * force a fresh measurement instead of loading the saved one. */
+  async forceNewCalibration(): Promise<void> {
+    if (!this.calibratingRobotId) return;
+    this.log('INFO', 'Vynucuji novou kalibraci (odesílám "c")…');
+    await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/recalibrate`);
+  },
+
   async cancelCalibration(): Promise<void> {
     if (!this.calibratingRobotId) return;
     await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/cancel`);
@@ -2123,6 +2143,8 @@ const App = {
     // A calibration_progress event always implies the process is live —
     // show the panel even if the earlier robot_calibrating event was missed.
     if (panel.style.display === 'none') this.showCalibrationLivePanel(robotId);
+    // Range-of-motion rows only stream during LeRobot's second gate.
+    this.setCalibrationPhase('range');
     // Preserve kinematic-chain order (base → gripper) instead of raw object
     // insertion order, which follows whatever order the joints were moved in.
     const rows = this.ARM_JOINT_ORDER.filter(name => values[name]).map(name => [name, values[name]] as const);
@@ -2155,33 +2177,58 @@ const App = {
     const el = document.getElementById('cal-files-list');
     if (!el) return;
     if (!files.length) {
-      el.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--text-muted);">Žádné kalibrační soubory nebyly nalezeny.</div>`;
+      el.innerHTML = `<div class="modal-empty-note">${this.t('cal.noFiles')}</div>`;
       return;
     }
     const catLabel = (c: string) => c === 'robots' ? 'Follower' : 'Leader';
+    // Pinned first, then newest — the two orders that matter when picking a
+    // calibration to re-apply.
     const sorted = [...files].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0)
       || (b.last_modified || '').localeCompare(a.last_modified || ''));
-    el.innerHTML = sorted.map(f => `
-      <div class="cal-file-row" data-filename="${this.esc(f.name)}" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:var(--radius); gap:12px;">
-        <label class="cal-file-fav" title="${this.t('cal.favorite')}" style="cursor:pointer; font-size:16px;">
-          <input type="checkbox" ${f.favorite ? 'checked' : ''} onchange="App.toggleCalibrationFavorite('${this.esc(f.name)}', this.checked)">
-          ★
-        </label>
-        <div class="cal-file-main" style="flex:1;">
+
+    const rows = sorted.map(f => {
+      const isActive = !!(f.active_for && f.active_for.length);
+      const date = f.last_modified ? new Date(f.last_modified).toLocaleString() : '—';
+      return `
+      <tr class="${isActive ? 'is-active' : ''}" data-filename="${this.esc(f.name)}">
+        <td class="cal-col-pin">
+          <label class="cal-file-pin" title="${this.t('cal.favorite')}">
+            <input type="checkbox" ${f.favorite ? 'checked' : ''}
+                   onchange="App.toggleCalibrationFavorite('${this.esc(f.name)}', this.checked)">PIN
+          </label>
+        </td>
+        <td>
           <input type="text" class="cal-file-name-input" value="${this.esc(f.display_name)}"
-                 onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)" style="background:transparent; border:none; color:var(--text-white); font-weight:bold; font-size:13px; width:100%;">
-          <div class="cal-file-meta" style="font-size:11px; color:var(--text-muted); margin-top:2px;">
-            <strong style="color:var(--cyan);">${catLabel(f.category)}</strong> · ${this.esc(f.device_type)} · ${new Date(f.last_modified).toLocaleString()}
-            ${f.source === 'cache' ? ' · <span style="color:var(--yellow); font-weight:600;">(LeRobot Cache)</span>' : ''}
-            ${f.active_for && f.active_for.length ? `<span class="cal-file-active-badge" style="background:rgba(46,125,50,0.25); color:var(--green); border:1px solid var(--green); padding:1px 6px; border-radius:4px; font-size:9.5px; font-weight:bold; margin-left:6px;">AKTIVNÍ</span>` : ''}
+                 onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)">
+          ${isActive ? `<span class="cal-file-active-badge">${this.t('cal.active')}</span>` : ''}
+        </td>
+        <td class="cal-col-target">${catLabel(f.category)} · ${this.esc(f.device_type)}</td>
+        <td class="cal-col-date">${date}</td>
+        <td class="cal-col-actions">
+          <div class="cal-file-actions">
+            <button class="btn btn-xs btn-primary" ${isActive ? 'disabled' : ''}
+                    title="${this.t('cal.activate')}"
+                    onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')">${this.t('cal.activate')}</button>
+            <button class="btn btn-xs btn-danger btn-icon" title="${this.t('btn.delete')}"
+                    onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">✕</button>
           </div>
-        </div>
-        <div class="cal-file-actions" style="display:flex; gap:6px;">
-          <button class="btn btn-xs btn-success" onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')">Aktivovat (${catLabel(f.category)})</button>
-          <button class="btn btn-xs btn-danger" onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">🗑 Smazat</button>
-        </div>
-      </div>
-    `).join('');
+        </td>
+      </tr>`;
+    }).join('');
+
+    el.innerHTML = `
+      <table class="cal-file-table">
+        <thead>
+          <tr>
+            <th class="cal-col-pin"></th>
+            <th>${this.t('cal.colName')}</th>
+            <th>${this.t('cal.colTarget')}</th>
+            <th>${this.t('cal.colDate')}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
   },
 
   async renameCalibrationFile(filename: string, displayName: string): Promise<void> {
@@ -2637,10 +2684,17 @@ const App = {
   },
 
   async sendRecordingAction(action: string): Promise<void> {
-    this.log('INFO', `Recording action triggered: ${action.toUpperCase()}`);
-    const res = await this.api('POST', '/recording/action', { action });
+    const labels: Record<string, string> = {
+      next: 'Ukončit epizodu a pokračovat',
+      reset: 'Zahodit epizodu a nahrát znovu',
+      stop: 'Ukončit nahrávání a uložit',
+    };
+    this.log('INFO', labels[action] || action);
+    // Pass the skill explicitly so the backend targets the right process even
+    // if several recordings were ever queued.
+    const res = await this.api('POST', '/recording/action', { action, skill: this.activeSkill || '' });
     if (res && res.ok === false) {
-      this.log('WARN', `Action warning: ${res.error}`);
+      this.log('WARN', `Akce se nezdařila: ${res.error}`);
     }
   },
 
@@ -2835,7 +2889,7 @@ const App = {
     const btn = document.getElementById('btn-refresh-calibration') as HTMLButtonElement | null;
     if (btn) {
       btn.disabled = true;
-      btn.textContent = '🔄 Obnovuji...';
+      btn.textContent = 'Načítám…';
     }
     try {
       this.log('INFO', 'Obnovuji stav kalibrace a hardwaru...');
@@ -2849,7 +2903,7 @@ const App = {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '🔄 Obnovit stav';
+        btn.textContent = 'Načíst stav';
       }
     }
   },
@@ -2947,7 +3001,7 @@ const App = {
     const saveBtns = document.querySelectorAll<HTMLButtonElement>('.btn-save-hw-config');
     saveBtns.forEach(btn => {
       btn.disabled = true;
-      btn.textContent = '⏳ Ukládám...';
+      btn.textContent = 'Ukládám…';
     });
 
     try {
@@ -3400,8 +3454,8 @@ const App = {
                   <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 5px 8px; border-radius: 4px; font-size: 11px;">
                     <span style="font-weight:700; color:var(--text-muted);">Epizoda ${idx}</span>
                     <div style="display:flex; gap:4px;">
-                      <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">▶ Přehrát</button>
-                      <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">🗑 Smazat</button>
+                      <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">Přehrát</button>
+                      <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">Smazat</button>
                     </div>
                   </div>
                 `;
@@ -3984,8 +4038,8 @@ const App = {
               <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 8px 12px; border-radius: var(--radius); font-size: 12px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)';" onmouseout="this.style.background='rgba(255,255,255,0.02)';">
                 <span style="font-weight:700; color:var(--text-light);">Epizoda #${idx}</span>
                 <div style="display:flex; gap:6px;">
-                  <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx}, '${datasetSlug}')" style="padding: 4px 10px; font-size:11px;">▶ Přehrát</button>
-                  <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx}, '${datasetSlug}', '${skillSlug}')" style="padding: 4px 10px; font-size:11px;">🗑 Smazat</button>
+                  <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx}, '${datasetSlug}')" style="padding: 4px 10px; font-size:11px;">Přehrát</button>
+                  <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx}, '${datasetSlug}', '${skillSlug}')" style="padding: 4px 10px; font-size:11px;">Smazat</button>
                 </div>
               </div>
             `;
@@ -5276,11 +5330,11 @@ const App = {
       const nextBtn = document.getElementById('wizard-leader-next-btn') as HTMLButtonElement;
       if (nextBtn) {
         if (this.wizardLeaderSubStep === 3) {
-          nextBtn.textContent = 'Next ➔';
+          nextBtn.textContent = 'Next';
           nextBtn.disabled = false;
           nextBtn.style.opacity = '1';
         } else {
-          nextBtn.textContent = 'Skip ➔';
+          nextBtn.textContent = 'Skip';
           nextBtn.disabled = false;
           nextBtn.style.opacity = '1';
         }
@@ -5298,11 +5352,11 @@ const App = {
       const finishBtn = document.getElementById('wizard-follower-finish-btn') as HTMLButtonElement;
       if (finishBtn) {
         if (this.wizardFollowerSubStep === 3) {
-          finishBtn.textContent = 'Next ➔';
+          finishBtn.textContent = 'Next';
           finishBtn.disabled = false;
           finishBtn.style.opacity = '1';
         } else {
-          finishBtn.textContent = 'Skip ➔';
+          finishBtn.textContent = 'Skip';
           finishBtn.disabled = false;
           finishBtn.style.opacity = '1';
         }

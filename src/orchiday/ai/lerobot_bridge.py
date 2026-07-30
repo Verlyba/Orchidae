@@ -751,7 +751,7 @@ except Exception as e:
             event_bus.log_message.emit("WARN", f"No task description provided — using '{single_task}' as the dataset task annotation.")
 
         cmd = [
-            self._python, "-m", "lerobot.scripts.lerobot_record",
+            self._python, self._ensure_record_wrapper(),
             f"--robot.type={robot_type}",
             f"--robot.port={port}",
             f"--robot.id={robot_id or 'my_follower_arm'}",
@@ -1285,15 +1285,125 @@ if __name__ == "__main__":
     main()
 '''
 
-    def _ensure_calibration_wrapper(self) -> str:
-        """Write (or reuse) the stdin-bypass wrapper script and return its path."""
-        path = Path(tempfile.gettempdir()) / "orchiday_calibrate_wrapper.py"
+    # lerobot_record's episode controls (next / re-record / stop) come from
+    # init_keyboard_listener(), which needs EITHER pynput (a global OS-level
+    # hook) OR a real TTY on stdin. Under a QProcess neither holds: stdin is a
+    # pipe (isatty() False) and pynput is not a hard dependency, so
+    # create_key_listener() returns None and the events dict stays False
+    # forever — the buttons in the UI are then physically incapable of ending
+    # an episode, and only the episode/reset TIMERS advance the recording.
+    # Simulating a global keypress instead (the previous approach) cannot work
+    # either: with no listener running there is nothing to receive the key.
+    # This wrapper swaps in a listener that watches sentinel files, which is
+    # deterministic, needs no TTY/hook/focus, and sets exactly the same flags.
+    _RECORD_WRAPPER_SRC = '''\
+import os
+import threading
+import time
+
+_CONTROL_DIR = os.environ.get("ORCHIDAY_RECORD_CONTROL_DIR", "")
+
+# Same three flags lerobot's own listener sets; record_loop polls this dict.
+_EVENTS = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
+
+
+class _OrchidayFileListener:
+    """Drop-in replacement for lerobot's keyboard listener, driven by files."""
+
+    def __init__(self):
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _consume(self, name):
+        if not _CONTROL_DIR:
+            return False
+        path = os.path.join(_CONTROL_DIR, name)
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return True
+        return False
+
+    def _run(self):
+        while self._running:
+            # Mirrors lerobot.utils.keyboard_input.apply_recording_control
+            if self._consume("next"):
+                print("[ORCHIDAY] Next episode requested.", flush=True)
+                _EVENTS["exit_early"] = True
+            if self._consume("rerecord"):
+                print("[ORCHIDAY] Re-record episode requested.", flush=True)
+                _EVENTS["rerecord_episode"] = True
+                _EVENTS["exit_early"] = True
+            if self._consume("stop"):
+                print("[ORCHIDAY] Stop recording requested.", flush=True)
+                _EVENTS["stop_recording"] = True
+                _EVENTS["exit_early"] = True
+            time.sleep(0.05)
+
+    def stop(self):
+        self._running = False
+
+
+def _orchiday_init_keyboard_listener():
+    return _OrchidayFileListener(), _EVENTS
+
+
+import lerobot.scripts.lerobot_record as _rec
+_rec.init_keyboard_listener = _orchiday_init_keyboard_listener
+
+if __name__ == "__main__":
+    _rec.main()
+'''
+
+    def _ensure_wrapper(self, filename: str, source: str) -> str:
+        """Write (or reuse) a wrapper script in temp and return its path."""
+        path = Path(tempfile.gettempdir()) / filename
         try:
-            if not path.exists() or path.read_text(encoding="utf-8") != self._CALIBRATION_WRAPPER_SRC:
-                path.write_text(self._CALIBRATION_WRAPPER_SRC, encoding="utf-8")
+            if not path.exists() or path.read_text(encoding="utf-8") != source:
+                path.write_text(source, encoding="utf-8")
         except OSError:
             pass
         return str(path)
+
+    def _ensure_calibration_wrapper(self) -> str:
+        """Write (or reuse) the stdin-bypass wrapper script and return its path."""
+        return self._ensure_wrapper("orchiday_calibrate_wrapper.py", self._CALIBRATION_WRAPPER_SRC)
+
+    def _ensure_record_wrapper(self) -> str:
+        """Write (or reuse) the record episode-control wrapper and return its path."""
+        return self._ensure_wrapper("orchiday_record_wrapper.py", self._RECORD_WRAPPER_SRC)
+
+    def _record_control_dir(self, key: str) -> Path:
+        """Per-process directory holding the record control sentinel files."""
+        return Path(tempfile.gettempdir()) / f"orchiday_rec_ctl_{key}"
+
+    def send_record_control(self, skill_slug: str, action: str) -> bool:
+        """Request next-episode / re-record / stop on a running recording.
+
+        Drops a sentinel file the wrapper's listener thread picks up (see
+        _RECORD_WRAPPER_SRC) — the only mechanism that reaches lerobot's
+        events dict when it runs without a TTY or global keyboard hook.
+        """
+        mapping = {"next": "next", "reset": "rerecord", "stop": "stop"}
+        name = mapping.get(action)
+        if name is None:
+            return False
+        key = f"record_{skill_slug}"
+        process = self._active_processes.get(key)
+        if not (process and process.state() == QProcess.ProcessState.Running):
+            return False
+        ctl_dir = self._record_control_dir(key)
+        try:
+            ctl_dir.mkdir(parents=True, exist_ok=True)
+            (ctl_dir / name).write_text("1", encoding="utf-8")
+        except OSError as e:
+            log.warning("Could not write record control '%s' for %s: %s", name, key, e)
+            return False
+        log.info("Record control '%s' requested for %s", name, key)
+        return True
 
     def _calibration_confirm_file(self, key: str) -> Path:
         return Path(tempfile.gettempdir()) / f"orchiday_calib_confirm_{key}.flag"
@@ -1323,6 +1433,22 @@ if __name__ == "__main__":
                 log.warning("Could not write calibration confirm flag for %s: %s", key, e)
 
         self._write_requested.emit(key, "\n")
+        return True
+
+    def force_new_calibration(self, robot_id: str) -> bool:
+        """Answer the "use existing calibration file?" prompt with 'c'.
+
+        When a calibration file already exists for the device, LeRobot's
+        device.calibrate() asks: ENTER = reuse that file, 'c' + ENTER = run a
+        fresh calibration. That prompt is a plain input() on sys.stdin, so
+        unlike the range-of-motion gate it is reachable through the pipe.
+        """
+        key = f"calibrate_{robot_id}"
+        process = self._active_processes.get(key)
+        if not (process and process.state() == QProcess.ProcessState.Running):
+            return False
+        log.info("Requesting fresh calibration ('c') for %s", key)
+        self._write_requested.emit(key, "c\n")
         return True
 
     def cancel_calibration(self, robot_id: str) -> bool:
@@ -1540,6 +1666,21 @@ if __name__ == "__main__":
             except OSError:
                 pass
             env.insert("ORCHIDAY_CALIBRATION_CONFIRM_FILE", str(confirm_file))
+
+        if kind == "record":
+            # Start from an empty control dir so a stale "stop" left by a
+            # previous run can't immediately end this recording.
+            ctl_dir = self._record_control_dir(key)
+            try:
+                if ctl_dir.exists():
+                    for stale in ctl_dir.iterdir():
+                        stale.unlink(missing_ok=True)
+                else:
+                    ctl_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+            env.insert("ORCHIDAY_RECORD_CONTROL_DIR", str(ctl_dir))
+
         process.setProcessEnvironment(env)
 
         # Wire up slot callbacks
@@ -1999,6 +2140,14 @@ if __name__ == "__main__":
         self._calibration_last_emit.pop(key, None)
         try:
             self._calibration_confirm_file(key).unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            ctl_dir = self._record_control_dir(key)
+            if ctl_dir.exists():
+                for leftover in ctl_dir.iterdir():
+                    leftover.unlink(missing_ok=True)
+                ctl_dir.rmdir()
         except OSError:
             pass
         waiter = self._daemon_waiters.pop(key, None)
