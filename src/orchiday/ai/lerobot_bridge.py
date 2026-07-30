@@ -1459,6 +1459,14 @@ if __name__ == "__main__":
         """Spawn a subprocess. Safe to call from any thread (queued to owner)."""
         self._spawn_requested.emit(key, cmd, kind, skill_slug)
 
+    @Slot(str, str)
+    def _write_process_impl(self, key: str, data: str) -> None:
+        """Write raw text or newline to the stdin of an active QProcess on the event loop."""
+        process = self._active_processes.get(key)
+        if process and process.state() == QProcess.ProcessState.Running:
+            log.info("Writing input to stdin of process %s: %r", key, data)
+            process.write(data.encode("utf-8"))
+
     @Slot(str, list, str, str)
     def _spawn_process_impl(
         self,

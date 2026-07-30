@@ -2445,6 +2445,21 @@ async def websocket_endpoint(ws: WebSocket):
         web_bridge.unregister_client(ws)
 
 
+@app.post("/api/system/restart")
+async def restart_server_endpoint():
+    """Restart the Orchiday FastAPI backend process."""
+    log.info("Server restart requested via API...")
+    def _do_restart():
+        import time, subprocess
+        time.sleep(0.5)
+        log.info("Re-executing Orchiday server process...")
+        subprocess.Popen([sys.executable, "-m", "orchiday.server"])
+        os._exit(0)
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return {"ok": True, "message": "Server restarting..."}
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def main():

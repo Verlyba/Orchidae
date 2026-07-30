@@ -2845,6 +2845,19 @@ const App = {
     }
   },
 
+  async restartServer(): Promise<void> {
+    this.log('INFO', 'Odesílám požadavek na restart serveru...');
+    try {
+      await this.api('POST', '/system/restart');
+      this.log('SUCCESS', 'Server se restartuje...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } catch (err: any) {
+      this.log('ERROR', 'Chyba při restartu serveru: ' + (err.message || err));
+    }
+  },
+
   onRobotTypeChange(): void {
     const robotTypeSelect = document.getElementById('robot-type-select') as HTMLSelectElement | null;
     if (!robotTypeSelect) return;
