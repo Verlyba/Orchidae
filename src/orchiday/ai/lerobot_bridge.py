@@ -624,11 +624,24 @@ except Exception as e:
         cmd = [self._python, self._ensure_calibration_wrapper()]
 
         if use_teleop:
-            cmd.append(f"--teleop.type={teleop_type or 'so100_leader'}")
+            t_type = teleop_type or "so100_leader"
+            if not t_type.endswith("_leader") and not t_type.endswith("_follower"):
+                t_type = f"{t_type}_leader"
+            elif t_type.endswith("_follower"):
+                t_type = f"{t_type[:-9]}_leader"
+
+            cmd.append(f"--teleop.type={t_type}")
             cmd.append(f"--teleop.port={teleop_port}")
             cmd.append(f"--teleop.id={robot_id}")
         else:
-            cmd.append(f"--robot.type={robot_type or 'so100_follower'}")
+            r_type = robot_type or "so100_follower"
+            standalone = ("lekiwi", "lekiwi_client", "hope_jr_hand", "hope_jr_arm", "unitree_g1")
+            if not r_type.endswith("_follower") and not r_type.endswith("_leader") and r_type not in standalone:
+                r_type = f"{r_type}_follower"
+            elif r_type.endswith("_leader"):
+                r_type = f"{r_type[:-7]}_follower"
+
+            cmd.append(f"--robot.type={r_type}")
             cmd.append(f"--robot.port={port}")
             cmd.append(f"--robot.id={robot_id}")
 

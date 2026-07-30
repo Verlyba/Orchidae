@@ -2009,7 +2009,13 @@ const App = {
             port = document.getElementById(`tele-${role}-port-custom`)?.value.trim() || '';
         }
         const id = document.getElementById(`tele-${role}-id`)?.value || `my_${role}_arm`;
-        const type = role === 'leader' ? `${robotType}_leader` : robotType;
+        let type = robotType;
+        if (role === 'leader') {
+            type = robotType.endsWith('_leader') ? robotType : `${robotType.replace(/_follower$/, '')}_leader`;
+        }
+        else {
+            type = robotType.endsWith('_follower') ? robotType : `${robotType.replace(/_leader$/, '')}_follower`;
+        }
         if (!port) {
             const msg = `Port sériového připojení pro rameno ${role.toUpperCase()} není vybrán!`;
             this.log('ERROR', msg);
