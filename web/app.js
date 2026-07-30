@@ -273,7 +273,7 @@ const App = {
                 break;
             case 'process_finished':
                 delete this.runningProcs[data.key];
-                this.updateActionButtonStates();
+                this.updateHardwareButtonStates();
                 // robot_calibrated only fires on success — also hide the live table
                 // here so a FAILED calibration doesn't leave it stuck on screen.
                 if (data.kind === 'calibrate') {
@@ -583,6 +583,16 @@ const App = {
         setDisabled('btn-stop-teleop', !teleopRunning, teleopRunning ? this.t('tip.stopTeleop') : this.t('tip.teleopNotRunning'));
         if (busBusy) {
             setDisabled('btn-start-teleop', true, teleopRunning ? this.t('tip.teleopAlready') : this.t('tip.busBusy'));
+        }
+        else {
+            // Re-enable start button when nothing holds the bus (port/calibration
+            // gating is handled separately in updateHardwareButtonStates).
+            const btn = document.getElementById('btn-start-teleop');
+            if (btn && btn.title === this.t('tip.teleopAlready') || btn?.title === this.t('tip.busBusy')) {
+                btn.disabled = false;
+                btn.title = this.t('tip.startsTeleop');
+                btn.classList.remove('btn-busy-locked');
+            }
         }
         // Recording (any bus-holding process blocks a new recording)
         setDisabled('btn-start-record', busBusy, recordRunning ? this.t('tip.recordAlready') : (busBusy ? this.t('tip.busBusy') : this.t('tip.startsRecord')));
