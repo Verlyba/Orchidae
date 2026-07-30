@@ -178,36 +178,44 @@ class CalibrationManager:
 
     def scan_lerobot_calibrations(self) -> list[dict[str, Any]]:
         """
-        Scan the global LeRobot cache calibration directory.
+        Scan the global LeRobot cache calibration directories.
         Returns a list of dicts with file metadata.
         """
-        lerobot_dir = self.get_lerobot_calibration_dir()
-        if not lerobot_dir.exists():
-            return []
+        from orchiday.core.constants import APP_DATA_DIR
+        candidate_dirs = [
+            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
+            APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration",
+        ]
 
         results = []
-        for category in ["robots", "teleoperators"]:
-            cat_dir = lerobot_dir / category
-            if not cat_dir.exists():
+        seen_paths = set()
+
+        for lerobot_dir in candidate_dirs:
+            if not lerobot_dir.exists():
                 continue
-            for dev_dir in cat_dir.iterdir():
-                if not dev_dir.is_dir():
+            for category in ["robots", "teleoperators"]:
+                cat_dir = lerobot_dir / category
+                if not cat_dir.exists():
                     continue
-                for json_file in dev_dir.glob("*.json"):
-                    if not json_file.is_file():
+                for dev_dir in cat_dir.iterdir():
+                    if not dev_dir.is_dir():
                         continue
-                    try:
-                        stat = json_file.stat()
-                        results.append({
-                            "name": json_file.name,
-                            "path": str(json_file),
-                            "category": category,
-                            "device_type": dev_dir.name,
-                            "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                            "size": stat.st_size,
-                        })
-                    except Exception as e:
-                        log.warning("Failed to parse stat for %s: %s", json_file, e)
+                    for json_file in dev_dir.glob("*.json"):
+                        if not json_file.is_file() or str(json_file) in seen_paths:
+                            continue
+                        seen_paths.add(str(json_file))
+                        try:
+                            stat = json_file.stat()
+                            results.append({
+                                "name": json_file.name,
+                                "path": str(json_file),
+                                "category": category,
+                                "device_type": dev_dir.name,
+                                "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                                "size": stat.st_size,
+                            })
+                        except Exception as e:
+                            log.warning("Failed to parse stat for %s: %s", json_file, e)
         return results
 
     def backup_active_calibration(self, robot_setup_id: str, arm_category: str) -> str | None:

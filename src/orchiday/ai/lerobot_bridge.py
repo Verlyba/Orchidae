@@ -1521,21 +1521,29 @@ if __name__ == "__main__":
     def _purge_robot_calibration_cache(self, robot_id: str, device_type: str, category: str) -> None:
         """Purge old calibration JSON files from HuggingFace/LeRobot cache dirs before a fresh calibration."""
         from orchiday.core.constants import APP_DATA_DIR
-        candidate_dirs = [
-            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration" / category / device_type,
-            APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration" / category / device_type,
+        base_cache_dirs = [
+            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
+            APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration",
         ]
-        for c_dir in candidate_dirs:
-            if not c_dir.exists():
+        target_names = {f"{robot_id}.json", f"{device_type}.json"}
+        if robot_id.endswith("_leader") or robot_id.endswith("_follower"):
+            base_id = robot_id.rsplit("_", 1)[0]
+            target_names.add(f"{base_id}.json")
+            target_names.add(f"{base_id}_leader.json")
+            target_names.add(f"{base_id}_follower.json")
+
+        for b_dir in base_cache_dirs:
+            if not b_dir.exists():
                 continue
-            for fname in (f"{robot_id}.json", f"{device_type}.json"):
-                fpath = c_dir / fname
-                if fpath.exists():
+            cat_dir = b_dir / category
+            search_dir = cat_dir if cat_dir.exists() else b_dir
+            for json_file in search_dir.rglob("*.json"):
+                if json_file.name in target_names or robot_id in json_file.name:
                     try:
-                        fpath.unlink()
-                        log.info("Purged old calibration cache file before fresh calibration: %s", fpath)
+                        json_file.unlink()
+                        log.info("Purged old calibration cache file before fresh calibration: %s", json_file)
                     except Exception as e:
-                        log.warning("Failed to purge calibration cache file %s: %s", fpath, e)
+                        log.warning("Failed to purge calibration cache file %s: %s", json_file, e)
 
     def _handle_ready_read(self, key: str, process: QProcess, kind: str, skill_slug: str) -> None:
         """Read newly buffered stdout/stderr lines in real time and forward to event bus."""
