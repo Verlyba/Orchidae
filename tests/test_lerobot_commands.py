@@ -256,7 +256,8 @@ def test_replay_uses_dataset_episode(bridge, monkeypatch):
 
 # ── Teleoperation ───────────────────────────────────────────────────────────
 
-def test_teleop_command(bridge):
+def test_teleop_command(bridge, monkeypatch):
+    monkeypatch.setattr(bridge, "_has_rerun_sdk", lambda: True)
     bridge.start_teleop(
         robot_type="so101_follower", robot_port="COM3", robot_id="f1",
         teleop_type="so101_leader", teleop_port="COM4", teleop_id="l1",

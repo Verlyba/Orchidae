@@ -507,6 +507,15 @@ except Exception as e:
                 return True
         return False
 
+    def _has_rerun_sdk(self) -> bool:
+        """Check if rerun-sdk is installed in the target Python environment."""
+        try:
+            cmd = [self._python, "-c", "import rerun"]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            return res.returncode == 0
+        except Exception:
+            return False
+
     @staticmethod
     def _normalize_device_types(robot_type: str, teleop_type: str = "") -> tuple[str, str]:
         clean_robot = (robot_type or "so100").replace("_follower", "").replace("_leader", "")
@@ -571,7 +580,10 @@ except Exception as e:
         if cameras:
             cmd.append(f"--robot.cameras={cameras}")
         if display_data:
-            cmd.append("--display_data=true")
+            if self._has_rerun_sdk():
+                cmd.append("--display_data=true")
+            else:
+                log.warning("rerun-sdk package missing in %s — skipping --display_data=true flag", self._python)
 
         if extra_args:
             for k, v in extra_args.items():
