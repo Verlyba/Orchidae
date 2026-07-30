@@ -1525,6 +1525,14 @@ if __name__ == "__main__":
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("HF_HOME", hf_home)
+
+        # Ensure pip-installed executables (e.g. rerun.exe) are on PATH
+        python_dir = Path(self._python).resolve().parent
+        scripts_dir = python_dir / "Scripts" if sys.platform == "win32" else python_dir
+        current_path = env.value("PATH", "")
+        if str(scripts_dir) not in current_path:
+            env.insert("PATH", f"{scripts_dir}{os.pathsep}{current_path}")
+
         if kind == "calibrate":
             confirm_file = self._calibration_confirm_file(key)
             try:
