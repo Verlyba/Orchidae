@@ -2145,29 +2145,30 @@ const App = {
     const el = document.getElementById('cal-files-list');
     if (!el) return;
     if (!files.length) {
-      el.innerHTML = `<p class="cfg-card-desc">${this.t('cal.noFiles')}</p>`;
+      el.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--text-muted);">Žádné kalibrační soubory nebyly nalezeny.</div>`;
       return;
     }
-    const catLabel = (c: string) => c === 'robots' ? this.t('cal.follower') : this.t('cal.leader');
+    const catLabel = (c: string) => c === 'robots' ? 'Follower' : 'Leader';
     const sorted = [...files].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0)
       || (b.last_modified || '').localeCompare(a.last_modified || ''));
     el.innerHTML = sorted.map(f => `
-      <div class="cal-file-row" data-filename="${this.esc(f.name)}">
-        <label class="cal-file-fav" title="${this.t('cal.favorite')}">
+      <div class="cal-file-row" data-filename="${this.esc(f.name)}" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:var(--radius); gap:12px;">
+        <label class="cal-file-fav" title="${this.t('cal.favorite')}" style="cursor:pointer; font-size:16px;">
           <input type="checkbox" ${f.favorite ? 'checked' : ''} onchange="App.toggleCalibrationFavorite('${this.esc(f.name)}', this.checked)">
           ★
         </label>
-        <div class="cal-file-main">
+        <div class="cal-file-main" style="flex:1;">
           <input type="text" class="cal-file-name-input" value="${this.esc(f.display_name)}"
-                 onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)">
-          <div class="cal-file-meta">
-            ${catLabel(f.category)} · ${this.esc(f.device_type)} · ${new Date(f.last_modified).toLocaleString()}
-            ${f.active_for && f.active_for.length ? `<span class="cal-file-active-badge">${this.t('cal.active')}</span>` : ''}
+                 onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)" style="background:transparent; border:none; color:var(--text-white); font-weight:bold; font-size:13px; width:100%;">
+          <div class="cal-file-meta" style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+            <strong style="color:var(--cyan);">${catLabel(f.category)}</strong> · ${this.esc(f.device_type)} · ${new Date(f.last_modified).toLocaleString()}
+            ${f.source === 'cache' ? ' · <span style="color:var(--yellow); font-weight:600;">(LeRobot Cache)</span>' : ''}
+            ${f.active_for && f.active_for.length ? `<span class="cal-file-active-badge" style="background:rgba(46,125,50,0.25); color:var(--green); border:1px solid var(--green); padding:1px 6px; border-radius:4px; font-size:9.5px; font-weight:bold; margin-left:6px;">AKTIVNÍ</span>` : ''}
           </div>
         </div>
-        <div class="cal-file-actions">
-          <button class="btn btn-xs btn-secondary" onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')" data-i18n="cal.activate">Aktivovat</button>
-          <button class="btn btn-xs btn-danger" onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">✕</button>
+        <div class="cal-file-actions" style="display:flex; gap:6px;">
+          <button class="btn btn-xs btn-success" onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')">Aktivovat (${catLabel(f.category)})</button>
+          <button class="btn btn-xs btn-danger" onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">🗑 Smazat</button>
         </div>
       </div>
     `).join('');

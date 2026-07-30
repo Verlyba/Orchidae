@@ -309,16 +309,22 @@
               <div class="setup-block" style="display: flex; flex-direction: column;">
                 <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path><circle cx="10" cy="10" r="2"></circle></svg> <span data-i18n="blk.calibrate.title">Kalibrace ramen</span></h3>
                 <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
-                  <div class="cfg-card-desc" data-i18n="hint.calibrateStepIntro">Kalibruj leader i follower rameno — porty vybrané na kartě "Connect" se použijí automaticky. Teleoperace nejde spustit, dokud obě ramena nejsou zkalibrovaná.</div>
-                  <div class="form-row" style="margin:0; gap:16px;">
-                    <button class="btn btn-sm btn-secondary" id="btn-calibrate-leader" disabled onclick="App.calibrateArm('leader')">
-                      <span data-i18n="btn.calibrateLeader">Kalibrovat Leader</span> (<span id="cal-tab-leader-port">-</span>)
+                  <div class="cfg-card-desc">
+                    Zvolte buď spuštění <strong>Nové kalibrace</strong>, nebo vyberte <strong>Starší / Existující kalibrační soubor</strong> ze seznamu.
+                  </div>
+                  <div class="form-row" style="margin:0; gap:12px; flex-wrap: wrap;">
+                    <button class="btn btn-sm btn-primary" id="btn-calibrate-leader" onclick="App.calibrateArm('leader')">
+                      ⚙️ Nová kalibrace Leader (<span id="cal-tab-leader-port">-</span>)
                     </button>
-                    <button class="btn btn-sm btn-secondary" id="btn-calibrate-follower" disabled onclick="App.calibrateArm('follower')">
-                      <span data-i18n="btn.calibrateFollower">Kalibrovat Follower</span> (<span id="cal-tab-follower-port">-</span>)
+                    <button class="btn btn-sm btn-primary" id="btn-calibrate-follower" onclick="App.calibrateArm('follower')">
+                      ⚙️ Nová kalibrace Follower (<span id="cal-tab-follower-port">-</span>)
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="App.openCalibrationFilesModal()" data-i18n="btn.calFiles">🗂 Kalibrační soubory</button>
-                    <button class="btn btn-sm btn-secondary" id="btn-refresh-calibration" onclick="App.manualRefreshCalibration()" title="Obnovit stav kalibrace, portů a robota">🔄 Obnovit stav</button>
+                    <button class="btn btn-sm btn-secondary" onclick="App.openCalibrationFilesModal()">
+                      📁 Zvolit / Spravovat starší kalibrační soubor
+                    </button>
+                    <button class="btn btn-sm btn-secondary" id="btn-refresh-calibration" onclick="App.manualRefreshCalibration()" title="Obnovit stav kalibrace a odblokovat tlačítka">
+                      🔄 Obnovit stav
+                    </button>
                   </div>
 
                   <!-- Live calibration table — mirrors the NAME|MIN|POS|MAX table LeRobot's
@@ -2118,6 +2124,30 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-xs btn-secondary" onclick="App.closeModal('modal-manage-episodes')" data-i18n="btn.close">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Správa a Výběr kalibračních souborů -->
+  <div class="modal-overlay" id="modal-calibration-files" role="dialog" aria-modal="true" aria-labelledby="modal-cal-files-title">
+    <div class="modal-container" style="max-width: 750px; width: 100%;">
+      <div class="modal-header">
+        <h4 id="modal-cal-files-title" style="display: flex; align-items: center; gap: 8px;">
+          🗂 <span data-i18n="h4.modal.calFiles">Správa a výběr kalibračních souborů</span>
+        </h4>
+        <button class="modal-close-btn" onclick="App.closeModal('modal-calibration-files')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="cfg-card-desc" style="margin-bottom: 12px;">
+          Přehled všech uložených kalibrací (v projektu i vyrovnávací paměti LeRobot). Můžete aktivovat dřívější funkční kalibraci nebo smazat poškozené/chybové soubory.
+        </p>
+        <div id="cal-files-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto;">
+          <!-- Seznam kalibračních souborů renderovaný v App.renderCalibrationFilesList -->
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-xs btn-secondary" onclick="App.manualRefreshCalibration()">🔄 Obnovit seznam</button>
+        <button class="btn btn-xs btn-primary" onclick="App.closeModal('modal-calibration-files')" data-i18n="btn.close">Zavřít</button>
       </div>
     </div>
   </div>

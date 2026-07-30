@@ -105,8 +105,8 @@ class CalibrationManager:
         return True
 
     def list_calibrations(self) -> dict[str, Any]:
-        """Project calibration files enriched with display name, favorite
-        flag, and whether each is the currently ACTIVE (bound) calibration
+        """Project and global LeRobot cache calibration files enriched with display name,
+        favorite flag, source, and whether each is the currently ACTIVE (bound) calibration
         for its robot setup — everything the file-manager UI needs in one call."""
         meta = self._load_meta()
         active_by_key: set[tuple[str, str, str]] = set()
@@ -119,6 +119,16 @@ class CalibrationManager:
                     active_by_key.add((setup_id, "teleoperators", r["leader_calibration"]))
 
         files = self.scan_project_calibrations()
+        seen_names = {f["name"] for f in files}
+
+        # Merge global LeRobot cache files
+        cache_files = self.scan_lerobot_calibrations()
+        for cf in cache_files:
+            if cf["name"] not in seen_names:
+                cf["source"] = "cache"
+                files.append(cf)
+                seen_names.add(cf["name"])
+
         for f in files:
             entry = meta.get(f["name"], {})
             f["display_name"] = entry.get("display_name") or f["name"]
@@ -340,15 +350,23 @@ class CalibrationManager:
             log.error("Invalid arm category: %s", arm_category)
             return False
 
-        # Source in project
+        # Source in project or LeRobot cache
         project_cal_dir = self.get_project_calibration_dir()
-        if not project_cal_dir:
+        source_file = (project_cal_dir / arm_category / device_type / filename) if project_cal_dir else Path(filename)
+        if not source_file.exists():
+            # Check global LeRobot cache directory as fallback
+            source_file = self.get_lerobot_calibration_dir() / arm_category / device_type / filename
+
+        if not source_file.exists():
+            log.error("Source calibration file '%s' not found in project or LeRobot cache", filename)
             return False
 
-        source_file = project_cal_dir / arm_category / device_type / filename
-        if not source_file.exists():
-            log.error("Source calibration file '%s' not found in project", source_file)
-            return False
+        # Ensure copied into project directory if not already there
+        if project_cal_dir:
+            proj_target = project_cal_dir / arm_category / device_type / filename
+            if not proj_target.exists() and source_file != proj_target:
+                proj_target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_file, proj_target)
 
         # Destination in LeRobot cache
         dest_dir = self.get_lerobot_calibration_dir() / arm_category / device_type
@@ -462,19 +480,42 @@ class CalibrationManager:
             return None
 
     def delete_calibration_file(self, arm_category: str, device_type: str, filename: str) -> bool:
-        """Delete a calibration file from the project's local folder."""
+        """Delete a calibration file from the project's local folder and/or LeRobot global cache."""
         project_cal_dir = self.get_project_calibration_dir()
-        if not project_cal_dir:
-            return False
+        target_file = (project_cal_dir / arm_category / device_type / filename) if project_cal_dir else None
+        
+        cache_cal_dir = self.get_lerobot_calibration_dir()
+        cache_file = cache_cal_dir / arm_category / device_type / filename
 
-        target_file = project_cal_dir / arm_category / device_type / filename
-        if not target_file.exists():
-            return False
+        deleted = False
+        if target_file and target_file.exists():
+            try:
+                target_file.unlink()
+                deleted = True
+                log.info("Deleted project calibration file %s", target_file)
+            except Exception as e:
+                log.error("Failed to delete project calibration file: %s", e)
 
-        try:
-            target_file.unlink()
-            log.info("Deleted calibration file %s", target_file)
+        if cache_file and cache_file.exists():
+            try:
+                cache_file.unlink()
+                deleted = True
+                log.info("Deleted cache calibration file %s", cache_file)
+            except Exception as e:
+                log.error("Failed to delete cache calibration file: %s", e)
 
+        # Also purge any active device-ID named file in LeRobot cache if it matches
+        for default_name in ("my_robot.json", "my_robot_follower.json", "my_robot_leader.json", "my_follower_arm.json", "my_leader_arm.json"):
+            c_f = cache_cal_dir / arm_category / device_type / default_name
+            if c_f.exists() and filename in default_name:
+                try:
+                    c_f.unlink()
+                    deleted = True
+                    log.info("Deleted active device calibration cache %s", c_f)
+                except Exception:
+                    pass
+
+        if deleted:
             meta = self._load_meta()
             if meta.pop(filename, None) is not None:
                 self._save_meta(meta)
@@ -491,13 +532,10 @@ class CalibrationManager:
                         changed = True
                 if changed:
                     self._pm.save_project()
-                    event_bus.calibration_list_changed.emit()
 
             event_bus.calibration_list_changed.emit()
             return True
-        except Exception as e:
-            log.error("Failed to delete calibration: %s", e)
-            return False
+        return False
 
     def read_calibration_content(self, path: Path) -> dict[str, Any] | None:
         """Parse a calibration JSON file's per-joint data (id, homing_offset,
