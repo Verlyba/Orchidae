@@ -268,36 +268,62 @@ class CalibrationManager:
 
         candidate_ids = [cid for cid in candidate_ids if cid]
 
-        lerobot_calib_dir = self.get_lerobot_calibration_dir()
-        cat_dir = lerobot_calib_dir / arm_category
+        from orchiday.core.constants import APP_DATA_DIR
+        base_cache_dirs = [
+            self.get_lerobot_calibration_dir(),
+            APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration",
+            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
+        ]
 
-        # Candidate folder names (e.g. "so100_leader" vs "so_leader")
+        # Candidate folder names (e.g. "so101_leader" vs "so100_leader" vs "so_leader")
         cand_types = [device_type]
-        if device_type.startswith("so100_"):
-            cand_types.append(device_type.replace("so100_", "so_"))
-        elif device_type.startswith("so_"):
-            cand_types.append(device_type.replace("so_", "so100_"))
+        for dt in [
+            device_type,
+            device_type.replace("so101_", "so_").replace("so100_", "so_"),
+            device_type.replace("so101_", "so100_"),
+            device_type.replace("so100_", "so101_"),
+            "so_leader" if arm_category == "teleoperators" else "so_follower",
+            "so100_leader" if arm_category == "teleoperators" else "so100_follower",
+            "so101_leader" if arm_category == "teleoperators" else "so101_follower",
+        ]:
+            if dt not in cand_types:
+                cand_types.append(dt)
 
         source_file: Path | None = None
-        for dt in cand_types:
-            dev_dir = cat_dir / dt
-            if not dev_dir.exists():
+        for b_dir in base_cache_dirs:
+            if not b_dir.exists():
                 continue
-            for cid in candidate_ids:
-                f = dev_dir / f"{cid}.json"
-                if f.exists():
-                    source_file = f
+            cat_dir = b_dir / arm_category
+            search_dir = cat_dir if cat_dir.exists() else b_dir
+
+            for dt in cand_types:
+                dev_dir = search_dir / dt
+                if not dev_dir.exists():
+                    continue
+                for cid in candidate_ids:
+                    f = dev_dir / f"{cid}.json"
+                    if f.exists():
+                        source_file = f
+                        break
+                if source_file:
                     break
             if source_file:
                 break
 
-        # Fallback: search for any .json file in cat_dir / ** / *.json sorted by mtime
-        if not source_file and cat_dir.exists():
-            json_files = list(cat_dir.glob("**/*.json"))
-            if json_files:
-                json_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                source_file = json_files[0]
-                log.info("Found active calibration file by mtime fallback: %s", source_file)
+        # Fallback: search for any .json file matching candidate_ids across all subfolders
+        if not source_file:
+            for b_dir in base_cache_dirs:
+                if not b_dir.exists():
+                    continue
+                cat_dir = b_dir / arm_category
+                search_dir = cat_dir if cat_dir.exists() else b_dir
+                for json_file in search_dir.rglob("*.json"):
+                    if any(cid in json_file.name for cid in candidate_ids) or json_file.stem in candidate_ids:
+                        source_file = json_file
+                        log.info("Found active calibration file by rglob candidate match: %s", source_file)
+                        break
+                if source_file:
+                    break
 
         if not source_file or not source_file.exists():
             log.warning("No active calibration found in LeRobot cache at %s / %s", arm_category, device_type)

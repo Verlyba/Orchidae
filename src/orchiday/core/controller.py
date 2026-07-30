@@ -117,8 +117,15 @@ class OrchidayController(QObject):
     def _on_project_opened(self, project_data: dict) -> None:
         log.info("Controller: configuring AI models for project '%s'", project_data.get("name"))
 
-        # Deploy project calibration files to LeRobot cache
+        # Auto-bind & deploy project calibration files to LeRobot cache
         try:
+            for r in project_data.get("robots", []):
+                setup_id = r.get("id")
+                if setup_id:
+                    if not r.get("leader_calibration"):
+                        self.calibration_manager.backup_active_calibration(setup_id, "teleoperators")
+                    if not r.get("follower_calibration"):
+                        self.calibration_manager.backup_active_calibration(setup_id, "robots")
             self.calibration_manager.deploy_active_bindings()
         except Exception as e:
             log.warning("Failed to deploy project calibration bindings: %s", e)
