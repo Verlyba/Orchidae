@@ -2451,9 +2451,10 @@ async def restart_server_endpoint():
     log.info("Server restart requested via API...")
     def _do_restart():
         import time, subprocess
-        time.sleep(0.5)
+        time.sleep(1.5)
         log.info("Re-executing Orchiday server process...")
-        subprocess.Popen([sys.executable, "-m", "orchiday.server"])
+        creationflags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+        subprocess.Popen([sys.executable, "-m", "orchiday.server"], creationflags=creationflags)
         os._exit(0)
 
     threading.Thread(target=_do_restart, daemon=True).start()

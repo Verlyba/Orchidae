@@ -1286,10 +1286,15 @@ if __name__ == "__main__":
         if not (process and process.state() == QProcess.ProcessState.Running):
             return False
         log.info("Confirming calibration step for %s", key)
-        try:
-            self._calibration_confirm_file(key).write_text("1", encoding="utf-8")
-        except OSError as e:
-            log.warning("Could not write calibration confirm flag for %s: %s", key, e)
+
+        # If range-of-motion table is active (Step 2), touch sentinel flag file for enter_pressed().
+        # Otherwise (Step 1 move-to-middle prompt), only send newline to stdin so Step 2 isn't prematurely stopped!
+        if key in self._calibration_readings:
+            try:
+                self._calibration_confirm_file(key).write_text("1", encoding="utf-8")
+            except OSError as e:
+                log.warning("Could not write calibration confirm flag for %s: %s", key, e)
+
         self._write_requested.emit(key, "\n")
         return True
 
