@@ -806,8 +806,8 @@ def export_project_bundle(
             project=pm.current_project,
             project_path=pm.current_path,
             dest_zip=zip_path,
-            include_datasets=bool(datasets),
-            include_models=bool(models),
+            include_datasets=datasets,
+            include_models=models,
             python_exe=python_exe,
         )
     except Exception as e:

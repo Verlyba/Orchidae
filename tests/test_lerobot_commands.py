@@ -474,8 +474,10 @@ def test_split_command_contains_steps_json(bridge, tmp_path, monkeypatch):
     cmd = bridge._captured["cmd"]
     assert any("dataset_splitter.py" in a for a in cmd)
     assert _arg(cmd, "--repo-id=") == "local/pick_cube"
-    import json as _json
-    steps = _json.loads(_arg(cmd, "--steps-json="))
+    steps_json = _arg(cmd, "--steps-json=")
+    assert steps_json is not None
+    import json as _json  # local import to avoid top-level collision
+    steps = _json.loads(steps_json)
     assert [s["slug"] for s in steps] == ["a", "b"]
 
 
