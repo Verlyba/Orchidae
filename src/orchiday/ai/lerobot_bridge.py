@@ -507,6 +507,17 @@ except Exception as e:
                 return True
         return False
 
+    @staticmethod
+    def _normalize_device_types(robot_type: str, teleop_type: str = "") -> tuple[str, str]:
+        clean_robot = (robot_type or "so100").replace("_follower", "").replace("_leader", "")
+        norm_robot = f"{clean_robot}_follower"
+        if not teleop_type:
+            norm_teleop = f"{clean_robot}_leader"
+        else:
+            clean_teleop = teleop_type.replace("_follower", "").replace("_leader", "")
+            norm_teleop = f"{clean_teleop}_leader"
+        return norm_robot, norm_teleop
+
     # ── Robot teleoperation ──────────────────────────────────────────────
 
     def start_teleop(
@@ -526,6 +537,9 @@ except Exception as e:
         if key in self._active_processes:
             event_bus.log_message.emit("WARN", "Teleoperation already running")
             return
+
+        # Sanitize device types so choices like 'so101_follower_leader' never reach LeRobot CLI
+        robot_type, teleop_type = self._normalize_device_types(robot_type, teleop_type)
 
         # ── Precondition Validations ─────────────────────────────────────────
         if not robot_port or not teleop_port:

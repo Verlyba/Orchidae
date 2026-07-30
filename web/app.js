@@ -2810,10 +2810,11 @@ const App = {
         // Set hidden inputs dynamically for app.js/app.ts internal routing
         const leaderTypeInput = document.getElementById('tele-leader-type');
         const followerTypeInput = document.getElementById('tele-follower-type');
+        const baseType = robotType.replace(/_(follower|leader)$/, '');
         if (leaderTypeInput)
-            leaderTypeInput.value = robotType + '_leader';
+            leaderTypeInput.value = `${baseType}_leader`;
         if (followerTypeInput)
-            followerTypeInput.value = robotType;
+            followerTypeInput.value = `${baseType}_follower`;
         this.updateHardwareButtonStates();
     },
     loadModelConfig() {
