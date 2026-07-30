@@ -2451,10 +2451,13 @@ async def restart_server_endpoint():
     log.info("Server restart requested via API...")
     def _do_restart():
         import time, subprocess
-        time.sleep(1.5)
+        time.sleep(2.0)
         log.info("Re-executing Orchiday server process...")
-        creationflags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
-        subprocess.Popen([sys.executable, "-m", "orchiday.server"], creationflags=creationflags)
+        if sys.platform == "win32":
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen([sys.executable, "-m", "orchiday.server"], creationflags=flags, close_fds=True)
+        else:
+            subprocess.Popen([sys.executable, "-m", "orchiday.server"])
         os._exit(0)
 
     threading.Thread(target=_do_restart, daemon=True).start()
