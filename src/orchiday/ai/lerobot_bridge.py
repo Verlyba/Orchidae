@@ -630,6 +630,7 @@ except Exception as e:
             elif t_type.endswith("_follower"):
                 t_type = f"{t_type[:-9]}_leader"
 
+            self._purge_robot_calibration_cache(robot_id, t_type, "teleoperators")
             cmd.append(f"--teleop.type={t_type}")
             cmd.append(f"--teleop.port={teleop_port}")
             cmd.append(f"--teleop.id={robot_id}")
@@ -641,6 +642,7 @@ except Exception as e:
             elif r_type.endswith("_leader"):
                 r_type = f"{r_type[:-7]}_follower"
 
+            self._purge_robot_calibration_cache(robot_id, r_type, "robots")
             cmd.append(f"--robot.type={r_type}")
             cmd.append(f"--robot.port={port}")
             cmd.append(f"--robot.id={robot_id}")
@@ -1511,10 +1513,29 @@ if __name__ == "__main__":
         self._process_kinds[key] = kind
         event_bus.process_started.emit(key, kind)
 
-        # Auto-confirm calibration/interactive dialogs on startup by seeding stdin with newline
-        if kind in ("teleop", "calibrate", "record", "replay", "infer"):
+        # Auto-confirm interactive dialogs on startup by seeding stdin with newline (exclude calibrate!)
+        if kind in ("teleop", "record", "replay", "infer"):
             log.info("Sending auto-confirm newline to bypass interactive setup prompts for: %s", key)
             process.write(b"\n")
+
+    def _purge_robot_calibration_cache(self, robot_id: str, device_type: str, category: str) -> None:
+        """Purge old calibration JSON files from HuggingFace/LeRobot cache dirs before a fresh calibration."""
+        from orchiday.core.constants import APP_DATA_DIR
+        candidate_dirs = [
+            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration" / category / device_type,
+            APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration" / category / device_type,
+        ]
+        for c_dir in candidate_dirs:
+            if not c_dir.exists():
+                continue
+            for fname in (f"{robot_id}.json", f"{device_type}.json"):
+                fpath = c_dir / fname
+                if fpath.exists():
+                    try:
+                        fpath.unlink()
+                        log.info("Purged old calibration cache file before fresh calibration: %s", fpath)
+                    except Exception as e:
+                        log.warning("Failed to purge calibration cache file %s: %s", fpath, e)
 
     def _handle_ready_read(self, key: str, process: QProcess, kind: str, skill_slug: str) -> None:
         """Read newly buffered stdout/stderr lines in real time and forward to event bus."""

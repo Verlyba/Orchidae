@@ -2036,6 +2036,7 @@ const App = {
                 ? { robot_id: id, teleop_type: type, teleop_port: port }
                 : { robot_id: id, robot_type: type, port: port };
             await this.api('POST', '/hardware/calibrate', payload);
+            this.showCalibrationLivePanel(id);
         }
         catch (err) {
             this.log('ERROR', `Chyba při spouštění kalibrace: ${err.message || err}`);
