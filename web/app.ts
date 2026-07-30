@@ -339,7 +339,10 @@ const App = {
         this.updateActionButtonStates();
         // robot_calibrated only fires on success — also hide the live table
         // here so a FAILED calibration doesn't leave it stuck on screen.
-        if (data.kind === 'calibrate') this.hideCalibrationLivePanel();
+        if (data.kind === 'calibrate') {
+          this.hideCalibrationLivePanel();
+          this.refreshProject();
+        }
         break;
       case 'console_output':
         if (data.startsWith('[TELEMETRY]')) {
@@ -413,6 +416,8 @@ const App = {
         break;
       case 'robot_calibrated':
         this.hideCalibrationLivePanel();
+        this.refreshProject();
+        this.log('SUCCESS', `Kalibrace ramene '${data}' byla dokončena.`);
         break;
       case 'calibration_progress':
         this.renderCalibrationLiveTable(data?.id, data?.values);
@@ -906,7 +911,7 @@ const App = {
     };
     // Dataset operations only make sense for a dataset that exists on disk
     const setOpsEnabled = (enabled: boolean) => {
-      ['ds-btn-viz', 'ds-btn-info', 'ds-btn-stats', 'ds-btn-push',
+      ['ds-btn-viz', 'ds-btn-replay', 'ds-btn-info', 'ds-btn-stats', 'ds-btn-push',
        'ds-btn-del', 'ds-btn-task', 'ds-btn-split', 'ds-btn-merge'].forEach(id => {
         const btn = document.getElementById(id) as HTMLButtonElement | null;
         if (btn) {
@@ -2020,13 +2025,29 @@ const App = {
       return;
     }
 
-    this.log('INFO', `Spouštím kalibraci pro ${role} rameno (${id}) na portu ${port}...`);
-    // lerobot_calibrate.py takes EITHER --teleop.* (leader) OR --robot.* (follower) —
-    // a leader type like "so100_leader" is not a valid --robot.type choice at all.
-    const payload = role === 'leader'
-      ? { robot_id: id, teleop_type: type, teleop_port: port }
-      : { robot_id: id, robot_type: type, port: port };
-    await this.api('POST', '/hardware/calibrate', payload);
+    const btn = document.getElementById(`btn-calibrate-${role}`) as HTMLButtonElement | null;
+    const oldText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `⏳ Spouštím (${role})...`;
+    }
+
+    try {
+      this.log('INFO', `Spouštím kalibraci pro ${role} rameno (${id}) na portu ${port}...`);
+      // lerobot_calibrate.py takes EITHER --teleop.* (leader) OR --robot.* (follower) —
+      // a leader type like "so100_leader" is not a valid --robot.type choice at all.
+      const payload = role === 'leader'
+        ? { robot_id: id, teleop_type: type, teleop_port: port }
+        : { robot_id: id, robot_type: type, port: port };
+      await this.api('POST', '/hardware/calibrate', payload);
+    } catch (err: any) {
+      this.log('ERROR', `Chyba při spouštění kalibrace: ${err.message || err}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = oldText;
+      }
+    }
   },
 
   // ── Live calibration table (mirrors what LeRobot's own CLI prints while
@@ -2607,16 +2628,16 @@ const App = {
     }
   },
 
-  // ── Step 3: Replay Episode ──────────────────────────────────────────
+  // ── Replay a recorded episode on the real follower arm ──────────────
   async startReplay(): Promise<void> {
-    const repo = (document.getElementById('rep-repo-id') as HTMLInputElement).value.trim();
-    const idx = parseInt((document.getElementById('rep-episode-idx') as HTMLInputElement).value, 10);
+    const repo = this.dsSelectedRepo();
+    const idx = parseInt((document.getElementById('ds-viz-episode') as HTMLInputElement | null)?.value || '0', 10) || 0;
     const robots = this.project?.robots || [];
     const rType = robots[0]?.type || 'so100';
-    const rPort = robots[0]?.port || '';
+    const rPort = robots[0]?.follower_port || robots[0]?.port || '';
 
     if (!repo) {
-      const msg = "Dataset Repo ID cannot be empty!";
+      const msg = "Nejprve vyberte dataset.";
       this.log('ERROR', `Validation Failed: ${msg}`);
       alert(msg);
       return;
@@ -2792,11 +2813,36 @@ const App = {
     });
   },
 
+
+
+  async manualRefreshCalibration(): Promise<void> {
+    const btn = document.getElementById('btn-refresh-calibration') as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '🔄 Obnovuji...';
+    }
+    try {
+      this.log('INFO', 'Obnovuji stav kalibrace a hardwaru...');
+      await this.scanHardware();
+      await this.refreshProject();
+      await this.loadArmVisualConfig();
+      await this.loadSysInfo();
+      this.log('SUCCESS', 'Stav kalibrace a hardwaru byl úspěšně obnoven.');
+    } catch (err: any) {
+      this.log('ERROR', 'Chyba při obnovení stavu: ' + (err.message || err));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Obnovit stav';
+      }
+    }
+  },
+
   onRobotTypeChange(): void {
     const robotTypeSelect = document.getElementById('robot-type-select') as HTMLSelectElement | null;
     if (!robotTypeSelect) return;
     const robotType = robotTypeSelect.value;
-    const isSingleArm = ['so100_follower', 'so100_leader', 'koch_follower', 'koch_leader', 'moss', 'stretch', 'lekiwi'].includes(robotType);
+    const isSingleArm = ['lekiwi', 'moss', 'stretch'].includes(robotType);
 
     const leaderGroup = document.getElementById('leader-config-group');
     const btnCalibrateLeader = document.getElementById('btn-calibrate-leader');
@@ -2868,43 +2914,59 @@ const App = {
   },
 
   async saveModelConfig(): Promise<void> {
-    const llmEndpoint = (document.getElementById('llm-endpoint') as HTMLInputElement).value.trim();
-    const vlmEndpoint = (document.getElementById('vlm-endpoint') as HTMLInputElement).value.trim();
-    const llmModel = (document.getElementById('llm-model') as HTMLInputElement).value.trim();
-    const vlmModel = (document.getElementById('vlm-model') as HTMLInputElement).value.trim();
-    const prompt = (document.getElementById('llm-prompt') as HTMLTextAreaElement).value.trim();
-    const robotType = (document.getElementById('robot-type-select') as HTMLSelectElement).value;
-
-    this.log('INFO', 'Saving configurations...');
-    await this.api('POST', '/models/llm_ceo', { endpoint: llmEndpoint, model_name: llmModel, system_prompt: prompt });
-    await this.api('POST', '/models/vlm_inspector', { endpoint: vlmEndpoint, model_name: vlmModel });
-    
-    // Save LeRobot dir dynamically in the active project config along with robot type and ports!
-    const followerPort = (document.getElementById('tele-follower-port') as HTMLSelectElement | null)?.value || '';
-    const leaderPort = (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value || '';
-    const storageDir = (document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null)?.value.trim() || '';
-
-    const loopIntervalInput = document.getElementById('settings-loop-interval') as HTMLInputElement | null;
-    const loopInterval = loopIntervalInput ? parseFloat(loopIntervalInput.value) : null;
-
-    const lerobotDirEl = document.getElementById('settings-lerobot-dir-global') as HTMLInputElement | null;
-    const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
-
-    const pyPathEl = document.getElementById('settings-python-path') as HTMLInputElement | null;
-    const pyPath = pyPathEl ? pyPathEl.value.trim() : '';
-
-    await this.api('POST', '/settings', { 
-      lerobot_dir: lerobotDir,
-      python_path: pyPath,
-      robot_type: robotType,
-      follower_port: followerPort,
-      leader_port: leaderPort,
-      dataset_storage_dir: storageDir,
-      sequential_loop_interval: isNaN(loopInterval as number) ? null : loopInterval
+    const saveBtns = document.querySelectorAll<HTMLButtonElement>('.btn-save-hw-config');
+    saveBtns.forEach(btn => {
+      btn.disabled = true;
+      btn.textContent = '⏳ Ukládám...';
     });
 
-    this.log('SUCCESS', 'All configurations saved dynamically in project.json!');
-    this.updateHardwareButtonStates();
+    try {
+      const llmEndpoint = (document.getElementById('llm-endpoint') as HTMLInputElement).value.trim();
+      const vlmEndpoint = (document.getElementById('vlm-endpoint') as HTMLInputElement).value.trim();
+      const llmModel = (document.getElementById('llm-model') as HTMLInputElement).value.trim();
+      const vlmModel = (document.getElementById('vlm-model') as HTMLInputElement).value.trim();
+      const prompt = (document.getElementById('llm-prompt') as HTMLTextAreaElement).value.trim();
+      const robotType = (document.getElementById('robot-type-select') as HTMLSelectElement).value;
+
+      this.log('INFO', 'Saving configurations...');
+      await this.api('POST', '/models/llm_ceo', { endpoint: llmEndpoint, model_name: llmModel, system_prompt: prompt });
+      await this.api('POST', '/models/vlm_inspector', { endpoint: vlmEndpoint, model_name: vlmModel });
+      
+      // Save LeRobot dir dynamically in the active project config along with robot type and ports!
+      const followerPort = (document.getElementById('tele-follower-port') as HTMLSelectElement | null)?.value || '';
+      const leaderPort = (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value || '';
+      const storageDir = (document.getElementById('settings-dataset-storage-dir') as HTMLInputElement | null)?.value.trim() || '';
+
+      const loopIntervalInput = document.getElementById('settings-loop-interval') as HTMLInputElement | null;
+      const loopInterval = loopIntervalInput ? parseFloat(loopIntervalInput.value) : null;
+
+      const lerobotDirEl = document.getElementById('settings-lerobot-dir-global') as HTMLInputElement | null;
+      const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
+
+      const pyPathEl = document.getElementById('settings-python-path') as HTMLInputElement | null;
+      const pyPath = pyPathEl ? pyPathEl.value.trim() : '';
+
+      await this.api('POST', '/settings', { 
+        lerobot_dir: lerobotDir,
+        python_path: pyPath,
+        robot_type: robotType,
+        follower_port: followerPort,
+        leader_port: leaderPort,
+        dataset_storage_dir: storageDir,
+        sequential_loop_interval: isNaN(loopInterval as number) ? null : loopInterval
+      });
+
+      this.log('SUCCESS', 'Všechna nastavení byla úspěšně uložena do projektu!');
+      await this.refreshProject();
+      this.updateHardwareButtonStates();
+    } catch (err: any) {
+      this.log('ERROR', 'Chyba při ukládání nastavení: ' + (err.message || err));
+    } finally {
+      saveBtns.forEach(btn => {
+        btn.disabled = false;
+        btn.textContent = 'Uložit nastavení hardwaru';
+      });
+    }
   },
 
   async browseDirectory(inputId: string): Promise<void> {
@@ -2935,6 +2997,56 @@ const App = {
     
     await this.api('POST', '/orchestrate', { instruction: input });
     (document.getElementById('orch-input') as HTMLInputElement).value = '';
+  },
+
+  /** Updates the orchestration status line (#orch-status-indicator) on the
+   * Orchestration/Model-run page — called on plan-active/completed/error. */
+  updateOrchStatus(message: string, color?: string): void {
+    const el = document.getElementById('orch-status-indicator');
+    if (!el) return;
+    el.textContent = message;
+    if (color) el.style.color = color;
+  },
+
+  /** Builds the step list inside #pipeline-steps from the CEO's resolved
+   * plan (a flat list of task names — orchestration_plan_ready payload).
+   * Called again if the orchestrator re-plans, which just re-renders from
+   * the new list; execution status set separately via setPipelineStep(). */
+  renderPipeline(plan: string[]): void {
+    const container = document.getElementById('pipeline-steps');
+    if (!container) return;
+    if (!plan || !plan.length) {
+      container.innerHTML = `<div class="empty-state-text" data-i18n="hint.noPlan">${this.t('hint.noPlan')}</div>`;
+      return;
+    }
+    container.innerHTML = plan.map((task, i) => `
+      <div class="pipeline-step" data-task="${this.esc(task)}">
+        <span class="step-marker">${i + 1}</span>
+        <span class="pipeline-step-label">${this.esc(task)}</span>
+      </div>
+    `).join('');
+  },
+
+  /** Marks a plan step active/done/failed as the orchestrator executes it
+   * sequentially. Steps advance strictly in order, so a duplicate task name
+   * in the plan resolves to whichever occurrence hasn't been touched yet —
+   * 'active' claims the next untouched match, 'done'/'failed' resolves
+   * against whichever step is currently active (there's only ever one). */
+  setPipelineStep(taskName: string, status: 'active' | 'done' | 'failed'): void {
+    const container = document.getElementById('pipeline-steps');
+    if (!container) return;
+    if (status === 'active') {
+      const steps = Array.from(container.querySelectorAll<HTMLElement>('.pipeline-step'));
+      const next = steps.find(s => s.dataset.task === taskName
+        && !s.classList.contains('active') && !s.classList.contains('done') && !s.classList.contains('failed'));
+      if (next) next.classList.add('active');
+      return;
+    }
+    const active = container.querySelector<HTMLElement>('.pipeline-step.active');
+    if (active) {
+      active.classList.remove('active');
+      active.classList.add(status);
+    }
   },
 
   renderSkillsFull(): void {
@@ -2974,18 +3086,11 @@ const App = {
                 <span class="count-badge" style="background: rgba(0, 188, 212, 0.1); color: var(--cyan); border-radius: 10px; font-size: 9px; padding: 1px 6px; font-weight: 600; margin-left: auto;">${subSkills.length}</span>
               </button>
               <div style="display: flex; align-items: center; gap: 4px;">
-                <button class="action-btn-edit" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="${App.t('tip.editSkill')}" 
-                  style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-light); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; padding: 0;"
-                  onmouseover="this.style.background='rgba(255, 255, 255, 0.15)'" 
-                  onmouseout="this.style.background='rgba(255, 255, 255, 0.05)'"
-                >
+                <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="${App.t('tip.editSkill')}">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
-                <button class="action-btn-plus" onclick="event.stopPropagation(); App.showNewSubSkillModal('${m}')" title="${App.t('tip.addStep')}" 
-                  style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.2); color: var(--cyan); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; padding: 0;"
-                  onmouseover="this.style.background='rgba(0, 188, 212, 0.2)'; this.style.borderColor='var(--cyan)';" 
-                  onmouseout="this.style.background='rgba(0, 188, 212, 0.08)'; this.style.borderColor='rgba(0, 188, 212, 0.2)';"
-                >+</button>
+                <button class="btn btn-xs btn-danger btn-icon" onclick="event.stopPropagation(); App.deleteSkill('${m}')" title="${App.t('btn.delete')}">✕</button>
+                <button class="btn btn-xs btn-primary btn-icon" onclick="event.stopPropagation(); App.showNewSubSkillModal('${m}')" title="${App.t('tip.addStep')}">+</button>
               </div>
             </div>
             <ul class="skills-tree-subs ${isCollapsed ? 'collapsed' : ''}" id="folder-subs-${m}" style="list-style: none; padding-left: 14px; margin: 4px 0 4px 10px; border-left: 1.5px solid rgba(0, 188, 212, 0.15);">
@@ -3016,21 +3121,14 @@ const App = {
                   <span>${details[s]?.name || s}</span>
                   <span class="ep-badge" id="ep-badge-${s}">...</span>
                 </button>
-                <div style="display: flex; align-items: center;">
-                  <button class="action-btn-edit-sub" onclick="event.stopPropagation(); App.showEditSkillModal('${s}')" title="${App.t('tip.editStep')}" 
-                    style="background: transparent; border: none; color: var(--text-muted); padding: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s;"
-                    onmouseover="this.style.color='var(--cyan)';"
-                    onmouseout="this.style.color='var(--text-muted)';"
-                  >
+                <div style="display: flex; align-items: center; gap: 2px;">
+                  <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.showEditSkillModal('${s}')" title="${App.t('tip.editStep')}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 11px; height: 11px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
-                  <button class="action-btn-edit-episodes" onclick="event.stopPropagation(); App.openManageEpisodesModal('${s}')" title="${App.t('tip.manageEpisodes')}" 
-                    style="background: transparent; border: none; color: var(--text-muted); padding: 4px 6px; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; margin-left: 4px;"
-                    onmouseover="this.style.color='var(--cyan)';"
-                    onmouseout="this.style.color='var(--text-muted)';"
-                  >
+                  <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.openManageEpisodesModal('${s}')" title="${App.t('tip.manageEpisodes')}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 12px; height: 12px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                   </button>
+                  <button class="btn btn-xs btn-danger btn-icon" onclick="event.stopPropagation(); App.deleteSkill('${s}')" title="${App.t('btn.delete')}">✕</button>
                 </div>
               </li>
             `;
@@ -5886,7 +5984,7 @@ const App = {
         <span style="color: var(--text-light); font-weight: 500;">
           [${roleText}] Port: ${cam.source} (${cam.id})
         </span>
-        <button onclick="App.wizardRemoveCamera('${cam.id}')" style="background: transparent; border: none; color: #f44336; cursor: pointer; padding: 0 4px; font-weight: bold; font-size: 12px; line-height: 1;">✕</button>
+        <button class="btn btn-xs btn-danger btn-icon" onclick="App.wizardRemoveCamera('${cam.id}')" title="${App.t('btn.delete')}">✕</button>
       `;
       listEl.appendChild(item);
     });

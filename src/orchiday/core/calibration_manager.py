@@ -211,28 +211,78 @@ class CalibrationManager:
         # Find the robot setup
         robot_setup = None
         for r in self._pm.current_project.get("robots", []):
-            if r.get("id") == robot_setup_id:
+            if r.get("id") == robot_setup_id or robot_setup_id in (r.get("leader_id"), r.get("follower_id")):
                 robot_setup = r
                 break
+
+        if not robot_setup:
+            robots = self._pm.current_project.get("robots", [])
+            if robots:
+                robot_setup = robots[0]
 
         if not robot_setup:
             log.error("Robot setup '%s' not found in project", robot_setup_id)
             return None
 
+        actual_setup_id = robot_setup.get("id", robot_setup_id)
+
         if arm_category == "robots":
             device_type = robot_setup.get("follower_type", "so100_follower")
-            device_id = robot_setup.get("follower_id", "F1")
+            candidate_ids = [
+                robot_setup.get("follower_id"),
+                robot_setup_id,
+                "my_robot_follower",
+                "my_follower_arm",
+                "F1",
+            ]
         elif arm_category == "teleoperators":
             device_type = robot_setup.get("leader_type", "so100_leader")
-            device_id = robot_setup.get("leader_id", "L1")
+            candidate_ids = [
+                robot_setup.get("leader_id"),
+                robot_setup_id,
+                "my_robot_leader",
+                "my_leader_arm",
+                "L1",
+            ]
         else:
             log.error("Invalid arm category: %s", arm_category)
             return None
 
-        # Source in LeRobot cache
-        source_file = self.get_lerobot_calibration_dir() / arm_category / device_type / f"{device_id}.json"
-        if not source_file.exists():
-            log.warning("No active calibration found in LeRobot cache at %s", source_file)
+        candidate_ids = [cid for cid in candidate_ids if cid]
+
+        lerobot_calib_dir = self.get_lerobot_calibration_dir()
+        cat_dir = lerobot_calib_dir / arm_category
+
+        # Candidate folder names (e.g. "so100_leader" vs "so_leader")
+        cand_types = [device_type]
+        if device_type.startswith("so100_"):
+            cand_types.append(device_type.replace("so100_", "so_"))
+        elif device_type.startswith("so_"):
+            cand_types.append(device_type.replace("so_", "so100_"))
+
+        source_file: Path | None = None
+        for dt in cand_types:
+            dev_dir = cat_dir / dt
+            if not dev_dir.exists():
+                continue
+            for cid in candidate_ids:
+                f = dev_dir / f"{cid}.json"
+                if f.exists():
+                    source_file = f
+                    break
+            if source_file:
+                break
+
+        # Fallback: search for any .json file in cat_dir / ** / *.json sorted by mtime
+        if not source_file and cat_dir.exists():
+            json_files = list(cat_dir.glob("**/*.json"))
+            if json_files:
+                json_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                source_file = json_files[0]
+                log.info("Found active calibration file by mtime fallback: %s", source_file)
+
+        if not source_file or not source_file.exists():
+            log.warning("No active calibration found in LeRobot cache at %s / %s", arm_category, device_type)
             return None
 
         # Destination in project folder
@@ -243,8 +293,9 @@ class CalibrationManager:
         target_dir = project_cal_dir / arm_category / device_type
         target_dir.mkdir(parents=True, exist_ok=True)
 
+        device_prefix = candidate_ids[0] if candidate_ids else "calib"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target_filename = f"{device_id}_backup_{timestamp}.json"
+        target_filename = f"{device_prefix}_backup_{timestamp}.json"
         target_file = target_dir / target_filename
 
         try:
@@ -252,7 +303,7 @@ class CalibrationManager:
             log.info("Backed up active calibration %s to %s", source_file, target_file)
             
             # Automatically bind this new backup to the project config
-            self._update_setup_binding(robot_setup_id, arm_category, target_filename)
+            self._update_setup_binding(actual_setup_id, arm_category, target_filename)
             
             event_bus.calibration_list_changed.emit()
             return target_filename

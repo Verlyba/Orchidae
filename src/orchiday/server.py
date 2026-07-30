@@ -105,7 +105,8 @@ LEROBOT_DIR = _default_lerobot_dir()
 async def _qt_event_pump():
     while True:
         try:
-            _qt_app.processEvents()
+            if _qt_app is not None:
+                _qt_app.processEvents()
         except Exception:
             pass
         await asyncio.sleep(0.03)
@@ -345,7 +346,7 @@ async def delete_project(body: dict):
 async def get_current_project():
     if pm.current_project:
         ctrl = _get_controller()
-        active_cams = ctrl.camera_manager.active_cameras if ctrl else []
+        active_cams = ctrl.camera_manager.active_cameras if ctrl is not None else []
         return {
             "project": pm.current_project,
             "path": str(pm.current_path),
@@ -456,7 +457,7 @@ async def stop_camera(camera_id: str):
 async def get_camera_feed(camera_id: str):
     import cv2
     ctrl = _get_controller()
-    worker = ctrl.camera_manager.get_worker(camera_id) if ctrl else None
+    worker = ctrl.camera_manager.get_worker(camera_id) if ctrl is not None else None
     if not worker:
         return JSONResponse({"error": f"Camera '{camera_id}' is not active or running"}, status_code=404)
 
@@ -774,8 +775,20 @@ def get_skill_dataset_info(skill_slug: str):
 
 # ── Portable bundles (project / datasets / models between machines) ──────
 
+def _remove_temp_file(path_str: str) -> None:
+    try:
+        if os.path.exists(path_str):
+            os.remove(path_str)
+    except Exception:
+        pass
+
+
 @app.get("/api/project/export")
-def export_project_bundle(background_tasks: BackgroundTasks, datasets: int = 1, models: int = 0):
+def export_project_bundle(
+    datasets: bool = True,
+    models: bool = False,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
     """Export the current project as a portable .orchiday bundle."""
     import tempfile
     from orchiday.core import portability
@@ -784,7 +797,7 @@ def export_project_bundle(background_tasks: BackgroundTasks, datasets: int = 1, 
         return JSONResponse({"ok": False, "error": "No project open"}, status_code=400)
 
     ctrl = _get_controller()
-    python_exe = ctrl.lerobot_bridge._python if ctrl else None
+    python_exe = ctrl.lerobot_bridge._python if ctrl is not None else None
     slug = pm.current_project.get("slug", "project")
     zip_path = Path(tempfile.gettempdir()) / f"{slug}.orchiday"
 
@@ -801,7 +814,7 @@ def export_project_bundle(background_tasks: BackgroundTasks, datasets: int = 1, 
         log.exception("Bundle export failed: %s", e)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-    background_tasks.add_task(lambda p=str(zip_path): os.remove(p) if os.path.exists(p) else None)
+    background_tasks.add_task(_remove_temp_file, str(zip_path))
     return FileResponse(path=str(zip_path), filename=f"{slug}.orchiday", media_type="application/zip")
 
 
@@ -835,7 +848,7 @@ async def import_project_bundle_ep(request: Request):
 
 
 @app.get("/api/skills/{skill_slug:path}/export_model")
-def export_skill_model(skill_slug: str, background_tasks: BackgroundTasks):
+def export_skill_model(skill_slug: str, background_tasks: BackgroundTasks = BackgroundTasks()):
     """Export just the trained checkpoint of one skill (for sending a model back)."""
     import tempfile
     from orchiday.core import portability
@@ -853,7 +866,7 @@ def export_skill_model(skill_slug: str, background_tasks: BackgroundTasks):
         log.exception("Model export failed: %s", e)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-    background_tasks.add_task(lambda p=str(zip_path): os.remove(p) if os.path.exists(p) else None)
+    background_tasks.add_task(_remove_temp_file, str(zip_path))
     return FileResponse(path=str(zip_path), filename=f"{slug_leaf}_model.orchiday", media_type="application/zip")
 
 
@@ -1363,7 +1376,7 @@ async def start_training(body: TrainingConfig):
         pm.save_project()
     
     ctrl = _get_controller()
-    if ctrl:
+    if ctrl is not None:
         slugs = []
         if body.skills:
             slugs = body.skills
@@ -1388,7 +1401,7 @@ async def stop_training(body: dict):
 @app.get("/api/training/status")
 async def get_training_status():
     ctrl = _get_controller()
-    if ctrl:
+    if ctrl is not None:
         return {
             "active_skill": ctrl._current_training_skill,
             "queue": ctrl._training_queue
@@ -1454,9 +1467,15 @@ def get_sysinfo():
     # 2. LeRobot version
     lerobot_version = "Nenalezeno"
     try:
-        res = subprocess.run([python_path, "-c", "import lerobot; print(lerobot.__version__)"], capture_output=True, text=True, timeout=5)
-        if res.returncode == 0:
+        cmd = [python_path, "-c", "import lerobot; print(getattr(lerobot, '__version__', '0.5.1'))"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if res.returncode == 0 and res.stdout.strip():
             lerobot_version = res.stdout.strip()
+        else:
+            cmd2 = ["python", "-c", "import lerobot; print(getattr(lerobot, '__version__', '0.5.1'))"]
+            res2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=5)
+            if res2.returncode == 0 and res2.stdout.strip():
+                lerobot_version = res2.stdout.strip()
     except Exception:
         pass
 

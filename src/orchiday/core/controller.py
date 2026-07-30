@@ -646,22 +646,31 @@ class OrchidayController(QObject):
         if not self.pm.current_project:
             return
 
-        for r in self.pm.current_project.get("robots", []):
-            setup_id = r.get("id")
-            if r.get("leader_id") == arm_id:
-                # This was a leader calibration
-                log.info("Auto-saving leader calibration for setup %s", setup_id)
-                new_file = self.calibration_manager.backup_active_calibration(setup_id, "teleoperators")
-                if new_file:
-                    event_bus.log_message.emit("SUCCESS", f"Auto-backed up leader calibration: {new_file}")
-                return
-            elif r.get("follower_id") == arm_id:
-                # This was a follower calibration
-                log.info("Auto-saving follower calibration for setup %s", setup_id)
-                new_file = self.calibration_manager.backup_active_calibration(setup_id, "robots")
-                if new_file:
-                    event_bus.log_message.emit("SUCCESS", f"Auto-backed up follower calibration: {new_file}")
-                return
+        robots = self.pm.current_project.get("robots", [])
+        setup_id = robots[0].get("id") if robots else arm_id
+
+        # Determine category based on arm_id and setup config
+        is_leader = "leader" in arm_id.lower() or any(r.get("leader_id") == arm_id for r in robots)
+        is_follower = "follower" in arm_id.lower() or any(r.get("follower_id") == arm_id for r in robots)
+
+        if is_leader:
+            log.info("Auto-saving leader calibration for arm '%s' (setup %s)", arm_id, setup_id)
+            new_file = self.calibration_manager.backup_active_calibration(setup_id, "teleoperators")
+            if new_file:
+                event_bus.log_message.emit("SUCCESS", f"Auto-backed up leader calibration: {new_file}")
+        elif is_follower:
+            log.info("Auto-saving follower calibration for arm '%s' (setup %s)", arm_id, setup_id)
+            new_file = self.calibration_manager.backup_active_calibration(setup_id, "robots")
+            if new_file:
+                event_bus.log_message.emit("SUCCESS", f"Auto-backed up follower calibration: {new_file}")
+        else:
+            # Fallback: attempt both categories
+            new_file_l = self.calibration_manager.backup_active_calibration(setup_id, "teleoperators")
+            new_file_f = self.calibration_manager.backup_active_calibration(setup_id, "robots")
+            if new_file_l:
+                event_bus.log_message.emit("SUCCESS", f"Auto-backed up leader calibration: {new_file_l}")
+            if new_file_f:
+                event_bus.log_message.emit("SUCCESS", f"Auto-backed up follower calibration: {new_file_f}")
 
     def _save_model_metadata(self, skill_slug: str, save_project: bool = True) -> None:
         if not self.pm.current_project:

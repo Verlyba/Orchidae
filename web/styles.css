@@ -1608,6 +1608,12 @@ input[readonly] {
     transition: var(--transition);
 }
 
+.pipeline-step-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .pipeline-step.active {
     background: var(--accent-light);
     border-left: 2px solid var(--accent);
