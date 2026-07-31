@@ -1,0 +1,31 @@
+# Normalise line endings in the repository.
+#
+# This repo is developed on Windows (core.autocrlf=true) but its scripts run in
+# Linux containers. Without this, an edit made on Windows can commit a shell
+# script with CRLF, and Linux then fails it with the confusing
+# "bad interpreter: No such file or directory" — the shebang line ends in \r.
+* text=auto
+
+# Anything executed by a shell or shipped to a Linux runtime must stay LF.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+
+# Web assets are read by the browser, keep them LF for stable diffs.
+*.ts    text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+
+# Binary — never touch.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.safetensors binary
