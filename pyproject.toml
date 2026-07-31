@@ -1,6 +1,10 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+# setuptools' PEP 517 entry point. The previous value
+# ("setuptools.backends._legacy:_Backend") is not a module setuptools has ever
+# shipped, so every `pip install .` / `pip install -e .` failed with
+# ModuleNotFoundError before pip could even read the metadata.
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "orchiday"
