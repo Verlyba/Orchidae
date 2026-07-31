@@ -24,6 +24,10 @@ if [ -z "$PY" ]; then
 fi
 [ -n "$PY" ] || { echo "FAIL: no working Python interpreter found"; exit 1; }
 
+# The tests construct a QCoreApplication. On a headless container Qt must be
+# told there is no display, otherwise it aborts trying to reach one.
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+
 # ── 1. TypeScript compiles (web/app.ts -> web/app.js) ─────────────────────
 step "TypeScript build"
 if command -v npm >/dev/null 2>&1; then
