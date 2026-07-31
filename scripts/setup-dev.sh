@@ -27,9 +27,21 @@ fi
 [ -n "$PY" ] || { echo "FAIL: no working Python interpreter found"; exit 1; }
 echo "==> Python: $("$PY" --version)"
 
-"$PY" -m pip install --upgrade pip >/dev/null
+# Debian/Ubuntu images since PEP 668 mark the system interpreter
+# "externally managed" and refuse a plain `pip install`. Containers have no
+# reason to protect a system Python we are not sharing with anything, so fall
+# back to --break-system-packages rather than failing the whole setup.
+pip_install() {
+  if "$PY" -m pip install "$@" 2>/dev/null; then
+    return 0
+  fi
+  echo "==> pip refused (PEP 668 externally-managed env); retrying with --break-system-packages"
+  "$PY" -m pip install --break-system-packages "$@"
+}
+
+pip_install --upgrade pip >/dev/null 2>&1 || true
 echo "==> Installing Orchiday + dev dependencies (editable)"
-"$PY" -m pip install -e ".[dev]"
+pip_install -e ".[dev]"
 
 # ── Node (TypeScript build) ───────────────────────────────────────────────
 if command -v npm >/dev/null 2>&1; then
