@@ -759,13 +759,73 @@ const App = {
         page.querySelectorAll('.setup-wizard-panel').forEach(panel => {
             panel.style.display = panel.dataset.tabPanel === tab ? '' : 'none';
         });
-        if (tab === 'calibrate') {
-            const leaderEl = document.getElementById('cal-tab-leader-port');
-            const followerEl = document.getElementById('cal-tab-follower-port');
-            if (leaderEl)
-                leaderEl.textContent = document.getElementById('tele-leader-port')?.value || '-';
-            if (followerEl)
-                followerEl.textContent = document.getElementById('tele-follower-port')?.value || '-';
+        if (tab === 'calibrate')
+            this.refreshCalibrationTab();
+    },
+    /** Fills the Kalibrace tab from state that already exists elsewhere: the
+     * Connect tab's port/id fields and the arm_visual_config response that also
+     * drives the teleop page. No extra endpoint, and no stale card left behind
+     * when the user edits the hardware config and switches tabs. */
+    refreshCalibrationTab() {
+        this.renderCalibrationArmCards(this.armVisualConfig);
+        // Drawn even with no project open: the schematic is what fills the run
+        // column's height, and an empty box there is exactly the dead space this
+        // layout exists to remove. Without a config it renders the neutral
+        // outline and the motor-id legend stays empty.
+        this.renderCalibrationIdleVisual();
+        if (!this.armVisualConfig && this.project)
+            this.loadArmVisualConfig();
+        // Switching a tab must never fail on a backend hiccup — the summary just
+        // stays in its "load state" wording.
+        this.loadCalibrationFiles().catch(() => { });
+    },
+    /** Per-arm state cards on the Kalibrace tab. `source: "default"` means
+     * nothing is bound and LeRobot would run with generic ranges — worth seeing
+     * before starting, not after the arm moves wrong. */
+    renderCalibrationArmCards(cfg) {
+        const portOf = (role) => {
+            const sel = document.getElementById(`tele-${role}-port`);
+            const v = sel?.value || '';
+            if (v === '__custom__') {
+                return document.getElementById(`tele-${role}-port-custom`)?.value.trim() || '';
+            }
+            return v;
+        };
+        for (const side of ['leader', 'follower']) {
+            const card = document.getElementById(`cal-arm-${side}`);
+            if (!card)
+                continue;
+            const arm = cfg?.[side];
+            const calibrated = arm?.source === 'calibration' && !!arm.filename;
+            card.classList.toggle('is-calibrated', !!calibrated);
+            card.classList.toggle('is-default', !!arm && !calibrated);
+            const set = (id, text, isDefault = false) => {
+                const el = document.getElementById(id);
+                if (!el)
+                    return;
+                el.textContent = text;
+                el.classList.toggle('is-default', isDefault);
+            };
+            const stateKey = !arm ? 'cal.stateUnknown' : calibrated ? 'cal.stateCalibrated' : 'cal.stateDefault';
+            const stateEl = document.getElementById(`cal-state-${side}`);
+            if (stateEl) {
+                stateEl.textContent = this.t(stateKey);
+                stateEl.setAttribute('data-i18n', stateKey);
+            }
+            const jointNames = Object.keys(arm?.joints || {});
+            set(`cal-device-${side}`, arm?.device_type || '-');
+            // The id is what LeRobot names the calibration file after
+            // (<cache>/<category>/<type>/<id>.json), so it comes from the same
+            // field calibrateArm() passes as --robot.id / --teleop.id.
+            const activeRobot = (this.project?.robots || [])[0];
+            set(`cal-id-${side}`, document.getElementById(`tele-${side}-id`)?.value
+                || (side === 'leader' ? activeRobot?.leader_id : activeRobot?.follower_id) || '-');
+            set(`cal-port-${side}`, portOf(side) || '-');
+            set(`cal-file-${side}`, calibrated ? arm.filename : arm ? this.t('cal.fileDefault') : '-', !!arm && !calibrated);
+            set(`cal-joints-${side}`, jointNames.length ? String(jointNames.length) : '-');
+            const portHint = document.getElementById(`cal-tab-${side}-port`);
+            if (portHint)
+                portHint.textContent = portOf(side) || '-';
         }
     },
     /** Switches between the Datasety wizard's Sběr / Správa tabs — both live
@@ -1538,6 +1598,10 @@ const App = {
         const titleBarActive = document.getElementById('title-active-project');
         if (titleBarActive && this.project) {
             titleBarActive.textContent = this.project.name;
+            // The element carries data-i18n="title.noProject" for the empty state.
+            // Left in place, the next applyI18n() (i.e. any language switch)
+            // overwrote the open project's name with "No project selected".
+            titleBarActive.removeAttribute('data-i18n');
         }
         // Update sidebar project badge details
         const sideProjName = document.getElementById('sidebar-proj-name');
@@ -1576,6 +1640,7 @@ const App = {
         const titleBarActive = document.getElementById('title-active-project');
         if (titleBarActive) {
             titleBarActive.textContent = this.t('title.noProject');
+            titleBarActive.setAttribute('data-i18n', 'title.noProject');
         }
         // Reset unified global project badges across all tabs!
         document.querySelectorAll('.project-badge-global').forEach(badge => {
@@ -1820,6 +1885,9 @@ const App = {
             infoLeaderTypeEl.textContent = leaderType ? leaderType.replace('_leader', '').toUpperCase() : '-';
         if (infoFollowerPortEl)
             infoFollowerPortEl.textContent = followerPort || '-';
+        // The Kalibrace cards read the very same port/id fields, so they refresh
+        // from the same trigger instead of going stale until the tab is reopened.
+        this.renderCalibrationArmCards(this.armVisualConfig);
         const btnCalLeader = document.getElementById('btn-calibrate-leader');
         const btnCalFollower = document.getElementById('btn-calibrate-follower');
         const btnStartTele = document.getElementById('btn-start-teleop');
@@ -2155,26 +2223,49 @@ const App = {
         const panel = document.getElementById('calibration-live-panel');
         const label = document.getElementById('calibration-live-robot');
         const tbody = document.getElementById('calibration-live-tbody');
+        const ranges = document.getElementById('cal-ranges');
+        const col = document.querySelector('.cal-col-run');
         if (label)
             label.textContent = robotId;
         if (tbody)
             tbody.innerHTML = '';
         if (panel)
             panel.style.display = 'block';
+        // The procedure STAYS on screen during the run — with the current gate
+        // highlighted it is the map of where the process is, and it is what keeps
+        // the column filled once the live table (a handful of rows) is the only
+        // other thing in it. The stored-range table does go: those are the values
+        // this very run is about to overwrite.
+        if (ranges)
+            ranges.style.display = 'none';
+        if (col)
+            col.classList.add('is-running');
         this.setCalibrationPhase('start');
         this.renderArmSchematic('cal', null);
         this.renderCalibrationJointLegend(robotId);
     },
     /** Shows which of LeRobot's interactive gates is currently waiting, so the
      * buttons below read as answers to a specific question rather than guesses.
-     * 'range' is inferred from the first min/pos/max row arriving. */
+     * 'range' is inferred from the first min/pos/max row arriving; 'idle' means
+     * no calibration process is running and the procedure list is on screen. */
     setCalibrationPhase(phase) {
         const el = document.getElementById('cal-live-phase');
         if (!el)
             return;
-        el.textContent = phase === 'range'
-            ? 'Projeďte rozsah kloubů, pak potvrďte Enter'
-            : 'Čeká na potvrzení — přesuňte rameno do středu rozsahu';
+        const key = phase === 'range' ? 'cal.phaseRange'
+            : phase === 'start' ? 'cal.phaseStart'
+                : 'cal.phaseIdle';
+        el.textContent = this.t(key);
+        el.setAttribute('data-i18n', key);
+        el.classList.toggle('is-idle', phase === 'idle');
+        // Highlight the step the process is actually sitting on. Step 1 (reuse
+        // the stored file?) is never highlighted: it is already answered by the
+        // time any output reaches us, and it does not appear at all when no
+        // calibration file exists for the id.
+        const active = phase === 'range' ? 3 : phase === 'start' ? 2 : 0;
+        document.querySelectorAll('.cal-proc-list > li').forEach((li, i) => {
+            li.classList.toggle('is-active', i + 1 === active);
+        });
     },
     /** Joint-name → motor-ID legend for whichever side (leader/follower) is
      * currently being calibrated — reuses the arm_visual_config already
@@ -2195,8 +2286,92 @@ const App = {
     hideCalibrationLivePanel() {
         this.calibratingRobotId = null;
         const panel = document.getElementById('calibration-live-panel');
+        const ranges = document.getElementById('cal-ranges');
+        const col = document.querySelector('.cal-col-run');
+        const label = document.getElementById('calibration-live-robot');
         if (panel)
             panel.style.display = 'none';
+        // Back to the idle state: the stored ranges that are actually bound right
+        // now (not the aborted run's), and no step highlighted.
+        if (ranges)
+            ranges.style.display = '';
+        if (col)
+            col.classList.remove('is-running');
+        if (label)
+            label.textContent = '';
+        this.setCalibrationPhase('idle');
+        this.renderCalibrationIdleVisual();
+    },
+    /** The arm whose stored calibration the idle Kalibrace tab describes:
+     * follower first (it is the arm that executes), then leader, then whatever
+     * exists so the schematic is never drawn from nothing. */
+    idleCalibrationArm() {
+        const cfg = this.armVisualConfig;
+        if (!cfg)
+            return null;
+        if (cfg.follower?.source === 'calibration')
+            return cfg.follower;
+        if (cfg.leader?.source === 'calibration')
+            return cfg.leader;
+        return cfg.follower || cfg.leader || null;
+    },
+    /** Idle schematic + motor-id legend, drawn from the ranges currently bound
+     * instead of leaving an empty box in the column. */
+    renderCalibrationIdleVisual() {
+        if (this.calibratingRobotId)
+            return;
+        const arm = this.idleCalibrationArm();
+        this.renderArmSchematic('cal', arm);
+        const legend = document.getElementById('cal-live-legend');
+        if (legend) {
+            const joints = arm?.joints || {};
+            legend.innerHTML = this.ARM_JOINT_ORDER
+                .map(name => joints[name] ? `<span class="arm-id-badge">${name}: <strong>#${joints[name].id}</strong></span>` : '')
+                .filter(Boolean).join('');
+        }
+        this.renderCalibrationStoredRanges(arm);
+    },
+    /** Idle run column: the range_min/range_max actually stored per joint.
+     * These are the numbers the schematic is drawn from and the ones LeRobot
+     * writes to the motors, so seeing them is how you tell a real calibration
+     * from the fallback defaults — and why wrist_roll always reads 0–4095. */
+    renderCalibrationStoredRanges(arm) {
+        const tbody = document.getElementById('cal-ranges-tbody');
+        const note = document.getElementById('cal-ranges-note');
+        const src = document.getElementById('cal-ranges-source');
+        if (!tbody)
+            return;
+        const joints = arm?.joints || {};
+        const rows = this.ARM_JOINT_ORDER.filter(name => joints[name]);
+        if (src) {
+            const key = !arm ? 'cal.stateUnknown'
+                : arm.source === 'calibration' ? 'cal.rangesFromFile' : 'cal.rangesDefault';
+            src.textContent = arm?.source === 'calibration' && arm.filename ? arm.filename : this.t(key);
+            src.classList.toggle('is-default', !!arm && arm.source !== 'calibration');
+        }
+        tbody.innerHTML = rows.map(name => {
+            const j = joints[name];
+            const min = Number(j.range_min ?? 0);
+            const max = Number(j.range_max ?? 0);
+            const span = max - min;
+            // Same threshold the live table uses: a span this small means the joint
+            // was never moved during recording, not that it cannot move.
+            const unmeasured = span < this._CAL_MIN_SPAN;
+            return `
+      <tr class="${unmeasured ? 'cal-row-unmeasured' : ''}">
+        <td>${this.esc(name)}</td>
+        <td>#${this.esc(String(j.id ?? '-'))}</td>
+        <td>${min}</td>
+        <td>${max}</td>
+        <td class="cal-live-span">${unmeasured ? this.t('cal.notMoved') : span}</td>
+      </tr>`;
+        }).join('');
+        if (note) {
+            const key = !arm ? 'hint.calRangesEmpty'
+                : arm.source === 'calibration' ? 'hint.calRangesFile' : 'hint.calRangesDefault';
+            note.textContent = this.t(key);
+            note.setAttribute('data-i18n', key);
+        }
     },
     // lerobot_calibrate.py is interactive on stdin: it waits for Enter once
     // after "move to the middle", then again to stop recording the range of
@@ -2284,7 +2459,33 @@ const App = {
     },
     async loadCalibrationFiles() {
         const res = await this.api('GET', '/calibration/list');
-        this.renderCalibrationFilesList(res.files || []);
+        const files = res.files || [];
+        this.renderCalibrationFilesList(files);
+        this.renderCalibrationStoreSummary(files);
+    },
+    /** Kalibrace tab: how many calibrations exist and where they live, so the
+     * file manager modal is a drill-down rather than the only way to find out
+     * whether anything is saved at all. */
+    renderCalibrationStoreSummary(files) {
+        const countEl = document.getElementById('cal-files-count');
+        const noteEl = document.getElementById('cal-files-summary');
+        if (countEl)
+            countEl.textContent = String(files.length);
+        if (!noteEl)
+            return;
+        if (!files.length) {
+            noteEl.textContent = this.t('cal.noFiles');
+            noteEl.setAttribute('data-i18n', 'cal.noFiles');
+            return;
+        }
+        // scan_project_calibrations() marks project files; everything merged in
+        // from the LeRobot cache carries source "cache".
+        const cache = files.filter(f => f.source === 'cache').length;
+        const active = files.filter(f => f.active_for && f.active_for.length).length;
+        noteEl.textContent = this.t('hint.calStore', {
+            project: String(files.length - cache), cache: String(cache), active: String(active),
+        });
+        noteEl.removeAttribute('data-i18n');
     },
     renderCalibrationFilesList(files) {
         const el = document.getElementById('cal-files-list');
@@ -2939,13 +3140,14 @@ const App = {
         const btn = document.getElementById('btn-refresh-calibration');
         if (btn) {
             btn.disabled = true;
-            btn.textContent = 'Načítám…';
+            btn.textContent = this.t('btn.loading');
         }
         try {
             this.log('INFO', 'Obnovuji stav kalibrace a hardwaru...');
             await this.scanHardware();
             await this.refreshProject();
             await this.loadArmVisualConfig();
+            await this.loadCalibrationFiles();
             await this.loadSysInfo();
             this.log('SUCCESS', 'Stav kalibrace a hardwaru byl úspěšně obnoven.');
         }
@@ -2954,8 +3156,10 @@ const App = {
         }
         finally {
             if (btn) {
+                // Restoring hardcoded Czech here used to un-translate the button on
+                // every refresh in English mode.
+                btn.textContent = this.t('btn.loadState');
                 btn.disabled = false;
-                btn.textContent = 'Načíst stav';
             }
         }
     },
@@ -2980,17 +3184,25 @@ const App = {
         const isSingleArm = ['lekiwi', 'moss', 'stretch'].includes(robotType);
         const leaderGroup = document.getElementById('leader-config-group');
         const btnCalibrateLeader = document.getElementById('btn-calibrate-leader');
+        // LeKiwi/Moss/Stretch have no leader arm at all, so the whole leader card
+        // on the Kalibrace tab goes with the button — leaving the card behind
+        // showed a device that cannot be calibrated.
+        const calCardLeader = document.getElementById('cal-arm-leader');
         if (isSingleArm) {
             if (leaderGroup)
                 leaderGroup.style.display = 'none';
             if (btnCalibrateLeader)
                 btnCalibrateLeader.style.display = 'none';
+            if (calCardLeader)
+                calCardLeader.style.display = 'none';
         }
         else {
             if (leaderGroup)
                 leaderGroup.style.display = 'flex';
             if (btnCalibrateLeader)
                 btnCalibrateLeader.style.display = 'inline-flex';
+            if (calCardLeader)
+                calCardLeader.style.display = '';
         }
         // Set hidden inputs dynamically for app.js/app.ts internal routing
         const leaderTypeInput = document.getElementById('tele-leader-type');
@@ -5177,6 +5389,8 @@ const App = {
                 gridEl.style.display = 'none';
             this.armVisualConfig = null;
             this.renderTeleopCalibrationStatus(null);
+            this.renderCalibrationArmCards(null);
+            this.renderCalibrationIdleVisual();
             return;
         }
         if (emptyEl)
@@ -5189,6 +5403,8 @@ const App = {
         this.renderArmSchematic('leader', res.leader);
         this.renderArmSchematic('follower', res.follower);
         this.renderTeleopCalibrationStatus(res);
+        this.renderCalibrationArmCards(res);
+        this.renderCalibrationIdleVisual();
     },
     /** Teleoperation page: which calibration file each arm will actually run
      * with. The same /calibration/arm_visual_config response drives this —

@@ -8,6 +8,110 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-01 (5) — Setup/Kalibrace: z 14 % prázdné stránky pracovní plocha
+
+**Proč právě tohle.** `scripts/verify.sh` na výchozím stavu prošel celý (136
+pytestů), priorita A byla prázdná. Fronta níže měla Setup/Kalibraci jako
+největší zbývající mrtvou plochu a měření to potvrdilo: při 1600×900 zabíral
+veškerý obsah **levý horní roh** — vpravo ~700 px a dole ~600 px prázdna.
+
+**Naměřený výchozí stav (headless Chromium, obsazenost plochy stránky)**
+
+- 1600×900: **14 %**, 1280×800: 20 %, 1024×760: 21 %.
+- Příčina byla jedna řádka CSS: `#page-setup .setup-wizard-panel[data-tab-panel=
+  "calibrate"] .setup-section { max-width: 640px }` (sdílené pravidlo s tabem
+  „Modely"). Panel se tedy nikdy neroztáhl přes polovinu okna.
+- Celý obsah tabu byl **jedna lišta tlačítek + jeden odstavec**. Všechno
+  ostatní bylo skryté: živý panel (`display:none`, dokud kalibrace neběží)
+  a správce kalibračních souborů (jen v modálu).
+
+**Co se změnilo — tab je teď dvousloupcová pracovní plocha**
+
+- `max-width` zrušen jen pro kalibraci (Modely si ho nechávají), sekce má
+  `flex: 1` + `grid-template-rows: minmax(0, 1fr)`.
+- **Levý sloupec — stav ramen.** Karta pro leader a pro follower, každá
+  s typem zařízení, `id` (to, pod kterým LeRobot pojmenuje soubor), portem,
+  **navázaným kalibračním souborem** a počtem kloubů. Barevný pruh a štítek
+  vlevo: zeleně `source: "calibration"`, žlutě `source: "default"` (= nic
+  navázáno, obecné rozsahy). Data z existujícího
+  `/api/calibration/arm_visual_config`, žádný nový endpoint.
+- **Tlačítko „Kalibrovat leader/follower" je uvnitř karty toho ramene**, ne
+  v horní liště, a vedle sebe má technicky přesný popisek, který přepínač
+  LeRobotu spustí (`--teleop.*` vs `--robot.*`).
+- Sekce „Uložené kalibrace" ukazuje **počet a rozpad** (v projektu / v cache
+  LeRobotu / aktivně navázáno) z `/api/calibration/list` — dřív se to nedalo
+  zjistit jinak než otevřením modálu. Modál zůstává jako drill-down.
+- Poslední sekce levého sloupce je **schéma ramene s legendou motor-ID**
+  a jako jediná má `flex: 1 1 auto` — pohlcuje volnou výšku sloupce, protože
+  je to jediný prvek, kterému velikost prospívá.
+- **Pravý sloupec — vlastní běh.** V klidu: postup, kterým `device.calibrate()`
+  opravdu projde, s **doslovnými hláškami LeRobotu** (viz ověření níže), plus
+  tabulka **uložených rozsahů** (`range_min`/`range_max`/rozpětí + ID motoru)
+  z navázaného souboru. Za běhu: živá tabulka MIN/POS/MAX se přesune nad
+  postup (`order`), tabulka uložených rozsahů se skryje (jsou to hodnoty,
+  které ten běh právě přepisuje) a **krok, na kterém proces stojí, se
+  zvýrazní žlutě** podle fáze.
+- Fáze běhu (`setCalibrationPhase`) šly do i18n — byly natvrdo česky
+  v `app.ts`. Nově má i stav `idle` („nespuštěno").
+- U jednoramenných robotů (LeKiwi/Moss/Stretch) se s tlačítkem skrývá i celá
+  leader karta — dřív zůstala viset karta zařízení, které kalibrovat nejde.
+- 45 nových i18n klíčů (cs i en). `hint.calFlow` smazán — nahradil ho přesný
+  čtyřkrokový postup.
+- Bump assetů na `?v=3.58.0`.
+
+**Opravené chyby (nalezené při práci)**
+
+1. **Přepnutí jazyka přepsalo název otevřeného projektu.**
+   `#title-active-project` má natvrdo `data-i18n="title.noProject"` pro
+   prázdný stav, takže každé `applyI18n()` (tj. každý přepnutý jazyk) nahradilo
+   „Bench Cell" za „Žádný vybraný projekt". `onProjectOpened()` teď atribut
+   odebere a `onProjectClosed()` ho vrátí. Ověřeno oběma směry.
+2. `manualRefreshCalibration()` po dokončení nastavovala popisek tlačítka
+   natvrdo česky („Načíst stav"), takže v anglickém režimu se tlačítko
+   po každém obnovení odpřeložilo. Nově přes `t()`.
+3. Popisky u tlačítek kalibrace byly natvrdo česky i v anglickém režimu
+   („Kalibrovat leader", „Uložené kalibrace", „Načíst stav", „Restart
+   serveru") — všechny mají klíč.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **136 pytestů**, compileall,
+  i18n parita cs=en=795, žádná duplicitní id, 102 `App.*` odkazů.
+- **Proti běžícímu backendu** (uvicorn + projekt se dvěma reálnými
+  kalibračními soubory, 6 kloubů s nestejnými rozsahy): karty ukazují
+  `so100_leader`/`leader_bench_01.json`/6 kloubů zeleně, souhrn „V projektu 2,
+  v cache LeRobotu 2, aktivně navázáno 2", tabulka 6 řádků s rozpětími
+  a `wrist_roll` 0–4095, legenda 6 badgů, schéma vykreslené.
+- **Přechody stavů** (simulované `showCalibrationLivePanel` +
+  `renderCalibrationLiveTable` + `hideCalibrationLivePanel`): klid → běh →
+  klid. V běhu 5 řádků, `wrist_flex` správně označen „nezměřeno" (rozpětí 2 <
+  `_CAL_MIN_SPAN`), zvýrazněný krok 3, všechna tři tlačítka hit-testem
+  klikatelná. Po ukončení se vrátí 6 uložených řádků, fáze „nespuštěno",
+  jmenovka robota se vyprázdní.
+- Headless Chromium na **1600×900, 1280×800 i 1024×760**: obsazenost 31 / 39 /
+  36 % (měřeno jen na prvcích, které opravdu kreslí — kontejnery se nepočítají),
+  žádný vodorovný přetok, žádné roztažené tlačítko/pole. Při nízkém okně oba
+  sloupce **scrollují, neořezávají** (`overflow-y: auto`).
+- **Anglický režim**: v celém `page-setup` nezůstal jediný řádek s českou
+  diakritikou.
+- **Regresní přeměření všech osmi stránek** ve třech velikostech: kromě už
+  známého `diag-list` v Nastavení (položka ve frontě níže, nesahal jsem na ni)
+  nic neořezává, nic nepřetéká, žádné chyby v konzoli. Teleoperace je beze
+  změny — sdílené `.arm-visual-*` CSS se měnilo jen pod `.cal-live-visual`.
+
+**Zbývá vyzkoušet na fyzickém robotu** (v cloudu nelze)
+
+- Že `lerobot-calibrate` opravdu projde těmi čtyřmi kroky v tomhle pořadí
+  a že zvýraznění kroku odpovídá tomu, kde proces stojí. Fáze `start` vs
+  `range` se odvozuje z prvního řádku min/pos/max — proti běžícímu procesu
+  ověřená není.
+- Že „Potvrdit (Enter)" posune kalibraci dál a „Kalibrovat znovu (c)" vynutí
+  nové měření na rameni, které už kalibrační soubor má (krok 1 se bez
+  existujícího souboru vůbec neobjeví, takže se testuje jen na druhém běhu).
+- Sloupce `Port` zůstávají „-", dokud nejsou vidět sériové porty — v kontejneru
+  žádné nejsou, takže vyplnění portu z Connect tabu ověřené není.
+- Že se schéma ramene za běhu hýbe podle `calibration_progress`.
+
 ## 2026-08-01 (4) — Teleoperace: konec prázdné plochy a roztažených dlaždic
 
 **Proč právě tohle.** `scripts/verify.sh` na výchozím stavu prošel celý
@@ -367,11 +471,17 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   (`page.mouse.wheel`), ne přiřazením `scrollTop`.
   Lék je stejný jako u teleoperace: dát přímým dětem scrollujícího flex
   panelu `flex: 0 0 auto`, aby se nesmršťovaly, plus viditelný scrollbar.
-- **Setup / Kalibrace má obrovskou mrtvou plochu.** Při 1600×900 zabírá panel
-  jen levou polovinu a vršek — vpravo ~700 px a dole ~300 px prázdna.
-  Podobně Setup/Connect (~360 px dole) a Orchestrace/Běh modelu (~270 px
-  uprostřed). Stejný recept jako u teleoperace: přeskládat sloupce a volnou
-  výšku dát prvku, který se smysluplně zvětšuje.
+- ~~Setup / Kalibrace má obrovskou mrtvou plochu~~ — hotovo 2026-08-01 (5),
+  dvousloupcová plocha, obsazenost 14 % → 31 %. Zbývá **Setup/Connect**
+  (~360 px dole) a **Orchestrace/Běh modelu** (~270 px uprostřed). Stejný
+  recept: přeskládat sloupce a volnou výšku dát prvku, který se smysluplně
+  zvětšuje. Pozor na past, na kterou tenhle běh narazil: rozpustit volnou
+  výšku do `justify-content: space-between` na seznamu kroků vypadá rozbitě
+  (120px mezery mezi položkami) — místo toho tam patří prvek, který má co
+  ukázat (tabulka, schéma).
+- **Hledat `max-width` na `.setup-section`.** Kalibrace měla mrtvou plochu
+  kvůli jedné sdílené řádce `max-width: 640px`. Tab „Modely" ji pořád má —
+  až na něj přijde řada, začít tam.
 - **Před commitem na `main` pouštět `scripts/verify.sh`.** 58277f7 přistál
   s dvěma padajícími kontrolami (chybějící `App.browseFile`, dva nedefinované
   i18n klíče) a se ztrátou popisu scény i přepínače jazyka.
@@ -379,7 +489,15 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   Orchestrace a Učení zbývají (viz měření výše). Vyplnit rozvržením nebo
   grafickým prvkem, NE roztažením polí. Tohle je věc, kterou zadání označuje
   za hlavní problém.
-- **Měřicí skripty se vyplatí mít v repu.** Tenhle běh je psal znovu od nuly
+- **Měřicí skripty se vyplatí mít v repu.** Běh 2026-08-01 (5) je psal potřetí.
+  Recept, který funguje a stojí za zapsání do `scripts/`: nastartovat
+  `python3 -m uvicorn orchiday.server:app --port 8100` (s `PYTHONPATH=src`
+  a `QT_QPA_PLATFORM=offscreen`), přes API si založit a otevřít projekt
+  s robotem a dvěma kalibračními soubory, a teprve pak měřit — proti
+  statickému serveru nad `web/` je většina stránek prázdná a měření lže.
+  Obsazenost plochy počítat **jen na prvcích, které kreslí** (listy s textem,
+  `input`/`select`/`svg`); když se počítají i kontejnery, prázdný panel vyjde
+  na 82 %. Původní poznámka z běhu (4): Tenhle běh je psal znovu od nuly
   (statický HTTP server nad `web/` + headless Chromium, `playwright` se v
   cloudu doinstaluje přes `npm i -D playwright`, prohlížeč je předinstalovaný
   v `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`). Dvě pasti, na které
@@ -410,6 +528,14 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 - Natvrdo česky psané řetězce v dynamicky generovaném HTML (mimo i18n):
   `dsRefreshList`, `advPopulateResumeSkills`, `selectSkill` (seznam epizod:
   „Epizoda", „Přehrát", „Smazat"), wizard `wizard-opt-found-*`.
+  Také `calibrateArm()` („Spouštím (leader)…") a hlášky `log()` napříč
+  `app.ts` — ty se do konzole píšou vždy česky.
+- **Vzor, na který si dát pozor:** element se statickým `data-i18n`, do kterého
+  se pak píše dynamický text. Každé `applyI18n()` (= přepnutí jazyka) ho
+  přepíše zpátky na překlad klíče. Takhle mizel název otevřeného projektu
+  z titulkové lišty (opraveno 2026-08-01 (5)). Buď atribut při zápisu
+  dynamické hodnoty odebrat, nebo ho spolu s textem přenastavit na klíč, který
+  právě platí — obojí je v kódu použité, hledat `setAttribute('data-i18n'`.
 
 **Backend / LeRobot**
 - Nedá se ověřit chování na LeRobotu ≥ 0.5 — PyPI index v cloudu má maximum

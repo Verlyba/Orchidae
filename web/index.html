@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.57.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.58.0">
 </head>
 <body>
 
@@ -309,67 +309,180 @@
           <div class="setup-wizard-panel" data-tab-panel="calibrate" style="display:none;">
             <div class="setup-section" style="grid-template-columns: 1fr;">
               <div class="setup-block" style="display: flex; flex-direction: column;">
-                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path><circle cx="10" cy="10" r="2"></circle></svg> <span data-i18n="blk.calibrate.title">Kalibrace ramen</span></h3>
-                <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
-                  <div class="panel-toolbar">
-                    <span class="panel-toolbar-label">lerobot-calibrate</span>
-                    <button class="btn btn-xs btn-primary" id="btn-calibrate-leader" onclick="App.calibrateArm('leader')">
-                      Kalibrovat leader <span class="btn-port-hint" id="cal-tab-leader-port">-</span>
-                    </button>
-                    <button class="btn btn-xs btn-primary" id="btn-calibrate-follower" onclick="App.calibrateArm('follower')">
-                      Kalibrovat follower <span class="btn-port-hint" id="cal-tab-follower-port">-</span>
-                    </button>
-                    <span class="panel-toolbar-spacer"></span>
-                    <button class="btn btn-xs btn-secondary" onclick="App.openCalibrationFilesModal()">Uložené kalibrace</button>
-                    <button class="btn btn-xs btn-secondary" id="btn-refresh-calibration" onclick="App.manualRefreshCalibration()" title="Znovu načte porty, kalibrační vazby a stav robota">Načíst stav</button>
-                    <button class="btn btn-xs btn-danger" id="btn-restart-server" onclick="App.restartServer()" title="Restartovat backend server Orchiday">Restart serveru</button>
+                <div class="block-head-row">
+                  <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path><circle cx="10" cy="10" r="2"></circle></svg> <span data-i18n="blk.calibrate.title">Kalibrace ramen</span></h3>
+                  <span class="block-head-sub" data-i18n="blk.calibrate.sub">lerobot-calibrate — jedno rameno na jeden běh</span>
+                </div>
+                <div class="setup-block-content cal-grid">
+
+                  <!-- Left column: per-arm state, each with its own run button ── -->
+                  <div class="cal-col">
+                    <section class="teleop-sub cal-arm-card" id="cal-arm-leader">
+                      <div class="teleop-sub-title-row">
+                        <h4 class="teleop-sub-title" data-i18n="lbl.leaderArm">Leader (řídicí)</h4>
+                        <span class="cal-arm-state" id="cal-state-leader" data-i18n="cal.stateUnknown">neznámý</span>
+                      </div>
+                      <div class="cal-kv">
+                        <span data-i18n="lbl.calDevice">Typ zařízení</span><strong id="cal-device-leader">-</strong>
+                        <span data-i18n="lbl.calId">ID (--teleop.id)</span><strong id="cal-id-leader">-</strong>
+                        <span data-i18n="lbl.calPort">Port</span><strong id="cal-port-leader">-</strong>
+                        <span data-i18n="lbl.calBoundFile">Aktivní soubor</span><strong id="cal-file-leader">-</strong>
+                        <span data-i18n="lbl.calJoints">Klouby</span><strong id="cal-joints-leader">-</strong>
+                      </div>
+                      <div class="cal-arm-actions">
+                        <button class="btn btn-xs btn-primary" id="btn-calibrate-leader" onclick="App.calibrateArm('leader')">
+                          <span data-i18n="btn.calibrateLeader">Kalibrovat leader</span> <span class="btn-port-hint" id="cal-tab-leader-port">-</span>
+                        </button>
+                        <span class="cal-arm-hint" data-i18n-html="hint.calRunLeader">Spustí <code>lerobot-calibrate</code> s <code>--teleop.type/port/id</code>.</span>
+                      </div>
+                    </section>
+
+                    <section class="teleop-sub cal-arm-card" id="cal-arm-follower">
+                      <div class="teleop-sub-title-row">
+                        <h4 class="teleop-sub-title" data-i18n="lbl.followerArm">Follower (vykonávací)</h4>
+                        <span class="cal-arm-state" id="cal-state-follower" data-i18n="cal.stateUnknown">neznámý</span>
+                      </div>
+                      <div class="cal-kv">
+                        <span data-i18n="lbl.calDevice">Typ zařízení</span><strong id="cal-device-follower">-</strong>
+                        <span data-i18n="lbl.calIdRobot">ID (--robot.id)</span><strong id="cal-id-follower">-</strong>
+                        <span data-i18n="lbl.calPort">Port</span><strong id="cal-port-follower">-</strong>
+                        <span data-i18n="lbl.calBoundFile">Aktivní soubor</span><strong id="cal-file-follower">-</strong>
+                        <span data-i18n="lbl.calJoints">Klouby</span><strong id="cal-joints-follower">-</strong>
+                      </div>
+                      <div class="cal-arm-actions">
+                        <button class="btn btn-xs btn-primary" id="btn-calibrate-follower" onclick="App.calibrateArm('follower')">
+                          <span data-i18n="btn.calibrateFollower">Kalibrovat follower</span> <span class="btn-port-hint" id="cal-tab-follower-port">-</span>
+                        </button>
+                        <span class="cal-arm-hint" data-i18n-html="hint.calRunFollower">Spustí <code>lerobot-calibrate</code> s <code>--robot.type/port/id</code>.</span>
+                      </div>
+                    </section>
+
+                    <section class="teleop-sub">
+                      <div class="teleop-sub-title-row">
+                        <h4 class="teleop-sub-title" data-i18n="blk.calStore.title">Uložené kalibrace</h4>
+                        <span class="cal-arm-state" id="cal-files-count">-</span>
+                      </div>
+                      <div class="cal-store-note" id="cal-files-summary" data-i18n="hint.calStoreIdle">Načtěte stav, ať se zjistí, kolik kalibračních souborů projekt a cache LeRobotu obsahují.</div>
+                      <div class="cal-arm-actions">
+                        <button class="btn btn-xs btn-secondary" onclick="App.openCalibrationFilesModal()"
+                                data-i18n-title="tip.calManage" data-i18n="btn.calManage">Spravovat soubory</button>
+                        <button class="btn btn-xs btn-secondary" id="btn-refresh-calibration" onclick="App.manualRefreshCalibration()"
+                                data-i18n-title="tip.calRefresh" data-i18n="btn.loadState">Načíst stav</button>
+                        <span class="panel-toolbar-spacer"></span>
+                        <button class="btn btn-xs btn-danger" id="btn-restart-server" onclick="App.restartServer()"
+                                data-i18n-title="tip.restartServer" data-i18n="btn.restartServer">Restart serveru</button>
+                      </div>
+                    </section>
+
+                    <!-- Last section, and the only one allowed to grow: the
+                         schematic drawn from the ranges currently bound, and
+                         animated from calibration_progress while a run is
+                         live. It absorbs this column's spare height. -->
+                    <section class="teleop-sub cal-visual-sub">
+                      <div class="teleop-sub-title-row">
+                        <h4 class="teleop-sub-title" data-i18n="blk.calVisual.title">Rozsahy kloubů</h4>
+                        <span class="cal-arm-state" data-i18n="hint.calVisualSrc">z aktivních souborů</span>
+                      </div>
+                      <div class="cal-live-visual">
+                        <div id="arm-visual-cal-wrap" class="arm-visual-svg-wrap"></div>
+                        <div id="cal-live-legend" class="arm-visual-legend"></div>
+                      </div>
+                    </section>
                   </div>
 
-                  <p class="cfg-card-desc" style="margin:0;" data-i18n-html="hint.calFlow">
-                    Kalibrace zaznamenává reálné fyzické hodnoty enkodéru motorů (0–4095) bez vynuceného posunu středu.
-                    <strong>1)</strong> Potvrďte zahájení měření rozsahu.
-                    <strong>2)</strong> Projeďte každý kloub celým jeho fyzickým rozsahem až na doraz a potvrďte.
-                    Sloupec <em>ROZPĚTÍ</em> ukazuje naměřené rozpětí každého motoru.
-                    <code>wrist_roll</code> se needituje, LeRobot mu pevně nastavuje plnou otáčku.
-                  </p>
+                  <!-- Right column: the run itself. Idle -> the procedure
+                       lerobot-calibrate really walks through; running -> the
+                       live MIN/POS/MAX table driven by calibration_progress. -->
+                  <div class="cal-col cal-col-run">
+                    <div class="teleop-sub-title-row">
+                      <h4 class="teleop-sub-title">
+                        <span data-i18n="cal.liveTitle">Živá kalibrace</span>
+                        <strong id="calibration-live-robot" class="cal-live-robot"></strong>
+                      </h4>
+                      <span class="cal-live-phase" id="cal-live-phase" data-i18n="cal.phaseIdle">nespuštěno</span>
+                    </div>
 
-                  <!-- Live calibration panel — mirrors LeRobot's own interactive flow:
-                       1) input() "move to the middle of range, press ENTER"
-                       2) NAME|MIN|POS|MAX table until enter_pressed() ends the recording -->
-                  <div id="calibration-live-panel" class="cal-live-panel" style="display:none;">
-                    <div class="cal-live-title">
-                      <span data-i18n="cal.liveTitle">Živá kalibrace</span>:
-                      <strong id="calibration-live-robot"></strong>
-                      <span class="cal-live-phase" id="cal-live-phase"></span>
+                    <!-- Idle: the four gates of device.calibrate(), quoted from
+                         LeRobot's own prompts so the buttons below read as
+                         answers to a specific question. -->
+                    <div id="cal-procedure" class="cal-proc">
+                      <ol class="cal-proc-list">
+                        <li>
+                          <span class="cal-proc-head" data-i18n="cal.step1.title">Existující soubor — jen když už je</span>
+                          <code class="cal-proc-prompt">Press ENTER to use provided calibration file associated with the id &lt;id&gt;, or type 'c' and press ENTER to run calibration:</code>
+                          <span class="cal-proc-desc" data-i18n-html="cal.step1.desc">Tenhle dotaz LeRobot položí pouze tehdy, když pro dané <code>id</code> už kalibrační soubor existuje. „Potvrdit (Enter)“ ho použije beze změny, „Kalibrovat znovu (c)“ vynutí nové měření.</span>
+                        </li>
+                        <li>
+                          <span class="cal-proc-head" data-i18n="cal.step2.title">Střed rozsahu</span>
+                          <code class="cal-proc-prompt">Move &lt;device&gt; to the middle of its range of motion and press ENTER....</code>
+                          <span class="cal-proc-desc" data-i18n-html="cal.step2.desc">Po potvrzení zavolá LeRobot <code>set_half_turn_homings()</code> a zapíše homing offsety. Rameno v tu chvíli musí být opravdu ve středu, jinak jsou offsety posunuté.</span>
+                        </li>
+                        <li>
+                          <span class="cal-proc-head" data-i18n="cal.step3.title">Záznam rozsahů kloubů</span>
+                          <code class="cal-proc-prompt">Move all joints except 'wrist_roll' sequentially through their entire ranges of motion. Recording positions. Press ENTER to stop...</code>
+                          <span class="cal-proc-desc" data-i18n-html="cal.step3.desc">Tabulka níže se plní živě z běžícího procesu. <code>wrist_roll</code> se nezaznamenává — LeRobot mu pevně nastaví 0–4095.</span>
+                        </li>
+                        <li>
+                          <span class="cal-proc-head" data-i18n="cal.step4.title">Uložení</span>
+                          <code class="cal-proc-prompt">Calibration saved to &lt;cache&gt;/robots|teleoperators/&lt;typ&gt;/&lt;id&gt;.json</code>
+                          <span class="cal-proc-desc" data-i18n-html="cal.step4.desc">Orchiday soubor po dokončení zazálohuje do projektu, aby přežil čištění cache LeRobotu.</span>
+                        </li>
+                      </ol>
                     </div>
-                    <div class="cal-live-visual">
-                      <div id="arm-visual-cal-wrap" class="arm-visual-svg-wrap"></div>
-                      <div id="cal-live-legend" class="arm-visual-legend"></div>
+
+                    <!-- Idle: what the bound calibration files actually store
+                         per joint. Same numbers the schematic is drawn from,
+                         and the reason `wrist_roll` reads 0–4095. -->
+                    <div id="cal-ranges" class="cal-ranges">
+                      <div class="teleop-sub-title-row">
+                        <h4 class="teleop-sub-title" data-i18n="blk.calRanges.title">Uložené rozsahy kloubů</h4>
+                        <span class="cal-arm-state" id="cal-ranges-source">-</span>
+                      </div>
+                      <table class="cal-live-table">
+                        <thead>
+                          <tr>
+                            <th data-i18n="cal.motor">Motor</th>
+                            <th data-i18n="cal.colId">ID</th>
+                            <th data-i18n="cal.min">MIN</th>
+                            <th data-i18n="cal.max">MAX</th>
+                            <th data-i18n="cal.span">ROZPĚTÍ</th>
+                          </tr>
+                        </thead>
+                        <tbody id="cal-ranges-tbody"></tbody>
+                      </table>
+                      <div class="cal-ranges-note" id="cal-ranges-note" data-i18n="hint.calRangesEmpty">Otevřete projekt s nakonfigurovaným robotem — rozsahy se čtou z kalibračních souborů navázaných na ramena.</div>
                     </div>
-                    <table class="cal-live-table">
-                      <thead>
-                        <tr>
-                          <th data-i18n="cal.motor">Motor</th>
-                          <th data-i18n="cal.min">MIN</th>
-                          <th data-i18n="cal.pos">POS</th>
-                          <th data-i18n="cal.max">MAX</th>
-                          <th data-i18n="cal.span">ROZPĚTÍ</th>
-                        </tr>
-                      </thead>
-                      <tbody id="calibration-live-tbody"></tbody>
-                    </table>
-                    <div id="cal-live-note" class="cal-live-note"></div>
-                    <div class="cal-live-actions">
-                      <button class="btn btn-xs btn-primary" onclick="App.confirmCalibrationStep()"
-                              title="Odešle Enter — potvrdí aktuální krok (střed rozsahu), nebo ukončí a uloží záznam rozsahu pohybu."
-                              data-i18n="cal.confirm">Potvrdit (Enter)</button>
-                      <button class="btn btn-xs btn-secondary" onclick="App.forceNewCalibration()"
-                              title="Odpoví 'c' na dotaz LeRobotu, zda použít uložený kalibrační soubor — vynutí nové měření."
-                              data-i18n="cal.recalibrate">Kalibrovat znovu (c)</button>
-                      <span class="panel-toolbar-spacer"></span>
-                      <button class="btn btn-xs btn-danger" onclick="App.cancelCalibration()" data-i18n="cal.cancel">Přerušit</button>
+
+                    <!-- Running: streamed MIN/POS/MAX rows + the answers to the
+                         gates above. -->
+                    <div id="calibration-live-panel" class="cal-live-panel" style="display:none;">
+                      <table class="cal-live-table">
+                        <thead>
+                          <tr>
+                            <th data-i18n="cal.motor">Motor</th>
+                            <th data-i18n="cal.min">MIN</th>
+                            <th data-i18n="cal.pos">POS</th>
+                            <th data-i18n="cal.max">MAX</th>
+                            <th data-i18n="cal.span">ROZPĚTÍ</th>
+                          </tr>
+                        </thead>
+                        <tbody id="calibration-live-tbody"></tbody>
+                      </table>
+                      <div id="cal-live-note" class="cal-live-note"></div>
+                      <div class="cal-live-actions">
+                        <button class="btn btn-xs btn-primary" onclick="App.confirmCalibrationStep()"
+                                data-i18n-title="tip.calConfirm"
+                                data-i18n="cal.confirm">Potvrdit (Enter)</button>
+                        <button class="btn btn-xs btn-secondary" onclick="App.forceNewCalibration()"
+                                data-i18n-title="tip.calForceNew"
+                                data-i18n="cal.recalibrate">Kalibrovat znovu (c)</button>
+                        <span class="panel-toolbar-spacer"></span>
+                        <button class="btn btn-xs btn-danger" onclick="App.cancelCalibration()"
+                                data-i18n-title="tip.calCancel" data-i18n="cal.cancel">Přerušit</button>
+                      </div>
                     </div>
                   </div>
+
                 </div>
               </div>
             </div>
@@ -2739,7 +2852,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.57.0" defer></script>
-  <script src="/static/app.js?v=3.57.0" defer></script>
+  <script src="/static/i18n.js?v=3.58.0" defer></script>
+  <script src="/static/app.js?v=3.58.0" defer></script>
 </body>
 </html>

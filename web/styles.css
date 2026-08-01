@@ -3759,12 +3759,21 @@ body.resizing * {
    the bottom of the panel — including the .block-actions footer with the
    primary action — was pushed out of the scrollport. Shrinking hands the
    overflow to .setup-block-content, which already scrolls. */
-#page-setup .setup-wizard-panel[data-tab-panel="calibrate"] .setup-section,
 #page-setup .setup-wizard-panel[data-tab-panel="models"] .setup-section {
     flex: 0 1 auto;
     min-height: 0;
     grid-template-rows: minmax(0, auto);
     max-width: 640px;
+}
+
+/* Kalibrace deliberately has NO max-width and DOES take the full height: the
+   page is a two-column workspace (per-arm state | the running calibration),
+   and the schematic on the right is what absorbs spare height. Capping it at
+   640px left ~700px of the window empty at 1600x900. */
+#page-setup .setup-wizard-panel[data-tab-panel="calibrate"] .setup-section {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
 }
 
 #page-datasety .setup-wizard-panel[data-tab-panel="manage"] .setup-section,
@@ -3781,18 +3790,269 @@ body.resizing * {
     font-style: italic;
 }
 
-.cal-live-visual {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-    flex-wrap: wrap;
+/* ── Setup / Kalibrace workspace ──────────────────────────────────────
+   Two columns of equal standing: what each arm currently is (left) and the
+   run itself (right). Same shape as the teleop page, so both pages read as
+   the same tool. */
+.cal-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
+    gap: 16px;
+    align-items: stretch;
+    min-height: 0;
+    overflow: hidden;
 }
 
-.cal-live-visual .arm-visual-legend {
-    flex: 1;
-    min-width: 140px;
+.cal-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Cards keep their natural height — the column never distributes spare space
+   into them, it scrolls instead (same rule as .teleop-col > .teleop-sub).
+   The schematic section is the single exception: it is the one element that
+   is better for being bigger, so it takes whatever the cards left over. */
+.cal-col > .teleop-sub {
+    flex: 0 0 auto;
+}
+
+.cal-col > .cal-visual-sub {
+    flex: 1 1 auto;
+    min-height: 170px;
+}
+
+/* Under ~1000px the two columns stack; the run column keeps a usable height
+   instead of collapsing to its header. */
+@media (max-width: 1000px) {
+    .cal-grid {
+        grid-template-columns: minmax(0, 1fr);
+        grid-auto-rows: minmax(240px, auto);
+        overflow-y: auto;
+    }
+}
+
+.cal-arm-card.is-calibrated {
+    border-left: 3px solid var(--green, #4caf50);
+}
+
+.cal-arm-card.is-default {
+    border-left: 3px solid var(--yellow, #ffa726);
+}
+
+.cal-arm-state {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.cal-arm-card.is-calibrated .cal-arm-state {
+    color: var(--green, #4caf50);
+}
+
+.cal-arm-card.is-default .cal-arm-state {
+    color: var(--yellow, #ffa726);
+}
+
+/* Label/value pairs. The value column may shrink and wrap — calibration file
+   names and device types are long and must not push the card wider. */
+.cal-kv {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 4px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.cal-kv strong {
+    color: var(--text-white);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-align: right;
+    word-break: break-all;
+}
+
+.cal-kv strong.is-default {
+    color: var(--yellow, #ffa726);
+}
+
+/* The action that belongs to this card, pinned under its own data. Buttons
+   keep their intrinsic width (flex: 0 0 auto) — the hint takes the slack. */
+.cal-arm-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-dark);
+}
+
+.cal-arm-actions .btn {
+    flex: 0 0 auto;
+}
+
+.cal-arm-hint {
+    flex: 1 1 140px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+
+.cal-store-note,
+.cal-ranges-note {
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+/* Sits at the bottom of its block rather than tight under the last row: the
+   table has a fixed number of rows, so the leftover height becomes the gap
+   above a footer note instead of an unexplained hole under the block. */
+.cal-ranges-note {
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-dark);
+}
+
+/* Rows keep a fixed height so a five-row table never turns into five slabs
+   when the column is tall; leftover height stays below the table. */
+.cal-ranges .cal-live-table tr {
+    height: 22px;
+}
+
+/* --- Run column --- */
+.cal-col-run {
+    gap: 10px;
+}
+
+.cal-live-robot {
+    font-family: var(--font-mono);
+    color: var(--text-white);
+}
+
+/* The procedure keeps its natural height. Distributing the column's spare
+   height between the four steps was tried and looked broken — 120px gaps
+   between list items. The joint-range table below takes the slack instead,
+   because it has real rows to show. */
+.cal-proc {
+    flex: 0 0 auto;
+}
+
+.cal-ranges {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* While a calibration runs, the live table is the primary content and moves
+   above the procedure; the procedure stays as the map of where the process
+   is. `order` avoids duplicating either block in the markup. */
+.cal-col-run > .cal-live-panel {
+    order: 1;
+    flex: 0 0 auto;
+    margin-top: 0;
+}
+
+.cal-col-run > .cal-proc {
+    order: 2;
+}
+
+.cal-col-run > .cal-ranges {
+    order: 3;
+}
+
+.cal-col-run.is-running > .cal-proc {
+    flex: 1 0 auto;
+}
+
+/* The gate the process is waiting on right now. */
+.cal-proc-list > li.is-active .cal-proc-head {
+    color: var(--yellow);
+}
+
+.cal-proc-list > li.is-active .cal-proc-prompt {
+    border-left-color: var(--yellow);
+    color: var(--text-light);
+}
+
+.cal-proc-list {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cal-proc-list li {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cal-proc-head {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--text-light);
+}
+
+/* Quoted verbatim from LeRobot, so it is set apart as terminal output. */
+.cal-proc-prompt {
+    display: block;
     padding: 4px 6px;
+    background: rgba(0, 0, 0, 0.28);
+    border-left: 2px solid var(--border-light);
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.cal-proc-desc {
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+.cal-proc-desc code,
+.cal-arm-hint code {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--cyan);
+}
+
+/* basis 0, so it takes exactly the height its section did not claim. */
+.cal-live-visual {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    flex: 1 1 0;
+    min-height: 120px;
+}
+
+/* Motor-id badges stack in a narrow column beside the schematic, so a square
+   diagram does not sit alone in a wide box. */
+.cal-live-visual .arm-visual-legend {
+    flex: 0 1 130px;
+    align-self: center;
+    padding: 4px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
 }
 
 .cal-files-scroll {
@@ -4808,13 +5068,16 @@ body { min-width: 320px; }
     aspect-ratio: 1 / 1;
 }
 
-/* The calibration page shows the same schematic inline next to the joint
-   legend, where it must stay a small fixed thumbnail. */
+/* On the calibration page the schematic is the element that absorbs the run
+   column's spare height (the procedure list and the live table both have a
+   fixed content height), so it grows instead of staying a thumbnail. The SVG
+   itself keeps its 1:1 ratio, so it is capped by whichever of width/height
+   runs out first. */
 .cal-live-visual .arm-visual-svg-wrap {
-    flex: 0 0 auto;
-    width: 100px;
-    min-height: 0;
-    aspect-ratio: 1 / 1;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    min-height: 120px;
 }
 
 .arm-floor {
