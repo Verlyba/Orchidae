@@ -613,7 +613,7 @@ const App = {
   // Maps a tab id to its parent navigation category (two-level nav)
   _navCategoryOf(tabId: string): string | null {
     const map: Record<string, string> = {
-      setup: 'setup', hwtools: 'setup',
+      setup: 'setup',
       datasety: 'datasets',
       uceni: 'learning',
       modelrun: 'orchestration',
@@ -747,7 +747,6 @@ const App = {
     if (bcSection) {
       if (tabId === 'projects') bcSection.textContent = 'projects';
       else if (tabId === 'setup') bcSection.textContent = 'setup';
-      else if (tabId === 'hwtools') bcSection.textContent = 'hardware_tools';
       else if (tabId === 'teleoperation') bcSection.textContent = 'teleoperation';
       else if (tabId === 'datasety') bcSection.textContent = 'datasets';
       else if (tabId === 'uceni') bcSection.textContent = 'learning';
@@ -758,7 +757,6 @@ const App = {
     if (bcFile) {
       if (tabId === 'projects') bcFile.textContent = 'projects.json';
       else if (tabId === 'setup') bcFile.textContent = 'setup.json';
-      else if (tabId === 'hwtools') bcFile.textContent = 'lerobot_cli_tools';
       else if (tabId === 'teleoperation') bcFile.textContent = 'teleoperation.json';
       else if (tabId === 'datasety') bcFile.textContent = this.activeSkill || 'pick_cube';
       else if (tabId === 'uceni') bcFile.textContent = 'policy_training.json';
@@ -837,6 +835,19 @@ const App = {
       (panel as HTMLElement).style.display = (panel as HTMLElement).dataset.tabPanel === tab ? '' : 'none';
     });
     if (tab === 'advanced') this.advPopulateResumeSkills();
+  },
+
+  /** Switches the Settings wizard between "Cesty a diagnostika" and the
+   * LeRobot CLI utilities, which used to be a separate top-level page. */
+  switchSettingsTab(tab: 'paths' | 'tools'): void {
+    const page = document.getElementById('page-settings');
+    if (!page) return;
+    page.querySelectorAll('.setup-wizard-tab-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tab);
+    });
+    page.querySelectorAll('.setup-wizard-panel').forEach(panel => {
+      (panel as HTMLElement).style.display = (panel as HTMLElement).dataset.tabPanel === tab ? '' : 'none';
+    });
   },
 
   // ── Policy architecture picker (learning page) ──────────────────────
