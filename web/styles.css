@@ -4801,3 +4801,30 @@ body { min-width: 320px; }
     color: var(--text-muted);
     font-size: 9.5px;
 }
+
+/* Unified Teleoperation Page Grid */
+#page-teleoperation .setup-block {
+    flex: 1;
+    min-height: 0;
+}
+
+.teleop-unified-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.05fr 1fr 0.95fr;
+    gap: 16px;
+    align-items: stretch;
+    min-height: 0;
+}
+
+@media (max-width: 1200px) {
+    .teleop-unified-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .teleop-unified-grid {
+        grid-template-columns: 1fr;
+    }
+}

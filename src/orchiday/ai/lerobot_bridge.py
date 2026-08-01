@@ -2668,7 +2668,7 @@ if __name__ == "__main__":
             pass
 
     def _kill_process(self, key: str) -> None:
-        """Forcibly terminate a running subprocess (Emergency Stop)."""
+        """Terminate a running subprocess gracefully, falling back to force kill if needed."""
         log.warning("Emergency Stop: Terminating LeRobot process: %s", key)
         self._cancelled_keys.add(key)
 
@@ -2679,10 +2679,15 @@ if __name__ == "__main__":
                 if proc:
                     self._kill_qprocess_tree(proc)
 
-        # 2. Kill main process if running
+        # 2. Terminate main process if running (attempt soft terminate first, then kill tree)
         process = self._active_processes.pop(key, None)
         if process:
-            self._kill_qprocess_tree(process)
+            if process.state() == QProcess.ProcessState.Running:
+                process.terminate()
+                if not process.waitForFinished(500):
+                    self._kill_qprocess_tree(process)
+            else:
+                self._kill_qprocess_tree(process)
 
         # 3. On Windows, if stopping teleop or recording, clean up orphan rerun.exe processes
         if sys.platform == "win32" and key in ("teleop", "record"):
@@ -2701,7 +2706,7 @@ if __name__ == "__main__":
         self._release_process_resources(key)
         kind = self._process_kinds.pop(key, "unknown")
         event_bus.process_finished.emit(key, kind)
-        event_bus.log_message.emit("WARN", f"Process '{key}' terminated by Emergency Stop!")
+        event_bus.log_message.emit("WARN", f"Process '{key}' terminated!")
 
     def kill_all(self) -> None:
         """Kill all active processes and the persistent shell."""

@@ -362,6 +362,7 @@ const App = {
         break;
       case 'process_finished':
         delete this.runningProcs[data.key];
+        this.updateActionButtonStates();
         this.updateHardwareButtonStates();
         // robot_calibrated only fires on success — also hide the live table
         // here so a FAILED calibration doesn't leave it stuck on screen.

@@ -452,12 +452,18 @@
             <h2 data-i18n="page.teleoperation.title">Manuální Řízení & Teleoperace</h2>
           </div>
 
-          <div class="setup-section" style="grid-template-columns: 1.05fr 1fr 0.85fr;">
-            <!-- Left Column: Teleop Control Panel -->
-            <div class="setup-block" style="flex: 1; display: flex; flex-direction: column;">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15V9a4 4 0 0 0-8 0v6M6 15V9a4 4 0 0 1 8 0v6"></path><circle cx="12" cy="18" r="3"></circle></svg> <span data-i18n="blk.tele.control">Ovládání relace teleoperace</span></h3>
+          <div class="setup-block" style="flex: 1; display: flex; flex-direction: column; gap: 16px; min-height: 0;">
+            <div class="block-head-row" style="margin-bottom: 0; padding-bottom: 10px; border-bottom: 1px solid var(--border-dark);">
+              <h3 style="margin: 0; border: none; padding: 0; display: flex; align-items: center; gap: 8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15V9a4 4 0 0 0-8 0v6M6 15V9a4 4 0 0 1 8 0v6"></path><circle cx="12" cy="18" r="3"></circle></svg>
+                <span data-i18n="blk.tele.control">Ovládání a telemetrie teleoperace</span>
+              </h3>
+            </div>
+
+            <div class="teleop-unified-grid">
               
-              <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
+              <!-- Column 1: Config & Settings -->
+              <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 12px;">
                 <!-- Active Hardware Display -->
                 <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 10px; border-radius: var(--radius); display: flex; flex-direction: column; gap: 6px;">
                   <h4 style="font-size: 10px; color: var(--cyan); text-transform: uppercase; margin: 0; font-weight: 700; letter-spacing: 0.5px;" data-i18n="h4.tele.activeHw">Aktivní Konfigurace Hardware</h4>
@@ -500,113 +506,110 @@
                 </div>
               </div>
 
-              <div class="block-actions">
-                <span id="tele-running-badge" class="running-badge" style="display:none;" role="status">● TELEOP AKTIVNÍ</span>
-                <span class="block-actions-hint" data-i18n="hint.teleopScope">Spustí lerobot-teleoperate s porty a kalibrací z karty Setup.</span>
-                <button class="btn btn-xs btn-primary" id="btn-start-teleop" disabled onclick="App.startTeleop()" data-i18n="btn.startTeleop">Spustit Teleop</button>
-                <button class="btn btn-xs btn-danger" id="btn-stop-teleop" onclick="App.stopTeleop()" disabled title="Teleoperace neběží" data-i18n="btn.stopTeleop">Zastavit Teleop</button>
-              </div>
-             </div>
-
-            <!-- Right Column: Live telemetry -->
-            <div class="setup-block" style="display: flex; flex-direction: column; flex: 1;">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> <span data-i18n="blk.tele.telemetry">Telemetrie motorů a kloubů</span></h3>
-              
-              <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px; justify-content: stretch; height: 100%;">
-                <!-- Real-Time Telemetry Dashboard -->
-                <div style="flex: 1; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); display: flex; flex-direction: column; justify-content: space-between; gap: 8px; height: 100%;">
-                  <!-- Metrics — compact single row of stat tiles -->
-                  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
-                    <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
-                      <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" data-i18n="hint.settleStatus" title="Settle Status (Uklidnění)">Settle Status</span>
-                      <span id="tele-infer-settle-frames" style="font-family: var(--font-mono); font-weight: bold; color: var(--cyan); font-size: 13px;">0/5</span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
-                      <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap;" data-i18n="hint.gripperLoadShort">Proud gripperu</span>
-                      <span id="tele-infer-gripper-load" style="font-family: var(--font-mono); font-weight: bold; color: var(--yellow); font-size: 13px;">0.0 mA</span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
-                      <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap;" data-i18n="hint.maxDeltaShort">Max odchylka</span>
-                      <span id="tele-infer-max-delta" style="font-family: var(--font-mono); font-weight: bold; color: var(--text-light); font-size: 13px;">0.0000 rad</span>
-                    </div>
+              <!-- Column 2: Live Telemetry -->
+              <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                <h4 style="font-size: 10px; color: var(--cyan); text-transform: uppercase; margin: 0; font-weight: 700; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                  <span data-i18n="blk.tele.telemetry">Telemetrie motorů a kloubů</span>
+                </h4>
+                
+                <!-- Metrics Stat Tiles -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                  <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
+                    <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" data-i18n="hint.settleStatus" title="Settle Status (Uklidnění)">Settle Status</span>
+                    <span id="tele-infer-settle-frames" style="font-family: var(--font-mono); font-weight: bold; color: var(--cyan); font-size: 13px;">0/5</span>
                   </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
+                    <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap;" data-i18n="hint.gripperLoadShort">Proud gripperu</span>
+                    <span id="tele-infer-gripper-load" style="font-family: var(--font-mono); font-weight: bold; color: var(--yellow); font-size: 13px;">0.0 mA</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px; overflow: hidden;">
+                    <span style="font-size: 8.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; white-space: nowrap;" data-i18n="hint.maxDeltaShort">Max odchylka</span>
+                    <span id="tele-infer-max-delta" style="font-family: var(--font-mono); font-weight: bold; color: var(--text-light); font-size: 13px;">0.0000 rad</span>
+                  </div>
+                </div>
 
-                  <!-- Joint telemetry list -->
-                  <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; min-height: 0;">
-                    <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="hint.jointAngles">Úhly kloubů (Aktuální vs Cíl)</div>
-                    <div id="tele-joints-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: 1; align-items: stretch;">
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
-                        <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J1</div>
-                        <div id="tele-joint-val-0" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
-                        <div id="tele-joint-tgt-0" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
-                      </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
-                        <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J2</div>
-                        <div id="tele-joint-val-1" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
-                        <div id="tele-joint-tgt-1" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
-                      </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
-                        <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J3</div>
-                        <div id="tele-joint-val-2" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
-                        <div id="tele-joint-tgt-2" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
-                      </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
-                        <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J4</div>
-                        <div id="tele-joint-val-3" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
-                        <div id="tele-joint-tgt-3" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
-                      </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
-                        <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J5</div>
-                        <div id="tele-joint-val-4" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
-                        <div id="tele-joint-tgt-4" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
-                      </div>
-                      <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
-                        <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J6 (Grip)</div>
-                        <div id="tele-joint-val-5" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
-                        <div id="tele-joint-tgt-5" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
-                      </div>
+                <!-- Joint Telemetry Grid -->
+                <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; min-height: 0;">
+                  <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="hint.jointAngles">Úhly kloubů (Aktuální vs Cíl)</div>
+                  <div id="tele-joints-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: 1; align-items: stretch;">
+                    <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
+                      <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J1</div>
+                      <div id="tele-joint-val-0" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
+                      <div id="tele-joint-tgt-0" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
+                    </div>
+                    <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
+                      <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J2</div>
+                      <div id="tele-joint-val-1" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
+                      <div id="tele-joint-tgt-1" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
+                    </div>
+                    <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
+                      <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J3</div>
+                      <div id="tele-joint-val-2" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
+                      <div id="tele-joint-tgt-2" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
+                    </div>
+                    <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
+                      <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J4</div>
+                      <div id="tele-joint-val-3" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
+                      <div id="tele-joint-tgt-3" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
+                    </div>
+                    <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
+                      <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J5</div>
+                      <div id="tele-joint-val-4" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
+                      <div id="tele-joint-tgt-4" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
+                    </div>
+                    <div class="joint-telemetry-box" style="font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 6px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 3px; transition: border-color 0.2s, background 0.2s;">
+                      <div style="color: var(--text-muted); font-size: 9px; font-weight: bold;">J6 (Grip)</div>
+                      <div id="tele-joint-val-5" style="color: var(--text-light); font-weight:700; font-size: 13px;">0.0000</div>
+                      <div id="tele-joint-tgt-5" style="color: var(--text-muted); font-size: 9px;">0.0000</div>
                     </div>
                   </div>
                 </div>
               </div>
+
+              <!-- Column 3: Arm Visualization -->
+              <div id="arm-visual-block" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                <div class="block-head-row" style="margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border-dark); display: flex; justify-content: space-between; align-items: center;">
+                  <h4 style="font-size: 10px; color: var(--cyan); text-transform: uppercase; margin: 0; font-weight: 700; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15V9a4 4 0 0 0-8 0v6M6 15V9a4 4 0 0 1 8 0v6"></path><circle cx="12" cy="18" r="3"></circle></svg>
+                    <span id="arm-visual-title" data-i18n="blk.tele.armVisual">Vizualizace ramen</span>
+                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.armVisual">ⓘ</span>
+                  </h4>
+                  <button class="btn btn-xs btn-secondary btn-icon" id="arm-visual-toggle-btn" onclick="App.toggleArmVisualPanel()" data-i18n-title="tip.toggleArmVisual" title="Skrýt vizualizaci ramen">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  </button>
+                </div>
+                <div class="setup-block-content" id="arm-visual-content-wrap" style="flex: 1; overflow-y: auto;">
+                  <div id="arm-visual-empty" class="empty-state" style="display:none;">
+                    <div class="empty-state-text" data-i18n="hint.armVisualNoRobot">Otevřete projekt s nakonfigurovaným robotem, aby se zobrazila vizualizace ramen.</div>
+                  </div>
+                  <div id="arm-visual-grid" class="arm-visual-grid">
+                    <div class="arm-visual-legend" id="arm-visual-legend"></div>
+                    <div class="arm-visual-col">
+                      <div class="arm-visual-label" data-i18n="lbl.leaderArm">Leader (řídicí)</div>
+                      <div class="arm-visual-svg-wrap" id="arm-visual-leader-wrap"></div>
+                      <div class="arm-visual-meta" id="arm-visual-leader-meta"></div>
+                    </div>
+                    <div class="arm-visual-col">
+                      <div class="arm-visual-label" data-i18n="lbl.followerArm">Follower (vykonávací)</div>
+                      <div class="arm-visual-svg-wrap" id="arm-visual-follower-wrap"></div>
+                      <div class="arm-visual-meta" id="arm-visual-follower-meta"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
-            <!-- Third Column: calibration-driven live dual-arm visualization —
-                 collapsible since it's supplementary to the control/telemetry
-                 panels, not something every session needs open. -->
-            <div class="setup-block" id="arm-visual-block" style="display: flex; flex-direction: column; flex: 1;">
-              <div class="block-head-row" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-dark);">
-                <h3 style="margin:0; border:none; padding:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15V9a4 4 0 0 0-8 0v6M6 15V9a4 4 0 0 1 8 0v6"></path><circle cx="12" cy="18" r="3"></circle></svg> <span id="arm-visual-title" data-i18n="blk.tele.armVisual">Vizualizace ramen (podle kalibrace)</span>
-                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.armVisual">ⓘ</span>
-                </h3>
-                <button class="btn btn-xs btn-secondary btn-icon" id="arm-visual-toggle-btn" onclick="App.toggleArmVisualPanel()" data-i18n-title="tip.toggleArmVisual" title="Skrýt vizualizaci ramen">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                </button>
-              </div>
-              <div class="setup-block-content" id="arm-visual-content-wrap" style="flex: 1; overflow-y: auto;">
-                <div id="arm-visual-empty" class="empty-state" style="display:none;">
-                  <div class="empty-state-text" data-i18n="hint.armVisualNoRobot">Otevřete projekt s nakonfigurovaným robotem, aby se zobrazila vizualizace ramen.</div>
-                </div>
-                <div id="arm-visual-grid" class="arm-visual-grid">
-                  <!-- Joint legend shown ONCE — both arms share the same base->gripper
-                       chain order, so per-arm id badges would just repeat this. -->
-                  <div class="arm-visual-legend" id="arm-visual-legend"></div>
-                  <div class="arm-visual-col">
-                    <div class="arm-visual-label" data-i18n="lbl.leaderArm">Leader (řídicí)</div>
-                    <div class="arm-visual-svg-wrap" id="arm-visual-leader-wrap"></div>
-                    <div class="arm-visual-meta" id="arm-visual-leader-meta"></div>
-                  </div>
-                  <div class="arm-visual-col">
-                    <div class="arm-visual-label" data-i18n="lbl.followerArm">Follower (vykonávací)</div>
-                    <div class="arm-visual-svg-wrap" id="arm-visual-follower-wrap"></div>
-                    <div class="arm-visual-meta" id="arm-visual-follower-meta"></div>
-                  </div>
-                </div>
-              </div>
+            <!-- Footer Action Bar -->
+            <div class="block-actions" style="margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border-dark); display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
+              <span id="tele-running-badge" class="running-badge" style="display:none;" role="status">● TELEOP AKTIVNÍ</span>
+              <span class="block-actions-hint" style="margin-right: auto;" data-i18n="hint.teleopScope">Spustí lerobot-teleoperate s porty a kalibrací z karty Setup.</span>
+              <button class="btn btn-xs btn-primary" id="btn-start-teleop" disabled onclick="App.startTeleop()" data-i18n="btn.startTeleop">Spustit Teleop</button>
+              <button class="btn btn-xs btn-danger" id="btn-stop-teleop" onclick="App.stopTeleop()" disabled title="Teleoperace neběží" data-i18n="btn.stopTeleop">Zastavit Teleop</button>
             </div>
           </div>
         </div>
-
 
         <!-- PAGE 2: SBĚR DAT (Unified Multi-Streaming & Recording Suite) -->
         <div id="page-datasety" class="editor-area">
