@@ -4802,15 +4802,39 @@ body { min-width: 320px; }
     font-size: 9.5px;
 }
 
-/* Unified Page Layout & Grid Styles */
-.editor-area .setup-block {
+/* Unified Page Layout & Universal Vertical Expansion */
+.editor-area {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
     min-height: 0;
 }
 
 .editor-area .setup-section {
     flex: 1;
     min-height: 0;
+}
+
+.editor-area .setup-wizard-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+}
+
+.editor-area .setup-block {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.editor-area .setup-block-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 #page-teleoperation .setup-block {
@@ -4827,29 +4851,51 @@ body { min-width: 320px; }
     min-height: 0;
 }
 
+.projects-unified-grid,
+.connect-unified-grid,
+.manage-unified-grid,
+.modelrun-unified-grid,
 .settings-unified-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: 1.2fr 0.8fr;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 16px;
+    align-items: stretch;
+    min-height: 0;
+}
+
+.train-unified-grid,
+.adv-unified-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
     gap: 16px;
     align-items: stretch;
     min-height: 0;
 }
 
 @media (max-width: 1200px) {
-    .teleop-unified-grid {
+    .teleop-unified-grid,
+    .train-unified-grid,
+    .adv-unified-grid {
         grid-template-columns: 1fr 1fr;
     }
 }
 
 @media (max-width: 1000px) {
+    .projects-unified-grid,
+    .connect-unified-grid,
+    .manage-unified-grid,
+    .modelrun-unified-grid,
     .settings-unified-grid {
         grid-template-columns: 1fr;
     }
 }
 
 @media (max-width: 768px) {
-    .teleop-unified-grid {
+    .teleop-unified-grid,
+    .train-unified-grid,
+    .adv-unified-grid {
         grid-template-columns: 1fr;
     }
 }
