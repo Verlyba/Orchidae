@@ -893,11 +893,13 @@ input[readonly] {
 }
 
 /* Legacy aliases retained so older markup keeps a consistent look. */
+/* Colour variant only — width belongs to the layout, not to a look modifier.
+   (It used to force width:100%, which stretched the button across whatever
+   container it landed in.) */
 .btn-cyan-dashed {
     background: rgba(0, 188, 212, 0.08);
     border-color: rgba(0, 188, 212, 0.35);
     color: var(--cyan);
-    width: 100%;
 }
 .btn-cyan-dashed:hover:not(:disabled) {
     background: rgba(0, 188, 212, 0.16);
@@ -3317,12 +3319,19 @@ body.resizing * {
 }
 
 /* --- Policy architecture picker (replaces the plain <select>) --- */
+/* The picker sits in a flex:1/min-height:0 form-group, so the flexbox is
+   allowed to shrink it below its content height. Without min-height:0 +
+   overflow the five cards spilled out of the block and rendered on top of
+   the fields below them (steps / batch size / device). Scroll instead. */
 .policy-pick {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-auto-rows: auto;
+    grid-auto-rows: min-content;
     gap: 8px;
     margin-top: 6px;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
 }
 
 .policy-pick-card {
@@ -3373,6 +3382,67 @@ body.resizing * {
     gap: 10px;
     margin-bottom: 12px;
     flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BLOCK ACTION FOOTER
+   The counterpart of .block-head-row: primary actions live at the
+   bottom edge of the panel whose content they operate on, never in the
+   page header. Pinned below the scrolling .setup-block-content, so the
+   buttons stay reachable while the content scrolls.
+
+   Layout contract: the hint takes the free space (margin-right:auto),
+   buttons keep their intrinsic width (flex:0 0 auto) — a panel is never
+   filled by stretching a button across it.
+   ═══════════════════════════════════════════════════════════════════ */
+.block-actions {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-dark);
+}
+
+.block-actions > .btn {
+    flex: 0 0 auto;
+}
+
+/* Left-aligned explanatory text: says what the buttons act on, and fills
+   the row so the footer reads as content instead of a strip of chrome. */
+.block-actions-hint {
+    flex: 1 1 180px;
+    min-width: 0;
+    margin-right: auto;
+    font-size: 10.5px;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+
+/* Status badge (e.g. "TELEOP ACTIVE") sits next to the actions it reports on */
+.block-actions > .running-badge {
+    flex: 0 0 auto;
+}
+
+/* .datacollection-block has no inner padding of its own — the body supplies
+   it — so the footer carries the same padding to line up with the body. */
+.datacollection-block > .block-actions {
+    margin-top: 0;
+    padding: 10px;
+    border-top: 1px solid var(--border-dark);
+}
+
+/* Narrow panels: let the footer stack instead of overflowing horizontally. */
+@media (max-width: 1100px) {
+    .block-actions {
+        justify-content: flex-start;
+    }
+    .block-actions-hint {
+        flex: 1 1 100%;
+    }
 }
 
 /* --- Settings paths: rich config cards --- */
@@ -3585,19 +3655,25 @@ body.resizing * {
    (Connect, Sběr dat, Imitační učení), wrong for the shorter ones below:
    that combination left a large empty box under short content. Only these
    specific short tabs get sized to their actual content instead. */
+/* `flex: 0 1 auto` + `minmax(0, auto)`: the section is sized to its content
+   (no empty box under short tabs) but is still allowed to SHRINK when the
+   window is short. With `flex: 0 0 auto` it could not, so on a low viewport
+   the bottom of the panel — including the .block-actions footer with the
+   primary action — was pushed out of the scrollport. Shrinking hands the
+   overflow to .setup-block-content, which already scrolls. */
 #page-setup .setup-wizard-panel[data-tab-panel="calibrate"] .setup-section,
 #page-setup .setup-wizard-panel[data-tab-panel="models"] .setup-section {
-    flex: 0 0 auto;
-    grid-template-rows: none;
-    align-items: start;
+    flex: 0 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(0, auto);
     max-width: 640px;
 }
 
 #page-datasety .setup-wizard-panel[data-tab-panel="manage"] .setup-section,
 #page-uceni .setup-wizard-panel[data-tab-panel="advanced"] .setup-section {
-    flex: 0 0 auto;
-    grid-template-rows: none;
-    align-items: start;
+    flex: 0 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(0, auto);
 }
 
 .setup-wizard-next-hint {

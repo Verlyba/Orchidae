@@ -2954,10 +2954,15 @@ const App = {
         this.updateHardwareButtonStates();
     },
     async saveModelConfig() {
+        // The save button lives in the .block-actions footer of both the Connect
+        // and the Models tab (one action, two entry points) — hence querySelectorAll.
+        // Its label is an i18n node, so swap textContent via a saved original
+        // instead of hard-coding a language.
         const saveBtns = document.querySelectorAll('.btn-save-hw-config');
         saveBtns.forEach(btn => {
+            btn.dataset.labelBackup = btn.textContent || '';
             btn.disabled = true;
-            btn.textContent = 'Ukládám…';
+            btn.textContent = this.t('btn.saving');
         });
         try {
             const llmEndpoint = document.getElementById('llm-endpoint').value.trim();
@@ -2998,7 +3003,8 @@ const App = {
         finally {
             saveBtns.forEach(btn => {
                 btn.disabled = false;
-                btn.textContent = 'Uložit nastavení hardwaru';
+                btn.textContent = btn.dataset.labelBackup || this.t('btn.saveHw');
+                delete btn.dataset.labelBackup;
             });
         }
     },

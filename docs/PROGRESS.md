@@ -8,6 +8,74 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-01 (2) — Akční tlačítka dovnitř oken (`.block-actions`) + 3 layoutové chyby
+
+**Co se změnilo**
+
+- **Nový vzor `.block-actions`** (styles.css) — patička akcí přišpendlená ke
+  spodní hraně panelu, protějšek existujícího `.block-head-row`. Hint vlevo
+  (`flex:1 1 180px`), tlačítka vpravo s `flex:0 0 auto`, takže se panel nikdy
+  nevyplňuje roztaženým tlačítkem. Pod 1100 px se řádek zalomí.
+- **Všechna akční tlačítka přesunuta z `page-header-row` do panelu**, kterého
+  se týkají — projects, setup/connect, setup/models, teleoperace,
+  datasety/sběr, datasety/správa, učení/trénink, modelrun, settings (uložení
+  i instalace LeRobotu), strom dovedností. V hlavičkách stránek zůstaly jen
+  nadpisy. Zmizely tři „prázdné" `page-header-row` (spacer `<div style="flex:1">`
+  + tlačítka), které existovaly jen jako lišta.
+- Každá patička dostala **technicky přesný hint**, co tlačítka udělají
+  (`hint.*Scope`) a tooltipy `tip.*` u tlačítek, která je neměla.
+- **Odstraněn duplicitní prvek**: tlačítko „Nápověda ke schématu" v hlavičce
+  nastavení dělalo `changeTab('help')` — přesně to samé, co položka Nápověda
+  v levém navigačním pruhu. Klíč `btn.openHelp` smazán z cs i en.
+- Bump assetů na `?v=3.49.0`.
+
+**Opravené chyby (nalezené při práci, ne plánované)**
+
+1. **Karta „Správa datasetů" se vůbec nezobrazila.** Panel
+   `data-tab-panel="manage"` byl v HTML vnořený *uvnitř* panelu `collect`
+   (chybějící `</div>` u collect, přebývající `</div>` na konci stránky).
+   `switchDatasetyTab('manage')` schová collect → schová i manage.
+   Ověřeno v headless Chromiu: `#ds-select` mělo před opravou rozměr 0×0,
+   po opravě 634×32. Uzávěrky divů jsou teď okomentované.
+2. **Karty výběru policy přetékaly přes formulář.** `.policy-pick` je v
+   `form-group{flex:1; min-height:0}`, ale sám neměl `min-height:0` ani
+   `overflow`, takže se SmolVLA / VQ-BeT / π0 vykreslovaly *přes* pole
+   „Tréninkové kroky", „Batch size" a „Trénovací zařízení". Nově scrolluje.
+3. **Krátké karty nešly zmenšit.** `#page-datasety[manage]`,
+   `#page-uceni[advanced]`, `#page-setup[calibrate|models]` měly
+   `.setup-section { flex: 0 0 auto }` — obsah se tedy nemohl smrsknout a při
+   nízkém okně vytlačil spodek panelu (u nás nově s primární akcí) mimo
+   scrollport. Změněno na `flex: 0 1 auto; min-height: 0;
+   grid-template-rows: minmax(0, auto)`.
+4. `.btn-cyan-dashed` měl v sobě `width: 100%` — barevná varianta diktovala
+   layout a roztahovala tlačítko přes celý kontejner. Odstraněno.
+   Stejně tak „Přidat kameru" / „Vymazat všechny" už nejsou přes celou šířku.
+5. `saveModelConfig()` hledal `.btn-save-hw-config`, ale **žádný element
+   tuhle třídu neměl** — indikace průběhu ukládání byla mrtvý kód. Třídu mají
+   teď obě tlačítka a popisek se přepíná přes i18n (`btn.saving`) s obnovením
+   původního textu, ne natvrdo česky.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` celé prošlo (tsc, 105 pytestů, compileall,
+  i18n parita cs=en=701, žádná duplicitní id, 100 `App.*` odkazů z HTML).
+- Kontrola párování tagů v `index.html` vlastním parserem: 0 chyb, 0
+  neuzavřených elementů; všech 8 stránek i všech 7 wizard-panelů je teď na
+  správné úrovni zanoření.
+- Headless Chromium (1600×900, 1280×800, 1024×760): každá primární akce
+  v patičce je viditelná a **hit-testem klikatelná** (nic ji nepřekrývá),
+  žádná stránka nemá vodorovný přetok, žádné tlačítko není roztažené
+  (nejširší 225 px = dlouhý popisek instalace LeRobotu).
+
+**Zbývá vyzkoušet na fyzickém robotu** (v cloudu nelze)
+
+- Že přesunutá tlačítka opravdu spouští procesy: teleop, `lerobot-record`,
+  `lerobot-train`, nasazení policy. Přesouvaly se jen v DOM, id zůstala
+  stejná (`updateActionButtonStates()` je hledá přes `getElementById`), ale
+  klik na reálném hardwaru ověřený není.
+- Ukládání hardwaru z obou karet (Connect i Modely) proti běžícímu backendu.
+- „Rozdělit podle kroků" nad reálně nasbíraným datasetem se značkami.
+
 ## 2026-08-01 — Patchování LeRobotu ve wrapperech: úplné a ověřené
 
 **Co se změnilo**
@@ -74,14 +142,18 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 ## Otevřené věci (fronta pro další běhy)
 
 **Frontend**
-- Tlačítka akcí sedí v `page-header-row` nahoře stránky, ne uvnitř okna
-  s obsahem, kterého se týkají — proti pravidlu zadání. Týká se: projects
-  (import/export balíčku, průvodce, nový projekt), setup (uložit hw), teleoperation
-  (start/stop teleop), datasety/sběr (start/stop nahrávání), datasety/správa
-  (import/export modelu, rozdělit podle kroků, obnovit), učení/trénink
-  (spustit/zastavit trénink), modelrun (nasadit policy), settings (uložit).
-  Návrh: zavést `.block-actions` patičku uvnitř `.setup-block` /
-  `.datacollection-block` a přesunout je tam.
+- ~~Tlačítka akcí sedí v `page-header-row`~~ — hotovo 2026-08-01 (2), vzor
+  `.block-actions`.
+- **Prázdná plocha v panelech.** Setup/Connect: mezi výběrem portů a patičkou
+  zbývá ~150 px prázdna; teleop „Ovládání relace" podobně. Vyplnit rozvržením
+  nebo grafickým prvkem (v CSS existuje nepoužitý `#arm-visual-block`), NE
+  roztažením polí. Tohle je věc, kterou zadání označuje za hlavní problém.
+- Konzolový dok dole překrývá spodek pracovní plochy při nízkém okně
+  (< ~800 px). `.editor-area` sice scrolluje, ale dok si nerezervuje místo.
+- `.datacollection-grid` má v CSS pravidla pro `nth-child(3)` (280px sloupec
+  kamer), ale v HTML jsou jen 2 bloky — kamerový sloupec ze sběru dat zmizel
+  (souvisí s mrtvými id `cam-feed-placeholder-1/2` níže). Rozhodnout: vrátit,
+  nebo pravidla smazat.
 - `:root` má `--radius: 6px`, `--radius-lg: 10px` a `--overlay-blur: blur(8px)`,
   plus `backdrop-filter: blur(4px)` na styles.css:1498 — zadání chce ostré rohy
   a žádný blur. Stíny/glow už jsou vynulované.
