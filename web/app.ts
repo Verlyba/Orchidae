@@ -204,10 +204,14 @@ const App = {
         this.renderRobots();
         this.renderCameras();
       }
-      const dsPage = document.getElementById('page-datasets');
+      // Both lists live inside a tab of a bigger page, so the page id is what
+      // decides whether they are on screen (they used to be looked up under
+      // ids that no element carries, which made a language switch leave the
+      // dataset list and the resume-skill picker in the previous language).
+      const dsPage = document.getElementById('page-datasety');
       if (dsPage && dsPage.classList.contains('active-page')) this.dsRefreshList();
-      const advPage = document.getElementById('page-advancedtraining');
-      if (advPage && advPage.classList.contains('active-page')) this.advPopulateResumeSkills();
+      const trainPage = document.getElementById('page-uceni');
+      if (trainPage && trainPage.classList.contains('active-page')) this.advPopulateResumeSkills();
     } catch (_) { /* renders are best-effort */ }
   },
 

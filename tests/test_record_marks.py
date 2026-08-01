@@ -6,7 +6,8 @@ Two halves, matching the two sides of the protocol:
 1. The record wrapper (_RECORD_WRAPPER_SRC) runs inside the user's LeRobot
    environment, so it is executed here against stub `lerobot` modules. What it
    must get right is the mark TIME BASE: LeRobot stores a frame's `timestamp`
-   as frame_index / fps (lerobot/datasets/dataset_writer.py), so a mark is only
+   as frame_index / fps (LeRobotDataset.add_frame in
+   lerobot/datasets/lerobot_dataset.py), so a mark is only
    comparable with the dataset — and therefore only usable by the splitter — if
    it is derived from the frames written so far, not from a wall clock. It also
    owns the episode lifecycle, because a re-recorded episode reuses its index

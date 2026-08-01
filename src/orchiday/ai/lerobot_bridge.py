@@ -1260,8 +1260,8 @@ except Exception as e:
             return True
         return False
 
-    # LeRobot's range-of-motion recorder (motors_bus.record_ranges_of_motion)
-    # decides "was Enter pressed" via enter_pressed(), which on Windows calls
+    # LeRobot's range-of-motion recorder (record_ranges_of_motion) decides "was
+    # Enter pressed" via enter_pressed(), which on Windows calls
     # msvcrt.kbhit()/getch() — reading the process's own CONSOLE input buffer
     # directly, NOT sys.stdin. A QProcess's stdin is a pipe, not a console, so
     # writing "\n" to it is invisible to that check and the loop can never be
@@ -1271,23 +1271,99 @@ except Exception as e:
     # check for a sentinel file — "Confirm step" touches it, cross-platform,
     # no console/TTY involved at all.
     _CALIBRATION_WRAPPER_SRC = '''\
+"""Orchiday wrapper around lerobot-calibrate.
+
+Replaces LeRobot's enter_pressed() with a sentinel-file check so the app's
+"Confirm step" button can drive calibration (see LeRobotBridge for why the
+console/stdin route cannot work under a QProcess).
+
+Patching a single module is NOT enough. enter_pressed is defined once in
+lerobot/utils/utils.py, but every motor bus takes its own copy with
+`from lerobot.utils.utils import enter_pressed`, and each motor family ships
+its OWN record_ranges_of_motion() that calls that copy:
+
+    lerobot/motors/motors_bus.py        Feetech / Dynamixel (SO-100/101, Koch)
+    lerobot/motors/damiao/damiao.py     Damiao CAN motors  (OpenArm)
+    lerobot/motors/robstride/robstride.py
+
+Patching only motors_bus therefore left OpenArm (and any other Damiao/RobStride
+arm) with a Confirm button that did nothing and a calibration that never
+advanced. So we patch the DEFINING module first — every lerobot module imported
+after that point, including the motor bus chosen at connect time, binds the
+replacement — and additionally re-bind the name on every lerobot module that
+already holds a copy.
+
+If no patch target is found at all (a LeRobot layout we do not know), we abort
+with a clear message instead of starting a calibration whose Confirm button is
+silently inert.
+"""
 import os
 import sys
 
+_CONFIRM_FILE = os.environ.get("ORCHIDAY_CALIBRATION_CONFIRM_FILE", "")
+
+# Modules that may DEFINE enter_pressed, newest layout first. Importing one
+# before lerobot's own modules is what makes later `from ... import
+# enter_pressed` bindings pick up the replacement.
+_DEFINING_MODULES = ("lerobot.utils.utils", "lerobot.utils.robot_utils")
+
+
 def _orchiday_enter_pressed():
-    flag_path = os.environ.get("ORCHIDAY_CALIBRATION_CONFIRM_FILE", "")
-    if flag_path and os.path.exists(flag_path):
+    """True exactly once per "Confirm step" click from the Orchiday UI."""
+    if _CONFIRM_FILE and os.path.exists(_CONFIRM_FILE):
         try:
-            os.remove(flag_path)
+            os.remove(_CONFIRM_FILE)
         except OSError:
             pass
         return True
     return False
 
-import lerobot.motors.motors_bus as _motors_bus
-_motors_bus.enter_pressed = _orchiday_enter_pressed
+
+def _patch_loaded_lerobot_modules():
+    """Re-bind enter_pressed on every already-imported lerobot module."""
+    patched = []
+    for name, module in list(sys.modules.items()):
+        if module is None:
+            continue
+        if name != "lerobot" and not name.startswith("lerobot."):
+            continue
+        current = getattr(module, "enter_pressed", None)
+        if current is _orchiday_enter_pressed or not callable(current):
+            continue
+        try:
+            module.enter_pressed = _orchiday_enter_pressed
+        except Exception:
+            continue
+        patched.append(name)
+    return patched
+
+
+def _install_enter_pressed_patch():
+    """Patch enter_pressed everywhere it can be reached. Returns module names."""
+    for mod_name in _DEFINING_MODULES:
+        try:
+            __import__(mod_name)
+        except Exception:
+            continue
+    return _patch_loaded_lerobot_modules()
+
+
+_PATCHED = _install_enter_pressed_patch()
 
 from lerobot.scripts.lerobot_calibrate import main
+
+# Importing lerobot_calibrate pulls in further modules; any that captured a
+# copy of the original before we ran get re-bound here.
+_PATCHED += _patch_loaded_lerobot_modules()
+
+if not _PATCHED:
+    print("[ORCHIDAY_CAL] FATAL: enter_pressed() not found in this LeRobot "
+          "installation — the Confirm step button would do nothing. "
+          "Calibration aborted.", flush=True)
+    raise SystemExit(3)
+
+print("[ORCHIDAY_CAL] enter_pressed patched in: " + ", ".join(sorted(set(_PATCHED))),
+      flush=True)
 
 if __name__ == "__main__":
     main()
@@ -1317,13 +1393,15 @@ and adds the two things lerobot-record has no notion of:
 1. Episode control without a keyboard hook. lerobot's own listener needs either
    pynput (a global OS hook) or a controlling TTY; a QProcess started by the app
    has neither, so the three control flags are driven by sentinel files instead.
-   The mapping mirrors lerobot.utils.keyboard_input.apply_recording_control:
-   next -> exit_early, rerecord -> rerecord_episode + exit_early,
+   The mapping mirrors the on_press() handler of
+   lerobot.utils.control_utils.init_keyboard_listener: next -> exit_early,
+   rerecord -> rerecord_episode + exit_early,
    stop -> stop_recording + exit_early.
 
 2. Sub-task boundary marks. A mark is only useful if it is comparable with the
    dataset's per-frame `timestamp` column, and LeRobot computes that column as
-   frame_index / fps (lerobot/datasets/dataset_writer.py) — NOT from a wall
+   frame_index / fps (LeRobotDataset.add_frame in
+   lerobot/datasets/lerobot_dataset.py) — NOT from a wall
    clock. This wrapper therefore counts the frames actually written into the
    episode buffer and stamps every mark as frames / fps. That stays exact even
    when the control loop runs slower than the target FPS (lerobot warns about
@@ -1474,6 +1552,20 @@ def _orchiday_init_keyboard_listener():
 
 
 import lerobot.scripts.lerobot_record as _rec
+
+# Both names are looked up as module globals by lerobot's record(), so
+# rebinding them here is what puts this wrapper in the loop. If a LeRobot
+# version renames or relocates either one, a plain assignment would just create
+# an unused attribute and the recording would run with dead UI controls and no
+# marks — silently useless data. Refuse to start instead.
+_MISSING = [name for name in ("init_keyboard_listener", "record_loop")
+            if not callable(getattr(_rec, name, None))]
+if _MISSING:
+    _emit("fatal", message="lerobot.scripts.lerobot_record is missing %s — this "
+                           "LeRobot version is not supported by Orchiday's record "
+                           "wrapper (episode controls and sub-task marks would not "
+                           "work). Recording aborted." % ", ".join(_MISSING))
+    raise SystemExit(3)
 
 _rec.init_keyboard_listener = _orchiday_init_keyboard_listener
 _ORIGINAL_RECORD_LOOP = _rec.record_loop
@@ -2167,6 +2259,12 @@ if __name__ == "__main__":
 
         elif ev == "warning":
             event_bus.log_message.emit("WARN", f"Recorder: {payload.get('message', '')}")
+
+        elif ev == "fatal":
+            # The wrapper refused to start (unsupported LeRobot layout). It exits
+            # right after this line, so surface it as an error rather than
+            # letting the process just disappear with a non-zero code.
+            event_bus.log_message.emit("ERROR", f"Recorder: {payload.get('message', '')}")
 
     def _append_step_mark(self, skill_slug: str, state: dict, payload: dict) -> None:
         """Store a boundary mark reported by the recording process."""
