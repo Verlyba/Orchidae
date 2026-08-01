@@ -2116,41 +2116,44 @@ if __name__ == "__main__":
 
     def _handle_ready_read(self, key: str, process: QProcess, kind: str, skill_slug: str) -> None:
         """Read newly buffered stdout/stderr lines in real time and forward to event bus."""
-        data = bytes(process.readAllStandardOutput().data()).decode("utf-8", errors="replace")
-        # Answer before line-splitting: the prompt has no trailing newline.
-        self._autoreply_calibration_prompt(key, kind, data)
-        for line in data.splitlines():
-            line = line.rstrip()
-            if not line:
-                continue
+        try:
+            data = bytes(process.readAllStandardOutput().data()).decode("utf-8", errors="replace")
+            # Answer before line-splitting: the prompt has no trailing newline.
+            self._autoreply_calibration_prompt(key, kind, data)
+            for line in data.splitlines():
+                line = line.rstrip()
+                if not line:
+                    continue
 
-            # The calibration range-of-motion table reprints at ~50 Hz — swallow
-            # those specific lines from the raw console (they're forwarded as a
-            # throttled structured event instead) or they flood it unreadably.
-            is_calibration_table_line = kind == "calibrate" and self._parse_calibration_line(line, key, skill_slug)
+                # The calibration range-of-motion table reprints at ~50 Hz — swallow
+                # those specific lines from the raw console (they're forwarded as a
+                # throttled structured event instead) or they flood it unreadably.
+                is_calibration_table_line = kind == "calibrate" and self._parse_calibration_line(line, key, skill_slug)
 
-            # Snapshot payloads are huge base64 blobs — keep them out of the console
-            if not is_calibration_table_line and not line.startswith("[SNAPSHOT]"):
-                event_bus.console_output.emit(line)
+                # Snapshot payloads are huge base64 blobs — keep them out of the console
+                if not is_calibration_table_line and not line.startswith("[SNAPSHOT]"):
+                    event_bus.console_output.emit(line)
 
-            # Monitor hardware errors and warnings in real time
-            self._monitor_hardware_errors(line, key)
+                # Monitor hardware errors and warnings in real time
+                self._monitor_hardware_errors(line, key)
 
-            # Parse training progress
-            if kind == "train":
-                self._parse_training_line(line, skill_slug)
+                # Parse training progress
+                if kind == "train":
+                    self._parse_training_line(line, skill_slug)
 
-            # Parse recording progress
-            elif kind == "record":
-                self._parse_recording_line(line, skill_slug)
+                # Parse recording progress
+                elif kind == "record":
+                    self._parse_recording_line(line, skill_slug)
 
-            # Parse teleoperation progress/telemetry
-            elif kind == "teleop":
-                self._parse_teleop_line(line)
+                # Parse teleoperation progress/telemetry
+                elif kind == "teleop":
+                    self._parse_teleop_line(line)
 
-            # Parse persistent inference daemon status
-            elif kind == "infer":
-                self._parse_inference_line(line, key, skill_slug)
+                # Parse persistent inference daemon status
+                elif kind == "infer":
+                    self._parse_inference_line(line, key, skill_slug)
+        except Exception as e:
+            log.warning("Error reading subprocess output for '%s': %s", key, e)
 
     def _handle_finished(self, key: str, exit_code: int, kind: str, skill_slug: str) -> None:
         """Triggered asynchronously when a QProcess exits."""
@@ -2644,6 +2647,26 @@ if __name__ == "__main__":
             waiter[0].set()
         self._resume_preview_cameras(key)
 
+    def _kill_qprocess_tree(self, process: QProcess) -> None:
+        """Kill a QProcess and its entire process tree (especially child rerun/python processes on Windows)."""
+        try:
+            pid = process.processId()
+            if pid > 0 and sys.platform == "win32":
+                import subprocess
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2.0,
+                )
+        except Exception as e:
+            log.warning("Process tree kill notice: %s", e)
+        try:
+            process.kill()
+            process.waitForFinished(1000)
+        except Exception:
+            pass
+
     def _kill_process(self, key: str) -> None:
         """Forcibly terminate a running subprocess (Emergency Stop)."""
         log.warning("Emergency Stop: Terminating LeRobot process: %s", key)
@@ -2654,22 +2677,27 @@ if __name__ == "__main__":
             if temp_key.startswith("preflight_"):
                 proc = self._active_processes.pop(temp_key, None)
                 if proc:
-                    try:
-                        proc.kill()
-                        proc.waitForFinished(500)
-                    except Exception:
-                        pass
+                    self._kill_qprocess_tree(proc)
 
         # 2. Kill main process if running
         process = self._active_processes.pop(key, None)
         if process:
-            try:
-                process.kill()
-                process.waitForFinished(1000)
-            except Exception as e:
-                log.warning("Error waiting for process '%s' to terminate: %s", key, e)
+            self._kill_qprocess_tree(process)
 
-        # 3. Always release resources and restore preview cameras!
+        # 3. On Windows, if stopping teleop or recording, clean up orphan rerun.exe processes
+        if sys.platform == "win32" and key in ("teleop", "record"):
+            try:
+                import subprocess
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "rerun.exe"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2.0,
+                )
+            except Exception:
+                pass
+
+        # 4. Always release resources and restore preview cameras!
         self._release_process_resources(key)
         kind = self._process_kinds.pop(key, "unknown")
         event_bus.process_finished.emit(key, kind)
