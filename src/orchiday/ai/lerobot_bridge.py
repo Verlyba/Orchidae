@@ -88,6 +88,8 @@ class LeRobotBridge(QObject):
         self._cancelled_keys: set[str] = set()
         # Monotonic counter for numbered record-control sentinel files
         self._record_control_seq: int = 0
+        # interpreter path -> whether rerun-sdk is importable there
+        self._rerun_sdk_cache: dict[str, bool] = {}
         # ── Calibration live-table state ───────────────────────────────────
         # process key -> {motor: {min, pos, max}}, accumulated while
         # lerobot_calibrate.py streams its live range-of-motion table.
@@ -524,13 +526,55 @@ except Exception as e:
         return False
 
     def _has_rerun_sdk(self) -> bool:
-        """Check if rerun-sdk is installed in the target Python environment."""
+        """Whether rerun-sdk is importable in the target Python environment.
+
+        Asks for the module *spec* rather than importing rerun: importing it
+        pulls in the native SDK and takes about a second, which used to lose
+        races with the timeout below and report "not installed" for an
+        environment that has it. Locating the spec is instant.
+
+        Cached per interpreter — this decides a launch flag and is consulted on
+        every teleop/record start, but a package cannot appear mid-session.
+        """
+        python = self._python
+        cached = self._rerun_sdk_cache.get(python)
+        if cached is not None:
+            return cached
+        probe = "import importlib.util as u, sys; sys.exit(0 if u.find_spec('rerun') else 1)"
         try:
-            cmd = [self._python, "-c", "import rerun"]
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
-            return res.returncode == 0
+            res = subprocess.run([python, "-c", probe],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            found = res.returncode == 0
         except Exception:
-            return False
+            return False  # don't cache a probe that never ran
+        self._rerun_sdk_cache[python] = found
+        return found
+
+    @staticmethod
+    def _flag_name(arg: str) -> str:
+        """The option name of a '--name=value' token, or '' if it is not one."""
+        if not arg.startswith("--"):
+            return ""
+        return arg[2:].split("=", 1)[0]
+
+    @classmethod
+    def _merge_flags(cls, cmd: list[str], extra: list[str]) -> None:
+        """Append `extra`, replacing any base flag it repeats.
+
+        LeRobot's parser takes the last occurrence, so appending blindly is
+        already correct — but it emits commands like
+        `--steps=1000 ... --steps=50000`, where the value that runs is not the
+        one the eye lands on first. Overriding in place keeps the semantics and
+        makes the echoed command say what will actually happen.
+        """
+        for arg in extra:
+            name = cls._flag_name(arg)
+            if name:
+                at = next((i for i, a in enumerate(cmd) if cls._flag_name(a) == name), None)
+                if at is not None:
+                    cmd[at] = arg
+                    continue
+            cmd.append(arg)
 
     @staticmethod
     def _normalize_device_types(robot_type: str, teleop_type: str = "") -> tuple[str, str]:
@@ -615,8 +659,7 @@ except Exception as e:
                 log.warning("rerun-sdk package missing in %s — skipping --display_data=true flag", self._python)
 
         if extra_args:
-            for k, v in extra_args.items():
-                cmd.append(f"--{k}={v}")
+            self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
 
         def launch():
             if key in self._cancelled_keys:
@@ -712,8 +755,7 @@ except Exception as e:
             cmd.append(f"--robot.id={f_id}")
 
         if extra_args:
-            for k, v in extra_args.items():
-                cmd.append(f"--{k}={v}")
+            self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
 
         def launch():
             event_bus.robot_calibrating.emit(robot_id)
@@ -824,19 +866,28 @@ except Exception as e:
             cmd.append(f"--robot.cameras={cameras_arg}")
 
         if display_data:
-            cmd.append("--display_data=true")
+            # Same guard teleoperation uses: with --display_data=true and no
+            # rerun-sdk, LeRobot's init_rerun() raises before the first episode,
+            # so the recording session dies on startup instead of running
+            # without the viewer.
+            if self._has_rerun_sdk():
+                cmd.append("--display_data=true")
+            else:
+                msg = ("rerun-sdk is not installed in %s — recording without the live viewer "
+                       "(--display_data omitted)")
+                log.warning(msg, self._python)
+                event_bus.log_message.emit(
+                    "WARN", "rerun-sdk chybí v prostředí LeRobotu — záznam poběží bez živého náhledu.")
 
         if resume:
             cmd.append("--resume=true")
 
         if extra_args:
-            for k, v in extra_args.items():
-                cmd.append(f"--{k}={v}")
+            self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
 
         if extra_args_str:
             try:
-                parsed_args = shlex.split(extra_args_str)
-                cmd.extend(parsed_args)
+                self._merge_flags(cmd, shlex.split(extra_args_str))
             except Exception as e:
                 log.error("Failed to parse extra record arguments: %s", e)
 
@@ -939,8 +990,7 @@ except Exception as e:
             cmd.append(f"--robot.port={port}")
 
         if extra_args:
-            for k, v in extra_args.items():
-                cmd.append(f"--{k}={v}")
+            self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
 
         event_bus.log_message.emit("INFO", f"Replay started: episode {episode_index} of {dataset_name} on {robot_type}")
         self._spawn_process(key, cmd, kind="replay", skill_slug=dataset_name)
@@ -1191,13 +1241,11 @@ except Exception as e:
                 cmd.append(f"--output_dir={output_dir}")
 
             if extra_args:
-                for k, v in extra_args.items():
-                    cmd.append(f"--{k}={v}")
+                self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
 
             if extra_args_str:
                 try:
-                    parsed_args = shlex.split(extra_args_str)
-                    cmd.extend(parsed_args)
+                    self._merge_flags(cmd, shlex.split(extra_args_str))
                 except Exception as e:
                     log.error("Failed to parse extra train arguments: %s", e)
 
@@ -1273,8 +1321,7 @@ except Exception as e:
             cmd.append(f"--robot.cameras={cameras_json}")
 
         if extra_args:
-            for k, v in extra_args.items():
-                cmd.append(f"--{k}={v}")
+            self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
 
         if auto_task:
             # The daemon boots in WAITING — queue the task to dispatch on DAEMON_READY

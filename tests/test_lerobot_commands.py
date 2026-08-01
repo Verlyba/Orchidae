@@ -638,3 +638,90 @@ def test_send_record_control_writes_sentinel(bridge, tmp_path, monkeypatch):
 
 def test_send_record_control_requires_running_process(bridge):
     assert bridge.send_record_control("not_running", "next") is False
+
+
+# ── Flag merging and the rerun guard ─────────────────────────────────────────
+
+def test_extra_args_override_base_flags_in_place(bridge, monkeypatch):
+    """A repeated option must appear once, carrying the user's value.
+
+    LeRobot's parser takes the last occurrence, so a duplicated flag already
+    ran the user's value — but the echoed command read `--steps=1000 ...
+    --steps=50000`, where the value that takes effect is not the one the eye
+    lands on first.
+    """
+    monkeypatch.setattr(bridge, "_verify_dataset_exists", lambda name: True)
+    bridge.start_training(
+        skill_slug="pick_cube",
+        dataset_repo_id="local/pick_cube",
+        policy_type="act",
+        training_steps=1000,
+        batch_size=8,
+        extra_args={"steps": 50000, "policy.device": "cpu"},
+    )
+    cmd = bridge._captured["cmd"]
+    assert cmd.count("--steps=50000") == 1
+    assert "--steps=1000" not in cmd
+    assert [a for a in cmd if a.startswith("--policy.device=")] == ["--policy.device=cpu"]
+
+
+def test_extra_args_string_also_overrides(bridge, monkeypatch):
+    monkeypatch.setattr(bridge, "_verify_dataset_exists", lambda name: True)
+    bridge.start_training(
+        skill_slug="pick_cube",
+        dataset_repo_id="local/pick_cube",
+        policy_type="act",
+        training_steps=1000,
+        batch_size=8,
+        extra_args_str="--batch_size=64 --num_workers=4",
+    )
+    cmd = bridge._captured["cmd"]
+    assert [a for a in cmd if a.startswith("--batch_size=")] == ["--batch_size=64"]
+    assert "--num_workers=4" in cmd
+
+
+def test_record_omits_display_data_without_rerun(bridge, monkeypatch):
+    """Without rerun-sdk, LeRobot's init_rerun() raises before episode one.
+
+    Passing the flag anyway kills the recording session at startup, so it is
+    dropped the same way teleoperation already drops it.
+    """
+    monkeypatch.setattr(bridge, "_has_rerun_sdk", lambda: False)
+    bridge.start_recording(
+        robot_type="so100_follower", dataset_name="local/pick_cube",
+        skill_slug="pick_cube", num_episodes=1, fps=30, port="COM3",
+        robot_id="f", teleop_type="so100_leader", teleop_port="COM4",
+        teleop_id="l", single_task="pick", display_data=True,
+    )
+    assert not [a for a in bridge._captured["cmd"] if a.startswith("--display_data")]
+
+
+def test_record_keeps_display_data_with_rerun(bridge, monkeypatch):
+    monkeypatch.setattr(bridge, "_has_rerun_sdk", lambda: True)
+    bridge.start_recording(
+        robot_type="so100_follower", dataset_name="local/pick_cube2",
+        skill_slug="pick_cube2", num_episodes=1, fps=30, port="COM3",
+        robot_id="f", teleop_type="so100_leader", teleop_port="COM4",
+        teleop_id="l", single_task="pick", display_data=True,
+    )
+    assert "--display_data=true" in bridge._captured["cmd"]
+
+
+def test_rerun_probe_is_cached_per_interpreter(bridge, monkeypatch):
+    calls = []
+
+    class _Res:
+        returncode = 0
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return _Res()
+
+    monkeypatch.setattr("orchiday.ai.lerobot_bridge.subprocess.run", fake_run)
+    assert bridge._has_rerun_sdk() is True
+    assert bridge._has_rerun_sdk() is True
+    assert len(calls) == 1
+    # The probe locates the module spec instead of importing rerun, which pulls
+    # in the native SDK and used to lose races with the subprocess timeout.
+    assert "find_spec" in calls[0][-1]
+    assert "import rerun" not in calls[0][-1]
