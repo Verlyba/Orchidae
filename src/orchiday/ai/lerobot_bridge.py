@@ -1376,7 +1376,28 @@ def _install_enter_pressed_patch():
     return _patch_loaded_lerobot_modules()
 
 
+def _install_raw_encoder_patch():
+    """Bypass homing offset shifts during calibration so that calibration records
+    raw physical encoder positions (0..4095) with Homing_Offset = 0."""
+    try:
+        from lerobot.motors.motors_bus import SerialMotorsBus
+        def _raw_set_half_turn_homings(self, motors=None):
+            motor_names = self._get_motors_list(motors)
+            self.reset_calibration(motor_names)
+            return {m: 0 for m in motor_names}
+        SerialMotorsBus.set_half_turn_homings = _raw_set_half_turn_homings
+        try:
+            from lerobot.motors.feetech import FeetechMotorsBus
+            FeetechMotorsBus.set_half_turn_homings = _raw_set_half_turn_homings
+        except Exception:
+            pass
+        print("[ORCHIDAY_CAL] Raw physical encoder calibration enabled (Homing_Offset = 0).", flush=True)
+    except Exception as e:
+        print(f"[ORCHIDAY_CAL] Warning: Could not patch set_half_turn_homings: {e}", flush=True)
+
+
 _PATCHED = _install_enter_pressed_patch()
+_install_raw_encoder_patch()
 
 from lerobot.scripts.lerobot_calibrate import main
 
