@@ -3166,11 +3166,22 @@ textarea:focus-visible {
     padding-bottom: 8px;
 }
 
+/* The tools are a catalogue inside one window, not six windows side by side.
+   Each card keeps a border so its form and Run button read as one unit, but a
+   quieter one than the window it sits in. */
 .tool-card {
     display: flex;
     flex-direction: column;
     gap: 8px;
     min-height: 0;
+    padding: 12px;
+    border: 1px solid var(--border-dark);
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.tool-card > h3 {
+    margin: 0 0 2px;
+    font-size: 11px;
 }
 
 .tool-card .tool-desc {

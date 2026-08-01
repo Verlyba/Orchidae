@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.55.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.56.0">
 </head>
 <body>
 
@@ -1560,77 +1560,84 @@
           </div>
 
           <div class="setup-wizard-panel" data-tab-panel="tools" style="display:none;">
-          <p class="page-subtitle" data-i18n="page.hwtools.subtitle">Oficiální diagnostické utility LeRobotu. Výstup a interaktivní dotazy běží v terminálové konzoli dole.</p>
 
-          <div class="tools-grid">
-            <!-- find-cameras -->
-            <div class="setup-block tool-card">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <span data-i18n="blk.tool.cams">Detekce kamer</span></h3>
-              <p class="tool-desc" data-i18n-html="tool.cams.desc">Najde připojené kamery a uloží testovací snímky (<code>lerobot-find-cameras</code>).</p>
-              <div class="form-group">
-                <div class="label-with-tooltip">
-                  <label for="tool-cam-backend" data-i18n="lbl.camTypeFilter">Typ kamer</label>
-                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.toolCamBackend">ⓘ</span>
+          <div class="setup-block" style="display: flex; flex-direction: column;">
+            <div class="block-head-row">
+              <h3 style="margin:0;"><span data-i18n="blk.tools.title">Nástroje LeRobot CLI</span></h3>
+              <span class="block-head-sub" data-i18n="page.hwtools.subtitle"></span>
+            </div>
+            <div class="setup-block-content">
+              <div class="tools-grid">
+                <!-- find-cameras -->
+                <div class="tool-card">
+                  <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <span data-i18n="blk.tool.cams">Detekce kamer</span></h3>
+                  <p class="tool-desc" data-i18n-html="tool.cams.desc">Najde připojené kamery a uloží testovací snímky (<code>lerobot-find-cameras</code>).</p>
+                  <div class="form-group">
+                    <div class="label-with-tooltip">
+                      <label for="tool-cam-backend" data-i18n="lbl.camTypeFilter">Typ kamer</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.toolCamBackend">ⓘ</span>
+                    </div>
+                    <select id="tool-cam-backend">
+                      <option value="" data-i18n="opt.all">Všechny</option>
+                      <option value="opencv">OpenCV (USB webkamery)</option>
+                      <option value="realsense">Intel RealSense</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('find_cameras')" data-i18n="btn.runDetect">Spustit detekci</button>
                 </div>
-                <select id="tool-cam-backend">
-                  <option value="" data-i18n="opt.all">Všechny</option>
-                  <option value="opencv">OpenCV (USB webkamery)</option>
-                  <option value="realsense">Intel RealSense</option>
-                </select>
-              </div>
-              <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('find_cameras')" data-i18n="btn.runDetect">Spustit detekci</button>
-            </div>
 
-            <!-- find-port -->
-            <div class="setup-block tool-card">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"></path></svg> <span data-i18n="blk.tool.port">Detekce sériového portu</span></h3>
-              <p class="tool-desc" data-i18n-html="tool.port.desc">Interaktivní průvodce odpojením USB kabelu (<code>lerobot-find-port</code>). Odpovídejte v terminálu dole.</p>
-              <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('find_port')" data-i18n="btn.runWizardTool">Spustit průvodce</button>
-            </div>
-
-            <!-- setup-motors -->
-            <div class="setup-block tool-card">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 10v6M5.6 5.6l4.2 4.2m4.4 4.4l4.2 4.2M1 12h6m10 0h6M5.6 18.4l4.2-4.2m4.4-4.4l4.2-4.2"></path></svg> <span data-i18n="blk.tool.motors">Nastavení ID motorů</span></h3>
-              <p class="tool-desc" data-i18n-html="tool.motors.desc">Přiřadí ID servomotorům nového ramene — připojujte motory jeden po druhém dle pokynů v terminálu (<code>lerobot-setup-motors</code>).</p>
-              <div class="form-group">
-                <div class="label-with-tooltip">
-                  <label for="tool-motors-arm" data-i18n="lbl.arm">Rameno</label>
-                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.toolMotorsArm">ⓘ</span>
+                <!-- find-port -->
+                <div class="tool-card">
+                  <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"></path></svg> <span data-i18n="blk.tool.port">Detekce sériového portu</span></h3>
+                  <p class="tool-desc" data-i18n-html="tool.port.desc">Interaktivní průvodce odpojením USB kabelu (<code>lerobot-find-port</code>). Odpovídejte v terminálu dole.</p>
+                  <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('find_port')" data-i18n="btn.runWizardTool">Spustit průvodce</button>
                 </div>
-                <select id="tool-motors-arm">
-                  <option value="follower" data-i18n="opt.followerExec">Follower (vykonávací)</option>
-                  <option value="leader" data-i18n="opt.leaderCtrl">Leader (řídicí)</option>
-                </select>
-              </div>
-              <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('setup_motors')" data-i18n="btn.runSetup">Spustit nastavení</button>
-            </div>
 
-            <!-- find-joint-limits -->
-            <div class="setup-block tool-card">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"></path><path d="M12 7v5l3 3"></path></svg> <span data-i18n="blk.tool.limits">Limity kloubů</span></h3>
-              <p class="tool-desc" data-i18n-html="tool.limits.desc">Změří minimální a maximální rozsahy kloubů pohybem leader ramene (<code>lerobot-find-joint-limits</code>).</p>
-              <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('find_joint_limits')" data-i18n="btn.measureLimits">Změřit limity</button>
-            </div>
-
-            <!-- info -->
-            <div class="setup-block tool-card">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> <span data-i18n="blk.tool.info">Systémové info LeRobot</span></h3>
-              <p class="tool-desc" data-i18n-html="tool.info.desc">Vypíše verzi LeRobotu, PyTorch, CUDA a prostředí (<code>lerobot-info</code>).</p>
-              <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('info')" data-i18n="btn.showInfo">Zobrazit info</button>
-            </div>
-
-            <!-- HF login -->
-            <div class="setup-block tool-card">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg> <span data-i18n="blk.tool.hf">Hugging Face přihlášení</span></h3>
-              <p class="tool-desc" data-i18n-html="tool.hf.desc">Přihlášení k HF Hub pro nahrávání datasetů a modelů. Token se nezobrazí v konzoli.</p>
-              <div class="form-group">
-                <div class="label-with-tooltip">
-                  <label for="tool-hf-token" data-i18n="lbl.hfToken">Access token (write)</label>
-                  <span class="info-tooltip-trigger" data-i18n-tooltip="tip.hfToken">ⓘ</span>
+                <!-- setup-motors -->
+                <div class="tool-card">
+                  <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 10v6M5.6 5.6l4.2 4.2m4.4 4.4l4.2 4.2M1 12h6m10 0h6M5.6 18.4l4.2-4.2m4.4-4.4l4.2-4.2"></path></svg> <span data-i18n="blk.tool.motors">Nastavení ID motorů</span></h3>
+                  <p class="tool-desc" data-i18n-html="tool.motors.desc">Přiřadí ID servomotorům nového ramene — připojujte motory jeden po druhém dle pokynů v terminálu (<code>lerobot-setup-motors</code>).</p>
+                  <div class="form-group">
+                    <div class="label-with-tooltip">
+                      <label for="tool-motors-arm" data-i18n="lbl.arm">Rameno</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.toolMotorsArm">ⓘ</span>
+                    </div>
+                    <select id="tool-motors-arm">
+                      <option value="follower" data-i18n="opt.followerExec">Follower (vykonávací)</option>
+                      <option value="leader" data-i18n="opt.leaderCtrl">Leader (řídicí)</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('setup_motors')" data-i18n="btn.runSetup">Spustit nastavení</button>
                 </div>
-                <input type="password" id="tool-hf-token" placeholder="hf_..." autocomplete="off" style="font-family:var(--font-mono); font-size:11px;">
+
+                <!-- find-joint-limits -->
+                <div class="tool-card">
+                  <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"></path><path d="M12 7v5l3 3"></path></svg> <span data-i18n="blk.tool.limits">Limity kloubů</span></h3>
+                  <p class="tool-desc" data-i18n-html="tool.limits.desc">Změří minimální a maximální rozsahy kloubů pohybem leader ramene (<code>lerobot-find-joint-limits</code>).</p>
+                  <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('find_joint_limits')" data-i18n="btn.measureLimits">Změřit limity</button>
+                </div>
+
+                <!-- info -->
+                <div class="tool-card">
+                  <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> <span data-i18n="blk.tool.info">Systémové info LeRobot</span></h3>
+                  <p class="tool-desc" data-i18n-html="tool.info.desc">Vypíše verzi LeRobotu, PyTorch, CUDA a prostředí (<code>lerobot-info</code>).</p>
+                  <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.runHwTool('info')" data-i18n="btn.showInfo">Zobrazit info</button>
+                </div>
+
+                <!-- HF login -->
+                <div class="tool-card">
+                  <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg> <span data-i18n="blk.tool.hf">Hugging Face přihlášení</span></h3>
+                  <p class="tool-desc" data-i18n-html="tool.hf.desc">Přihlášení k HF Hub pro nahrávání datasetů a modelů. Token se nezobrazí v konzoli.</p>
+                  <div class="form-group">
+                    <div class="label-with-tooltip">
+                      <label for="tool-hf-token" data-i18n="lbl.hfToken">Access token (write)</label>
+                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.hfToken">ⓘ</span>
+                    </div>
+                    <input type="password" id="tool-hf-token" placeholder="hf_..." autocomplete="off" style="font-family:var(--font-mono); font-size:11px;">
+                  </div>
+                  <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.hfLogin()" data-i18n="btn.login">Přihlásit se</button>
+                </div>
               </div>
-              <button class="btn btn-xs btn-primary tool-run-btn" onclick="App.hfLogin()" data-i18n="btn.login">Přihlásit se</button>
             </div>
           </div>
         </div>
@@ -2701,7 +2708,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.55.0" defer></script>
-  <script src="/static/app.js?v=3.55.0" defer></script>
+  <script src="/static/i18n.js?v=3.56.0" defer></script>
+  <script src="/static/app.js?v=3.56.0" defer></script>
 </body>
 </html>
