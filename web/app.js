@@ -18,6 +18,12 @@ const App = {
     activeStep: 1,
     activeSkill: null,
     calibratingRobotId: null,
+    // Joints whose recorded range is still (near) zero — i.e. never moved during
+    // this run. Saving those writes range_min == range_max, which leaves the
+    // joint unusable, so the confirm step checks this first.
+    _calUnmeasured: [],
+    // A few encoder counts of slack: a motionless joint still jitters by 1-2.
+    _CAL_MIN_SPAN: 10,
     // Whether `import lerobot` actually succeeds in the configured Python
     // interpreter — checked live via /api/settings/sysinfo, never assumed.
     // Starts false (safe default) so calibrate/teleop stay gated until confirmed.
@@ -2139,6 +2145,15 @@ const App = {
     async confirmCalibrationStep() {
         if (!this.calibratingRobotId)
             return;
+        // Confirming the range-of-motion gate WRITES the calibration file. Any
+        // joint still at zero span would be stored with range_min == range_max,
+        // which makes that joint unusable and the whole calibration worthless —
+        // so require an explicit decision instead of silently saving it.
+        if (this._calUnmeasured.length) {
+            const ok = confirm(this.t('cal.confirmUnmeasured', { list: this._calUnmeasured.join(', ') }));
+            if (!ok)
+                return;
+        }
         await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/confirm`);
     },
     /** Answers LeRobot's "reuse stored calibration file?" prompt with 'c' to
@@ -2169,14 +2184,34 @@ const App = {
         // Preserve kinematic-chain order (base → gripper) instead of raw object
         // insertion order, which follows whatever order the joints were moved in.
         const rows = this.ARM_JOINT_ORDER.filter(name => values[name]).map(name => [name, values[name]]);
-        tbody.innerHTML = rows.map(([motor, v]) => `
-      <tr>
+        // LeRobot seeds mins/maxes with the CURRENT position
+        // (record_ranges_of_motion: `mins = start_positions.copy()`), so before a
+        // joint is moved its MIN, POS and MAX are all identical — that is "not
+        // measured yet", NOT a reachable limit. Showing the span makes the
+        // difference obvious instead of looking like a bogus limit.
+        this._calUnmeasured = rows.filter(([, v]) => (v.max - v.min) < this._CAL_MIN_SPAN).map(([m]) => m);
+        tbody.innerHTML = rows.map(([motor, v]) => {
+            const span = v.max - v.min;
+            const unmeasured = span < this._CAL_MIN_SPAN;
+            return `
+      <tr class="${unmeasured ? 'cal-row-unmeasured' : ''}">
         <td>${this.esc(motor)}</td>
         <td>${v.min}</td>
         <td class="cal-live-pos">${v.pos}</td>
         <td>${v.max}</td>
-      </tr>
-    `).join('');
+        <td class="cal-live-span">${unmeasured ? this.t('cal.notMoved') : span}</td>
+      </tr>`;
+        }).join('');
+        // wrist_roll is deliberately absent: LeRobot treats it as a full-turn
+        // motor and hardcodes 0..4095 instead of recording it, so its absence
+        // here is correct and must not read as a missing joint.
+        const note = document.getElementById('cal-live-note');
+        if (note) {
+            note.textContent = this._calUnmeasured.length
+                ? this.t('cal.unmeasuredWarn', { list: this._calUnmeasured.join(', ') })
+                : this.t('cal.allMeasured');
+            note.classList.toggle('is-warn', this._calUnmeasured.length > 0);
+        }
         this.updateArmVisualizationFromCalibration(robotId, values);
         // Cheap + idempotent — covers the case where arm_visual_config was still
         // loading when the panel first opened.
