@@ -4834,7 +4834,6 @@ body { min-width: 320px; }
 .editor-area .setup-block-content {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
 }
 
 #page-teleoperation .setup-block {
@@ -4858,7 +4857,7 @@ body { min-width: 320px; }
 .settings-unified-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
+    grid-template-columns: 1.2fr 0.8fr;
     gap: 16px;
     align-items: stretch;
     min-height: 0;
