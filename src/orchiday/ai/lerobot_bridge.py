@@ -2025,10 +2025,13 @@ if __name__ == "__main__":
         self._process_kinds[key] = kind
         event_bus.process_started.emit(key, kind)
 
-        # Auto-confirm interactive dialogs on startup by seeding stdin with newline (exclude calibrate!)
-        if kind in ("teleop", "record", "replay", "infer"):
-            log.info("Sending auto-confirm newline to bypass interactive setup prompts for: %s", key)
-            process.write(b"\n")
+        # NOTE: no blind newline is seeded here any more. lerobot_teleoperate
+        # connects the teleoperator AND the robot, so it can raise the
+        # "use provided calibration file?" prompt TWICE. A single seeded
+        # newline was consumed by the leader and the follower then blocked
+        # forever, which is exactly how a teleop session used to hang. The
+        # prompts are answered as they actually appear, in
+        # _autoreply_calibration_prompt().
 
     def _purge_robot_calibration_cache(self, robot_id: str, device_type: str, category: str) -> None:
         """Purge old calibration JSON files strictly from HuggingFace/LeRobot cache category dirs before a fresh calibration."""
@@ -2051,9 +2054,32 @@ if __name__ == "__main__":
                     except Exception as e:
                         log.warning("Failed to purge calibration cache file %s: %s", json_file, e)
 
+    # LeRobot's device.calibrate() asks this (via a plain input()) whenever the
+    # values in the motors do not match the stored calibration file. The prompt
+    # carries no trailing newline, so it is matched against the raw chunk.
+    _CALIB_PROMPT_MARKER = "press ENTER to use provided calibration file".lower()
+
+    def _autoreply_calibration_prompt(self, key: str, kind: str, chunk: str) -> None:
+        """Answer the "reuse stored calibration file?" prompt as it appears.
+
+        Only for runs the user has already committed to (teleop / record /
+        replay / infer): there the intent is unambiguously "use what is
+        stored", and the run must not stall on a hidden terminal question.
+        A calibrate run is left alone — there the choice between reusing the
+        file and measuring again is the whole point, and the UI offers it.
+        """
+        if kind not in ("teleop", "record", "replay", "infer"):
+            return
+        hits = chunk.lower().count(self._CALIB_PROMPT_MARKER)
+        for _ in range(hits):
+            log.info("Answering calibration prompt for %s (reuse stored file)", key)
+            self._write_requested.emit(key, "\n")
+
     def _handle_ready_read(self, key: str, process: QProcess, kind: str, skill_slug: str) -> None:
         """Read newly buffered stdout/stderr lines in real time and forward to event bus."""
         data = bytes(process.readAllStandardOutput().data()).decode("utf-8", errors="replace")
+        # Answer before line-splitting: the prompt has no trailing newline.
+        self._autoreply_calibration_prompt(key, kind, data)
         for line in data.splitlines():
             line = line.rstrip()
             if not line:

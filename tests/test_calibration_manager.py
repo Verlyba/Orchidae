@@ -79,7 +79,9 @@ def test_backup_and_apply_calibration(tmp_path, temp_project_dir, mock_project_m
     monkeypatch.setattr(cm, "get_lerobot_calibration_dir", lambda: mock_global_dir)
 
     # 1. Create a dummy calibration in mock global cache
-    global_cal_file = mock_global_dir / "robots" / "so100_follower" / "F1.json"
+    # LeRobot reads the device CLASS directory ("so_follower"), not the CLI
+    # type ("so100_follower") — see CalibrationManager.lerobot_device_dirname.
+    global_cal_file = mock_global_dir / "robots" / "so_follower" / "F1.json"
     global_cal_file.parent.mkdir(parents=True, exist_ok=True)
     global_cal_file.write_text('{"data": "original_calibration"}')
 
@@ -141,7 +143,7 @@ def test_import_calibration_from_project(tmp_path, temp_project_dir, mock_projec
     assert json.loads(dest_file.read_text())["data"] == "imported_calibration_data"
 
     # Check that it was applied automatically to the global cache
-    global_file = mock_global_dir / "robots" / "so100_follower" / "F1.json"
+    global_file = mock_global_dir / "robots" / "so_follower" / "F1.json"
     assert global_file.exists()
     assert json.loads(global_file.read_text())["data"] == "imported_calibration_data"
 
@@ -220,3 +222,26 @@ def test_read_calibration_content_malformed(tmp_path, mock_project_manager):
     bad = tmp_path / "bad.json"
     bad.write_text("not json{{{")
     assert cm.read_calibration_content(bad) is None
+
+
+# ── Canonical LeRobot calibration path ───────────────────────────────────
+# Robot.__init__ builds the path as
+#   HF_LEROBOT_CALIBRATION / {robots|teleoperators} / self.name / f"{id}.json"
+# where `self.name` is the device CLASS name. For the SO family that is
+# "so_follower"/"so_leader" for BOTH so100_* and so101_* CLI types. Writing to
+# the CLI type instead leaves LeRobot reporting "no calibration file found".
+
+def test_so_family_maps_to_class_directory():
+    from orchiday.core.calibration_manager import CalibrationManager as CM
+    assert CM.lerobot_device_dirname("so100_follower") == "so_follower"
+    assert CM.lerobot_device_dirname("so101_follower") == "so_follower"
+    assert CM.lerobot_device_dirname("so100_leader") == "so_leader"
+    assert CM.lerobot_device_dirname("so101_leader") == "so_leader"
+
+
+def test_other_devices_use_their_cli_type_verbatim():
+    from orchiday.core.calibration_manager import CalibrationManager as CM
+    # These CLI types equal their class name in LeRobot, so they must pass through.
+    for t in ("koch_follower", "koch_leader", "openarm_follower", "openarm_leader",
+              "bi_so_follower", "bi_so_leader", "lekiwi", "hope_jr_arm", "unitree_g1"):
+        assert CM.lerobot_device_dirname(t) == t

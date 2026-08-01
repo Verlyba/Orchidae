@@ -40,6 +40,27 @@ class CalibrationManager:
     def __init__(self, project_manager: ProjectManager) -> None:
         self._pm = project_manager
 
+    # Where LeRobot looks for a calibration file, straight from its own source:
+    #   Robot.__init__:  HF_LEROBOT_CALIBRATION / {robots|teleoperators} / self.name / f"{self.id}.json"
+    # `self.name` is the DEVICE CLASS name, which is not always the value passed
+    # to --robot.type: SO-100 and SO-101 are both served by SOFollower/SOLeader,
+    # whose name is "so_follower"/"so_leader". Every other supported arm's class
+    # name equals its CLI type, hence the identity fallback.
+    #
+    # Getting this wrong is silent: LeRobot simply reports "no calibration file
+    # found" and re-prompts, which is what filled the cache with duplicates.
+    _LEROBOT_DIRNAME_OVERRIDES = {
+        "so100_follower": "so_follower",
+        "so101_follower": "so_follower",
+        "so100_leader": "so_leader",
+        "so101_leader": "so_leader",
+    }
+
+    @classmethod
+    def lerobot_device_dirname(cls, device_type: str) -> str:
+        """Directory LeRobot reads a device's calibration from."""
+        return cls._LEROBOT_DIRNAME_OVERRIDES.get(device_type, device_type)
+
     def get_lerobot_calibration_dir(self) -> Path:
         """Get the LeRobot cache calibration directory used by subprocesses."""
         from orchiday.core.constants import APP_DATA_DIR
@@ -278,19 +299,12 @@ class CalibrationManager:
             Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
         ]
 
-        # Candidate folder names (e.g. "so101_leader" vs "so100_leader" vs "so_leader")
-        cand_types = [device_type]
-        for dt in [
-            device_type,
-            device_type.replace("so101_", "so_").replace("so100_", "so_"),
-            device_type.replace("so101_", "so100_"),
-            device_type.replace("so100_", "so101_"),
-            "so_leader" if arm_category == "teleoperators" else "so_follower",
-            "so100_leader" if arm_category == "teleoperators" else "so100_follower",
-            "so101_leader" if arm_category == "teleoperators" else "so101_follower",
-        ]:
-            if dt not in cand_types:
-                cand_types.append(dt)
+        # The canonical directory comes first; the raw CLI type is kept only as
+        # a fallback so calibrations written by older builds are still found and
+        # can be migrated into the correct place.
+        cand_types = [self.lerobot_device_dirname(device_type)]
+        if device_type not in cand_types:
+            cand_types.append(device_type)
 
         source_file: Path | None = None
         for b_dir in base_cache_dirs:
@@ -320,10 +334,13 @@ class CalibrationManager:
                 cat_dir = b_dir / arm_category
                 if not cat_dir.exists():
                     continue
+                # Require an EXACT id match. A substring match ("my_robot" also
+                # matching "my_robot_follower.json") could hand back the wrong
+                # arm's calibration, which is worse than reporting none.
                 for json_file in cat_dir.rglob("*.json"):
-                    if any(cid in json_file.name for cid in candidate_ids) or json_file.stem in candidate_ids:
+                    if json_file.stem in candidate_ids:
                         source_file = json_file
-                        log.info("Found active calibration file by rglob candidate match: %s", source_file)
+                        log.info("Found active calibration file by fallback scan: %s", source_file)
                         break
                 if source_file:
                     break
@@ -392,7 +409,8 @@ class CalibrationManager:
         source_file = (project_cal_dir / arm_category / device_type / filename) if project_cal_dir else Path(filename)
         if not source_file.exists():
             # Check global LeRobot cache directory as fallback
-            source_file = self.get_lerobot_calibration_dir() / arm_category / device_type / filename
+            source_file = (self.get_lerobot_calibration_dir() / arm_category
+                           / self.lerobot_device_dirname(device_type) / filename)
 
         if not source_file.exists():
             log.error("Source calibration file '%s' not found in project or LeRobot cache", filename)
@@ -405,42 +423,58 @@ class CalibrationManager:
                 proj_target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, proj_target)
 
-        # Destination in LeRobot cache: deploy to device_type subfolder as well as generic LeRobot class name subfolders
-        # (e.g. so_leader, so_follower, so100_leader, so101_leader) to match internal class name resolution in LeRobot.
-        dest_dirs = {self.get_lerobot_calibration_dir() / arm_category / device_type}
-        if arm_category == "teleoperators":
-            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so_leader")
-            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so100_leader")
-            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so101_leader")
-        elif arm_category == "robots":
-            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so_follower")
-            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so100_follower")
-            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so101_follower")
-        
-        # Deploy under primary device_id (e.g. my_follower_arm) as well as setup_id aliases
-        # (e.g. my_robot, my_robot_follower) so LeRobot CLI finds it under any ID argument
-        aliases = {device_id, robot_setup_id}
-        if arm_category == "robots":
-            aliases.add(f"{robot_setup_id}_follower")
-        elif arm_category == "teleoperators":
-            aliases.add(f"{robot_setup_id}_leader")
+        # Exactly ONE destination — the path LeRobot actually reads. Writing the
+        # same file under every plausible directory/id combination (which this
+        # used to do) produced 9 copies per arm, none of them authoritative, and
+        # left stale ones behind to be "restored" later.
+        dest_dir = self.get_lerobot_calibration_dir() / arm_category / self.lerobot_device_dirname(device_type)
+        dest_file = dest_dir / f"{device_id}.json"
 
         try:
-            for d in dest_dirs:
-                d.mkdir(parents=True, exist_ok=True)
-                for alias in aliases:
-                    if alias:
-                        dest_file = d / f"{alias}.json"
-                        shutil.copy2(source_file, dest_file)
-                        log.info("Applied calibration %s to LeRobot cache at %s", source_file, dest_file)
-            
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, dest_file)
+            log.info("Applied calibration %s -> %s", source_file, dest_file)
+
+            self._prune_stale_cache_copies(arm_category, device_type, device_id)
+
             # Save binding
             self._update_setup_binding(robot_setup_id, arm_category, filename)
-            
+
             return True
         except Exception as e:
             log.error("Failed to apply calibration: %s", e)
             return False
+
+    def _prune_stale_cache_copies(self, arm_category: str, device_type: str, device_id: str) -> None:
+        """Remove copies of this device's calibration outside the canonical path.
+
+        Earlier versions fanned each calibration out across several directory
+        and filename variants. Those leftovers are indistinguishable from a real
+        calibration to the user and can be picked up by the mtime fallback in
+        backup_active_calibration, so a stale one silently becomes "active".
+        """
+        cal_root = self.get_lerobot_calibration_dir() / arm_category
+        if not cal_root.exists():
+            return
+        keep = (cal_root / self.lerobot_device_dirname(device_type) / f"{device_id}.json").resolve()
+        for stale in cal_root.glob("*/*.json"):
+            try:
+                if stale.resolve() == keep:
+                    continue
+            except OSError:
+                continue
+            try:
+                stale.unlink()
+                log.info("Pruned stale calibration copy %s", stale)
+            except OSError as e:
+                log.warning("Could not prune stale calibration %s: %s", stale, e)
+        # Drop directories left empty by the pruning above.
+        for d in cal_root.iterdir():
+            if d.is_dir() and not any(d.iterdir()):
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
 
     def deploy_active_bindings(self) -> None:
         """
@@ -542,7 +576,7 @@ class CalibrationManager:
         target_file = (project_cal_dir / arm_category / device_type / filename) if project_cal_dir else None
         
         cache_cal_dir = self.get_lerobot_calibration_dir()
-        cache_file = cache_cal_dir / arm_category / device_type / filename
+        cache_file = cache_cal_dir / arm_category / self.lerobot_device_dirname(device_type) / filename
 
         deleted = False
         if target_file and target_file.exists():
@@ -561,10 +595,12 @@ class CalibrationManager:
             except Exception as e:
                 log.error("Failed to delete cache calibration file: %s", e)
 
-        # Also purge any active device-ID named file in LeRobot cache if it matches
-        for default_name in ("my_robot.json", "my_robot_follower.json", "my_robot_leader.json", "my_follower_arm.json", "my_leader_arm.json"):
-            c_f = cache_cal_dir / arm_category / device_type / default_name
-            if c_f.exists() and filename in default_name:
+        # Previously this swept a hardcoded list of "likely" ids, which could
+        # delete a different arm's calibration. Only the deployed copy of THIS
+        # file is removed now.
+        for default_name in (filename,):
+            c_f = cache_cal_dir / arm_category / self.lerobot_device_dirname(device_type) / default_name
+            if c_f.exists():
                 try:
                     c_f.unlink()
                     deleted = True
