@@ -8,6 +8,100 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-01 (4) — Teleoperace: konec prázdné plochy a roztažených dlaždic
+
+**Proč právě tohle.** `scripts/verify.sh` na výchozím stavu prošel celý
+(136 pytestů), takže priorita A byla prázdná. Změřením všech osmi stránek
+v headless Chromiu vyšla Teleoperace jako jediná stránka, kde jsou **obě**
+věci, které zadání zakazuje, naráz: mrtvá plocha i pole roztažená do
+nesmyslných rozměrů.
+
+**Naměřený výchozí stav (1600×900)**
+
+- Sloupec 1 („Ovládání relace") měl pod zaškrtávátkem **~470 px prázdna** —
+  přes polovinu sloupce.
+- Sloupec 2: šest dlaždic telemetrie kloubů bylo `flex: 1; align-items:
+  stretch` uvnitř `justify-content: space-evenly`, takže se readout „J1 /
+  0.0000 / 0.0000" roztáhl na **~260 px vysoký blok**. Přesně to, co zadání
+  označuje za hlavní problém.
+- Sloupec 3: dvě prázdné karty vizualizace ramen.
+- Při 1024×760 `.setup-block` ořezával obsah (813 px obsahu v 660 px bloku,
+  `overflow: hidden`) — položka z fronty, teď vyřešená.
+
+**Co se změnilo**
+
+- **`.teleop-unified-grid` má dva sloupce místo tří** (`minmax(340px, 0.85fr)`
+  / `minmax(0, 1.15fr)`). Vizualizace ramen je jediný prvek na téhle stránce,
+  který se **smysluplně** zvětšuje s dostupným místem, takže volnou výšku
+  pohlcuje ona — ne šest roztažených dlaždic.
+- **Levý sloupec `.teleop-col`** drží vše o relaci: hardware → kalibrace →
+  nastavení relace → telemetrie. Sekce mají `flex: 0 0 auto`, takže si sloupec
+  nikdy nerozpouští volné místo do jejich obsahu, a sloupec sám má
+  `overflow-y: auto` — při nízkém okně **scrolluje místo aby ořezával**.
+- **Dlaždice kloubů mají pevnou výšku** (`grid-auto-rows: 58px;
+  align-content: start`). Tři řádky textu zůstanou tři řádky textu.
+- **Nový blok „Kalibrace použitá pro tuto relaci"** vyplňuje uvolněné místo
+  skutečným obsahem, ne výplní. Pro každé rameno ukazuje typ zařízení
+  a **kterým kalibračním souborem `lerobot-teleoperate` opravdu pojede**;
+  `source: "default"` (tj. žádná vazba a obecné rozsahy) je vidět žlutě
+  *před* spuštěním, ne až se rameno rozjede špatně. Data jdou ze stávajícího
+  `/api/calibration/arm_visual_config`, žádný nový endpoint.
+- **Vizualizace ramen**: leader a follower vedle sebe (`.arm-visual-cols`),
+  schéma roste s panelem (`.arm-visual-svg-wrap` je `flex: 1`, SVG drží
+  poměr 1:1). Miniatura na stránce Kalibrace zůstává 100×100 px — ověřeno.
+- **Opravená chyba**: `loadArmVisualConfig()` se při zavřeném projektu vracel
+  hned na začátku (`if (!this.project) return;`) a nechal na obrazovce
+  **prázdnou mřížku dvou karet**, zatímco `#arm-visual-empty` s hláškou
+  „Otevřete projekt…" zůstal skrytý. Teď obě větve končí ve stejném prázdném
+  stavu, a ten se svisle centruje místo aby visel u horní hrany.
+- **Opravená chyba**: po úspěšném načtení se `#arm-visual-grid` nastavoval
+  natvrdo na `display: grid`, i když `.arm-visual-grid` je v CSS
+  `display: flex; flex-direction: column`. Inline styl vyhrával nad
+  stylopisem. Opraveno na `flex`.
+- `.arm-visual-legend:empty { display: none }` — `renderArmVisualLegend()`
+  zapisuje `""`, když nezná id kloubů, a prázdný box se do té doby kreslil
+  jako ohraničený pruh nad schématy.
+- Inline styly v přepsané části nahrazeny třídami (`.teleop-sub`,
+  `.teleop-stat`, `.joint-telemetry-box`…). Šestkrát zopakovaný inline styl
+  dlaždice kloubu je teď jedno pravidlo.
+- Nové i18n klíče (cs i en): krátké popisky hardwaru, celý kalibrační blok,
+  tooltip u „∞". Popisky `Leader Typ` / `Follower Port` byly do teď natvrdo
+  česky i v anglickém režimu.
+- Bump assetů na `?v=3.57.0`.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **136 pytestů**, compileall,
+  i18n parita cs=en=750, žádná duplicitní id, 102 `App.*` odkazů.
+- **Proti běžícímu backendu** (uvicorn + projekt se dvěma reálnými
+  kalibračními soubory): kalibrační blok ukazuje `leader_bench_01.json` /
+  `follower_bench_01.json`, oba zeleně, se správnými typy zařízení
+  a souhrnnou větou; obě schémata ramen se vykreslila podle rozsahů ze
+  souborů.
+- Headless Chromium na **1600×900, 1280×800, 1024×760 a 900×700**: všech 11
+  ovládacích prvků teleoperace (včetně poslední dlaždice kloubu, obou
+  kalibračních řádků a obou tlačítek v patičce) je dosažitelných —
+  `scrollIntoViewIfNeeded` je dostane do viditelné oblasti a nic je
+  neořezává. Žádný vodorovný přetok, žádná dlaždice vyšší než 90 px.
+- Kontrola všech `getElementById` odkazů proti `index.html`: z přepsané části
+  nezmizelo **žádné** id (17 mrtvých odkazů je těch dřív zapsaných níže).
+- Přeměření všech osmi stránek: obě položky teleoperace ze vstupního měření
+  zmizely, ostatní stránky mají přesně stejné hodnoty jako před změnou —
+  žádná regrese.
+
+**Zbývá vyzkoušet na fyzickém robotu** (v cloudu nelze)
+
+- Že `lerobot-teleoperate` opravdu jede s tím kalibračním souborem, který
+  blok hlásí. Vazba se čte z projektu a nasazuje se do cache LeRobotu při
+  otevření projektu (`deploy_active_bindings()`), ale shodu s tím, co proces
+  reálně načte, ověřenou nemám.
+- Živá telemetrie: že se dlaždice kloubů plní a barví (`checkDiff()` píše
+  `borderColor`/`background` inline na `.joint-telemetry-box` — třída se
+  nezměnila, ale s reálnými daty to ověřené není).
+- Že se schémata ramen hýbou podle živých dat, teď když jsou výrazně větší.
+- Sloupce `Leader port` / `Follower port` zůstávají „-", dokud nejsou
+  vidět sériové porty — v kontejneru žádné nejsou.
+
 ## 2026-08-01 (3) — Oprava rozbité stránky Nastavení (verify.sh na mainu neprocházel)
 
 **Výchozí stav byl rozbitý.** `bash scripts/verify.sh` na `main` (58277f7)
@@ -256,18 +350,46 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 **Frontend**
 - ~~Tlačítka akcí sedí v `page-header-row`~~ — hotovo 2026-08-01 (2), vzor
   `.block-actions`.
-- **Teleoperace: `.setup-block` se ořezává při nízkém okně.** Změřeno na
-  1280×800 (562 > 492 px) a 1024×760 (813 > 462 px) — blok nemá `overflow-y`,
-  takže spodek obsahu prostě zmizí. Existuje i na 58277f7, tedy ne regrese
-  z 2026-08-01 (3), ale je to skutečná chyba. Buď dát bloku scrollport,
-  nebo zmenšit obsah pod 1080p.
+- ~~Teleoperace: `.setup-block` se ořezává při nízkém okně~~ — hotovo
+  2026-08-01 (4), sloupec `.teleop-col` má vlastní scrollport.
+- **Nastavení: pravý panel diagnostiky ořezává řádky mid-row.** Změřeno na
+  1600×900: `.diag-list` má obsah 532 px v boxu 323 px, `overflow: visible`.
+  Řádky 7–9 (conda, Miniconda, volné místo) jsou proto uříznuté v půlce
+  a **není vidět žádný scrollbar** — vypadá to jako rozbité vykreslení.
+  Kolečkem myši se panel doscrollovat *dá* (ověřeno: `scrollTop` dojede na
+  maximum), takže obsah není nedosažitelný — ale chybí jakákoli indikace,
+  že je kam scrollovat. Totéž potká levý panel (5. karta „Úložiště datasetů"
+  je pod hranou).
+  Pozor na past při měření: `.settings-pane` je flex kontejner *a zároveň*
+  scroll kontejner a jeho děti se smršťují pod svůj obsah. Chromium pak hlásí
+  `scrollHeight - clientHeight = 199`, ale programové `scrollTop = 99999`
+  doskočí jen na ~2 px. Skutečný stav se pozná až **reálným kolečkem myši**
+  (`page.mouse.wheel`), ne přiřazením `scrollTop`.
+  Lék je stejný jako u teleoperace: dát přímým dětem scrollujícího flex
+  panelu `flex: 0 0 auto`, aby se nesmršťovaly, plus viditelný scrollbar.
+- **Setup / Kalibrace má obrovskou mrtvou plochu.** Při 1600×900 zabírá panel
+  jen levou polovinu a vršek — vpravo ~700 px a dole ~300 px prázdna.
+  Podobně Setup/Connect (~360 px dole) a Orchestrace/Běh modelu (~270 px
+  uprostřed). Stejný recept jako u teleoperace: přeskládat sloupce a volnou
+  výšku dát prvku, který se smysluplně zvětšuje.
 - **Před commitem na `main` pouštět `scripts/verify.sh`.** 58277f7 přistál
   s dvěma padajícími kontrolami (chybějící `App.browseFile`, dva nedefinované
   i18n klíče) a se ztrátou popisu scény i přepínače jazyka.
-- **Prázdná plocha v panelech.** Setup/Connect: mezi výběrem portů a patičkou
-  zbývá ~150 px prázdna; teleop „Ovládání relace" podobně. Vyplnit rozvržením
-  nebo grafickým prvkem (v CSS existuje nepoužitý `#arm-visual-block`), NE
-  roztažením polí. Tohle je věc, kterou zadání označuje za hlavní problém.
+- **Prázdná plocha v panelech.** Teleoperace hotová 2026-08-01 (4); Setup,
+  Orchestrace a Učení zbývají (viz měření výše). Vyplnit rozvržením nebo
+  grafickým prvkem, NE roztažením polí. Tohle je věc, kterou zadání označuje
+  za hlavní problém.
+- **Měřicí skripty se vyplatí mít v repu.** Tenhle běh je psal znovu od nuly
+  (statický HTTP server nad `web/` + headless Chromium, `playwright` se v
+  cloudu doinstaluje přes `npm i -D playwright`, prohlížeč je předinstalovaný
+  v `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`). Dvě pasti, na které
+  se dá naletět: první spuštění zakrývá celou plochu `#setup-wizard-overlay`
+  (nutno skrýt), a `App.changeTab()` bez otevřeného projektu vyhodí `alert()`
+  a přepne zpět na „Projekty" — pro screenshot je potřeba volat rovnou
+  loadery stránky (`loadArmVisualConfig`, `loadSysInfo`, `dsRefreshList`).
+  Zvážit přidání kontroly „žádný panel neořezává obsah" do `scripts/verify.sh`
+  jako volitelný krok (skip, když `playwright` chybí) — layoutové regrese se
+  podle tohohle deníku vracejí každý běh.
 - Konzolový dok dole překrývá spodek pracovní plochy při nízkém okně
   (< ~800 px). `.editor-area` sice scrolluje, ale dok si nerezervuje místo.
 - `.datacollection-grid` má v CSS pravidla pro `nth-child(3)` (280px sloupec

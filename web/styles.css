@@ -3789,11 +3789,6 @@ body.resizing * {
     flex-wrap: wrap;
 }
 
-.cal-live-visual .arm-visual-svg-wrap {
-    max-width: 100px;
-    flex-shrink: 0;
-}
-
 .cal-live-visual .arm-visual-legend {
     flex: 1;
     min-width: 140px;
@@ -4717,6 +4712,24 @@ body { min-width: 320px; }
     display: flex;
     flex-direction: column;
     gap: 10px;
+    height: 100%;
+    min-height: 0;
+}
+
+/* Leader and follower sit side by side and share the panel's full height —
+   this is the element that takes the teleop page's spare vertical space. */
+.arm-visual-cols {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+}
+
+@media (max-width: 1200px) {
+    .arm-visual-cols {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .arm-visual-legend {
@@ -4730,6 +4743,19 @@ body { min-width: 320px; }
     border-radius: var(--radius);
 }
 
+/* renderArmVisualLegend() writes "" when no joint ids are known — without
+   this the empty box still draws as a bordered strip above the schematics. */
+.arm-visual-legend:empty {
+    display: none;
+}
+
+/* The panel is tall; an empty state pinned to its top edge reads as a
+   rendering failure rather than a deliberate "nothing to show yet". */
+#arm-visual-content-wrap > .empty-state {
+    flex: 1;
+    justify-content: center;
+}
+
 .arm-visual-legend-label {
     font-size: 9.5px;
     font-weight: 700;
@@ -4739,9 +4765,8 @@ body { min-width: 320px; }
     margin-right: 2px;
 }
 
-/* Column layout throughout — this now always lives in a narrow side panel
-   (Teleoperation's 3rd column), never full page width, so label/SVG/meta
-   stack top-to-bottom rather than trying to fit side by side. */
+/* Label / SVG / meta stack top-to-bottom inside one arm's card; the two
+   cards themselves sit side by side (.arm-visual-cols) when there is width. */
 .arm-visual-col {
     display: flex;
     flex-direction: column;
@@ -4751,6 +4776,7 @@ body { min-width: 320px; }
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 8px;
+    min-height: 0;
 }
 
 .arm-visual-label {
@@ -4762,10 +4788,13 @@ body { min-width: 320px; }
     text-align: center;
 }
 
+/* Grows with the card so the schematic actually uses the teleop page's spare
+   height; the SVG stays square (viewBox is 200x200) and is capped by
+   whichever of width/height runs out first, so it never distorts. */
 .arm-visual-svg-wrap {
+    flex: 1 1 auto;
     width: 100%;
-    max-width: 160px;
-    aspect-ratio: 1 / 1;
+    min-height: 110px;
     margin: 0 auto;
     display: flex;
     align-items: center;
@@ -4773,8 +4802,19 @@ body { min-width: 320px; }
 }
 
 .arm-visual-svg {
-    width: 100%;
+    width: auto;
     height: 100%;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+}
+
+/* The calibration page shows the same schematic inline next to the joint
+   legend, where it must stay a small fixed thumbnail. */
+.cal-live-visual .arm-visual-svg-wrap {
+    flex: 0 0 auto;
+    width: 100px;
+    min-height: 0;
+    aspect-ratio: 1 / 1;
 }
 
 .arm-floor {
@@ -4934,13 +4974,314 @@ body { min-width: 320px; }
     min-height: 0;
 }
 
+/* Two columns, not three. The session column holds fixed-size content that
+   must NOT grow (hardware, calibration, settings, telemetry readouts); the
+   arm visualization is the only element here that genuinely scales with the
+   space it is given, so it is what absorbs the leftover height instead of
+   six joint tiles being stretched into 260px slabs. */
 .teleop-unified-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: 1.05fr 1fr 0.95fr;
+    grid-template-columns: minmax(340px, 0.85fr) minmax(0, 1.15fr);
     gap: 16px;
     align-items: stretch;
     min-height: 0;
+}
+
+/* Both columns are panels of the same kind: bordered, muted fill, own
+   scrollport so a short window scrolls instead of silently cutting content. */
+.teleop-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Sections stack from the top and keep their natural height — the column
+   never distributes spare space into them. */
+.teleop-col > .teleop-sub {
+    flex: 0 0 auto;
+}
+
+.teleop-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+}
+
+.teleop-sub-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--cyan);
+}
+
+.teleop-sub-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-dark);
+    flex: 0 0 auto;
+}
+
+.teleop-hw-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.teleop-hw-grid strong {
+    color: var(--text-white);
+    font-family: var(--font-mono);
+}
+
+/* --- Calibration actually in use for the next teleop session --- */
+.tele-cal-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tele-cal-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, auto) minmax(0, 1fr);
+    grid-template-areas: "dot side device" ". file file";
+    align-items: center;
+    gap: 2px 8px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-light);
+    font-size: 11px;
+}
+
+.tele-cal-row.is-calibrated {
+    border-left-color: var(--green, #4caf50);
+}
+
+.tele-cal-row.is-default {
+    border-left-color: var(--yellow, #ffa726);
+}
+
+.tele-cal-dot {
+    grid-area: dot;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-light);
+}
+
+.tele-cal-row.is-calibrated .tele-cal-dot {
+    background: var(--green, #4caf50);
+}
+
+.tele-cal-row.is-default .tele-cal-dot {
+    background: var(--yellow, #ffa726);
+}
+
+.tele-cal-side {
+    grid-area: side;
+    font-weight: 700;
+    color: var(--text-light);
+    white-space: nowrap;
+}
+
+.tele-cal-device {
+    grid-area: device;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tele-cal-file {
+    grid-area: file;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.tele-cal-row.is-calibrated .tele-cal-file {
+    color: var(--text-light);
+}
+
+.tele-cal-note {
+    font-size: 10px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+/* --- Session settings --- */
+.teleop-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.teleop-field-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.teleop-input {
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 11px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-light);
+}
+
+.teleop-input-with-btn {
+    display: flex;
+    gap: 4px;
+    width: 100%;
+}
+
+.teleop-input-with-btn .teleop-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.teleop-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.teleop-check-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.teleop-check-row label {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-light);
+    cursor: pointer;
+}
+
+/* --- Live telemetry --- */
+.teleop-stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.teleop-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 7px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.teleop-stat-label {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.teleop-stat-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-light);
+}
+
+.teleop-stat-value.is-cyan {
+    color: var(--cyan);
+}
+
+.teleop-stat-value.is-yellow {
+    color: var(--yellow);
+}
+
+.teleop-joints-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-dark);
+}
+
+.teleop-joints-caption {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* Fixed row height: a joint readout is three short lines and must stay that
+   size no matter how tall the panel is. `align-content: start` keeps the two
+   rows together instead of spreading them over the whole column. */
+.teleop-joints-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: 58px;
+    align-content: start;
+    gap: 6px;
+}
+
+.joint-telemetry-box {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px 6px;
+    text-align: center;
+    font-family: var(--font-mono);
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.joint-telemetry-name {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.joint-telemetry-val {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-light);
+}
+
+.joint-telemetry-tgt {
+    font-size: 9px;
+    color: var(--text-muted);
 }
 
 .projects-unified-grid,

@@ -5164,28 +5164,70 @@ const App = {
     },
     async loadArmVisualConfig() {
         this.restoreArmVisualCollapsedState();
-        if (!this.project)
-            return;
-        const res = await this.api('GET', '/calibration/arm_visual_config');
         const emptyEl = document.getElementById('arm-visual-empty');
         const gridEl = document.getElementById('arm-visual-grid');
+        // No project: fall through to the same empty state the server-side
+        // failure path uses. Returning early here used to leave the placeholder
+        // grid on screen — two blank arm cards and no explanation why.
+        const res = this.project ? await this.api('GET', '/calibration/arm_visual_config') : null;
         if (!res || res.ok === false) {
             if (emptyEl)
                 emptyEl.style.display = 'flex';
             if (gridEl)
                 gridEl.style.display = 'none';
             this.armVisualConfig = null;
+            this.renderTeleopCalibrationStatus(null);
             return;
         }
         if (emptyEl)
             emptyEl.style.display = 'none';
         if (gridEl)
-            gridEl.style.display = 'grid';
+            gridEl.style.display = 'flex';
         this.armVisualConfig = res;
         this.armJointRanges = { leader: {}, follower: {} };
         this.renderArmVisualLegend(res.follower?.source === 'calibration' ? res.follower : res.leader);
         this.renderArmSchematic('leader', res.leader);
         this.renderArmSchematic('follower', res.follower);
+        this.renderTeleopCalibrationStatus(res);
+    },
+    /** Teleoperation page: which calibration file each arm will actually run
+     * with. The same /calibration/arm_visual_config response drives this —
+     * `source: "default"` means nothing is bound for that arm and LeRobot will
+     * use generic ranges, which is worth seeing BEFORE the arms start moving,
+     * not after. */
+    renderTeleopCalibrationStatus(cfg) {
+        const note = document.getElementById('tele-cal-note');
+        for (const side of ['leader', 'follower']) {
+            const row = document.getElementById(`tele-cal-row-${side}`);
+            const deviceEl = document.getElementById(`tele-cal-device-${side}`);
+            const fileEl = document.getElementById(`tele-cal-file-${side}`);
+            if (!row)
+                continue;
+            const arm = cfg?.[side];
+            row.classList.remove('is-calibrated', 'is-default');
+            if (!arm) {
+                if (deviceEl)
+                    deviceEl.textContent = '-';
+                if (fileEl)
+                    fileEl.textContent = '-';
+                continue;
+            }
+            const calibrated = arm.source === 'calibration' && !!arm.filename;
+            row.classList.add(calibrated ? 'is-calibrated' : 'is-default');
+            if (deviceEl)
+                deviceEl.textContent = arm.device_type || '-';
+            if (fileEl)
+                fileEl.textContent = calibrated ? arm.filename : this.t('hint.teleCalDefault');
+        }
+        if (note) {
+            const sides = cfg ? ['leader', 'follower'] : [];
+            const uncalibrated = sides.filter(s => cfg[s]?.source !== 'calibration' || !cfg[s]?.filename);
+            const key = !cfg ? 'hint.teleCalUnknown'
+                : uncalibrated.length ? 'hint.teleCalPartial'
+                    : 'hint.teleCalOk';
+            note.textContent = this.t(key);
+            note.setAttribute('data-i18n', key);
+        }
     },
     /** Motor-ID legend shown ONCE for the whole stacked block — both arms
      * follow the same base->gripper joint order, so per-arm id badges would
