@@ -388,6 +388,9 @@ const App = {
             case 'robot_calibrated':
                 this.hideCalibrationLivePanel();
                 this.refreshProject();
+                if (document.getElementById('modal-calibration-files')?.classList.contains('open')) {
+                    this.loadCalibrationFiles();
+                }
                 this.log('SUCCESS', `Kalibrace ramene '${data}' byla dokončena.`);
                 break;
             case 'calibration_progress':

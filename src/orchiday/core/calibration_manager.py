@@ -207,8 +207,9 @@ class CalibrationManager:
         """
         from orchiday.core.constants import APP_DATA_DIR
         candidate_dirs = [
-            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
+            self.get_lerobot_calibration_dir(),
             APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration",
+            Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
         ]
 
         results = []
