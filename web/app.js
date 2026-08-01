@@ -1162,7 +1162,32 @@ const App = {
             this.log('INFO', 'Šablona příkazu vložena do terminálu — upravte SKILL/parametry a potvrďte Enterem.');
         }
     },
+    /**
+     * Write one diagnostic row. `value` empty means the environment does not
+     * provide it (no LeRobot, no ffmpeg…) — shown as the localized "not found"
+     * in the muted style, never as a blank row the user cannot interpret.
+     */
+    setDiagValue(elementId, value, missingKey = 'val.notFound') {
+        const el = document.getElementById(elementId);
+        if (!el)
+            return;
+        const has = !!(value && value.trim());
+        el.textContent = has ? value : this.t(missingKey);
+        el.classList.toggle('is-missing', !has);
+        // The placeholder carries data-i18n="val.loading"; once real data is in,
+        // applyI18n() must not overwrite it on the next language switch.
+        el.removeAttribute('data-i18n');
+    },
     async loadSysInfo() {
+        const btn = document.querySelector('.btn-refresh-sysinfo');
+        const btnLabel = btn ? btn.querySelector('span') : null;
+        const prevLabel = btnLabel ? btnLabel.textContent : '';
+        // Probing the environment imports torch in a subprocess — seconds, not
+        // milliseconds — so the button has to show that something is happening.
+        if (btn)
+            btn.disabled = true;
+        if (btnLabel)
+            btnLabel.textContent = this.t('btn.detecting');
         try {
             this.log('INFO', 'Loading system diagnostic information...');
             const sysinfo = await this.api('GET', '/settings/sysinfo');
@@ -1185,19 +1210,19 @@ const App = {
                 if (sceneDescInput)
                     sceneDescInput.value = this.project?.scene_description || '';
                 // Populate diagnostic labels
-                const lblPyVersion = document.getElementById('diag-python-version');
-                if (lblPyVersion)
-                    lblPyVersion.textContent = sysinfo.python_version || this.t('val.unknownF');
-                const lblLeRobotVersion = document.getElementById('diag-lerobot-version');
-                if (lblLeRobotVersion)
-                    lblLeRobotVersion.textContent = sysinfo.lerobot_version || 'Nenalezeno';
-                const lblCondaEnv = document.getElementById('diag-conda-env');
-                if (lblCondaEnv)
-                    lblCondaEnv.textContent = sysinfo.conda_env || this.t('val.unknownN');
-                const lblMinicondaPath = document.getElementById('diag-miniconda-path');
-                if (lblMinicondaPath)
-                    lblMinicondaPath.textContent = sysinfo.miniconda_path || 'Nenalezeno';
-                this.lerobotAvailable = !!(sysinfo.lerobot_version && sysinfo.lerobot_version !== 'Nenalezeno');
+                this.setDiagValue('diag-platform', sysinfo.platform, 'val.unknownN');
+                this.setDiagValue('diag-python-version', sysinfo.python_version, 'val.unknownF');
+                this.setDiagValue('diag-lerobot-version', sysinfo.lerobot_version);
+                this.setDiagValue('diag-torch-version', sysinfo.torch_version);
+                this.setDiagValue('diag-compute-device', sysinfo.compute_device, 'val.unknownN');
+                this.setDiagValue('diag-ffmpeg', sysinfo.ffmpeg_version);
+                this.setDiagValue('diag-conda-env', sysinfo.conda_env, 'val.unknownN');
+                this.setDiagValue('diag-miniconda-path', sysinfo.miniconda_path);
+                this.setDiagValue('diag-disk-free', sysinfo.disk_free, 'val.unknownN');
+                const storageRoot = document.getElementById('diag-storage-root');
+                if (storageRoot)
+                    storageRoot.textContent = sysinfo.storage_root || '';
+                this.lerobotAvailable = !!(sysinfo.lerobot_version && sysinfo.lerobot_version.trim());
                 this.updateHardwareButtonStates();
                 this.log('SUCCESS', 'System diagnostic information loaded');
             }
@@ -1206,6 +1231,12 @@ const App = {
             this.lerobotAvailable = false;
             this.updateHardwareButtonStates();
             this.log('ERROR', 'Failed to load system diagnostics info.');
+        }
+        finally {
+            if (btn)
+                btn.disabled = false;
+            if (btnLabel)
+                btnLabel.textContent = prevLabel || this.t('btn.refresh');
         }
     },
     async installLerobotFromSettings() {
@@ -1228,24 +1259,40 @@ const App = {
         await this.loadSysInfo();
     },
     async saveGlobalSettings() {
-        const pyPathEl = document.getElementById('settings-python-path');
-        const pyPath = pyPathEl ? pyPathEl.value.trim() : '';
-        const lerobotDirEl = document.getElementById('settings-lerobot-dir-global');
-        const lerobotDir = lerobotDirEl ? lerobotDirEl.value.trim() : '';
-        const storageDirEl = document.getElementById('settings-dataset-storage-dir');
-        const storageDir = storageDirEl ? storageDirEl.value.trim() : '';
-        const sceneDescEl = document.getElementById('settings-scene-desc');
-        const sceneDescription = sceneDescEl ? sceneDescEl.value.trim() : '';
-        if (this.project && sceneDescEl && !sceneDescription) {
+        // Only fields that are actually on the page are sent. The backend
+        // overwrites every key it receives, so posting a value read from a missing
+        // element would silently erase the stored one (this wiped the project's
+        // scene description once already).
+        const payload = {};
+        const put = (key, id) => {
+            const el = document.getElementById(id);
+            if (el)
+                payload[key] = el.value.trim();
+        };
+        put('python_path', 'settings-python-path');
+        put('lerobot_dir', 'settings-lerobot-dir-global');
+        put('dataset_storage_dir', 'settings-dataset-storage-dir');
+        put('scene_description', 'settings-scene-desc');
+        if (this.project && 'scene_description' in payload && !payload.scene_description) {
             this.log('WARN', this.t('log.sceneDescEmptyWarn'));
         }
+        const saveBtn = document.querySelector('.btn-save-settings');
+        const prevLabel = saveBtn ? saveBtn.textContent : '';
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = this.t('btn.saving');
+        }
         this.log('INFO', 'Saving global and project settings...');
-        const r = await this.api('POST', '/settings', {
-            python_path: pyPath,
-            lerobot_dir: lerobotDir,
-            dataset_storage_dir: storageDir,
-            scene_description: sceneDescription
-        });
+        let r = null;
+        try {
+            r = await this.api('POST', '/settings', payload);
+        }
+        finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = prevLabel || this.t('settings.save');
+            }
+        }
         if (r && r.ok) {
             this.log('SUCCESS', 'Settings saved successfully');
             this.loadSysInfo();
@@ -3051,19 +3098,37 @@ const App = {
             });
         }
     },
-    async browseDirectory(inputId) {
+    /**
+     * Open a native OS picker and write the chosen absolute path into `inputId`.
+     *
+     * The dialog is modal on the *desktop*, not in the browser tab, so the
+     * request stays pending for as long as the user browses — the button is
+     * disabled meanwhile, otherwise a second click stacks another dialog.
+     * An empty path means "cancelled": the field keeps its previous value.
+     */
+    async browsePath(kind, inputId, titleKey) {
         const input = document.getElementById(inputId);
         if (!input)
             return;
+        const btn = input.parentElement
+            ? input.parentElement.querySelector('button')
+            : null;
+        const prevLabel = btn ? btn.textContent : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = this.t('btn.browsing');
+        }
         try {
             this.log('INFO', this.t('log.openingFileBrowser'));
-            const res = await this.api('POST', '/utils/browse_directory');
+            const endpoint = kind === 'file' ? '/utils/browse_file' : '/utils/browse_directory';
+            const res = await this.api('POST', endpoint, { title: titleKey ? this.t(titleKey) : '' });
             if (res && res.ok && res.path) {
                 input.value = res.path;
-                this.log('SUCCESS', `Složka vybrána: ${res.path}`);
+                input.dispatchEvent(new Event('change')); // path fields mirror elsewhere
+                this.log('SUCCESS', `${this.t(kind === 'file' ? 'log.fileSelected' : 'log.folderSelected')}: ${res.path}`);
                 this.saveSettingsState();
             }
-            else if (res && !res.path) {
+            else if (res && res.ok) {
                 this.log('INFO', this.t('log.folderCancelled'));
             }
             else {
@@ -3071,8 +3136,20 @@ const App = {
             }
         }
         catch (err) {
-            this.log('ERROR', 'Chyba při otevírání průzkumníku: ' + err);
+            this.log('ERROR', `${this.t('log.folderFailed')}: ${err}`);
         }
+        finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = prevLabel || this.t('btn.browse');
+            }
+        }
+    },
+    async browseDirectory(inputId, titleKey) {
+        await this.browsePath('directory', inputId, titleKey);
+    },
+    async browseFile(inputId, titleKey) {
+        await this.browsePath('file', inputId, titleKey);
     },
     // ── CEO Planner & NLP Orchestration ─────────────────────────────────
     async executeOrchestration() {

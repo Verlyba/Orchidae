@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.48.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.50.0">
 </head>
 <body>
 
@@ -1332,33 +1332,58 @@
         <!-- PAGE 6: NASTAVENÍ (Global Application Settings) -->
         <div id="page-settings" class="editor-area">
           <div class="page-header-row">
-            <h2 data-i18n="page.settings.title">Nastavení Aplikace & Diagnostika</h2>
+            <h2 data-i18n="page.settings.title">Globální Nastavení &amp; Diagnostika</h2>
           </div>
 
-          <div class="setup-block" style="flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0;">
-            <div class="block-head-row" style="margin-bottom: 0; padding-bottom: 8px; border-bottom: 1px solid var(--border-dark);">
-              <h3 style="margin: 0; border: none; padding: 0; display: flex; align-items: center; gap: 8px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                <span data-i18n="settings.title">Nastavení Cest a Diagnostika Prostředí</span>
-              </h3>
+          <div class="setup-block settings-block">
+            <div class="block-head-row">
+              <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> <span data-i18n="settings.title">Cesty, prostředí a diagnostika</span></h3>
+              <span class="block-head-sub" data-i18n="settings.subtitle">Cesty se ukládají do konfigurace aplikace, popis scény do aktivního projektu.</span>
             </div>
 
-            <div class="settings-unified-grid" style="flex: 1; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; min-height: 0;">
-              
-              <!-- Panel 1: Paths & Environment -->
-              <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
-                <h4 style="font-size: 10px; color: var(--cyan); text-transform: uppercase; margin: 0; font-weight: 700; letter-spacing: 0.5px;" data-i18n="settings.paths.title">Cesty & Prostředí</h4>
-                
+            <div class="settings-unified-grid">
+
+              <!-- Left pane: configurable values -->
+              <div class="settings-pane">
+                <h4 class="settings-pane-title" data-i18n="settings.paths.title">Cesty &amp; Prostředí</h4>
+
+                <div class="cfg-card lang-card">
+                  <div class="cfg-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  </div>
+                  <div class="cfg-card-body lang-row">
+                    <div class="lang-info">
+                      <div class="cfg-card-title" data-i18n="settings.language.title">Jazyk aplikace / Application language</div>
+                      <div class="cfg-card-desc" data-i18n="settings.language.desc">Přepne se okamžitě, bez restartu. Ukládá se do konfigurace aplikace.</div>
+                    </div>
+                    <div class="lang-toggle" role="group" aria-label="Language">
+                      <button type="button" data-lang="cs" onclick="App.setLang('cs')">Čeština</button>
+                      <button type="button" data-lang="en" onclick="App.setLang('en')">English</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="cfg-card">
                   <div class="cfg-card-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                   </div>
                   <div class="cfg-card-body">
-                    <div class="cfg-card-title" data-i18n="settings.python.title">Python Interpreter</div>
-                    <div class="cfg-card-desc" data-i18n="settings.python.desc">Cesta ke spouštěči Python v prostředí s nainstalovaným LeRobotem.</div>
+                    <div class="cfg-card-title"><span data-i18n="lbl.sceneDesc">Popis scény</span> <span class="required-mark">*</span></div>
+                    <div class="cfg-card-desc" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
+                    <textarea id="settings-scene-desc" rows="2" class="cfg-card-textarea" placeholder="např. Robotické rameno SO-101 je upevněno na hraně dřevěného stolu. Kamera 'overhead_cam' snímá stůl shora, kamera 'wrist_cam' je na zápěstí robota. Na stole je bílá miska vlevo a modrá krabice vpravo." data-i18n-ph="ph.sceneDesc"></textarea>
+                  </div>
+                </div>
+
+                <div class="cfg-card">
+                  <div class="cfg-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                  </div>
+                  <div class="cfg-card-body">
+                    <div class="cfg-card-title" data-i18n="settings.python.title">Python Executable</div>
+                    <div class="cfg-card-desc" data-i18n="settings.python.desc">Interpreter prostředí, ve kterém je nainstalován LeRobot a PyTorch.</div>
                     <div class="cfg-card-input">
                       <input type="text" id="settings-python-path" value="" placeholder="Cesta k python.exe / bin/python" data-i18n-ph="settings.python.ph">
-                      <button class="btn btn-xs btn-secondary" onclick="App.browseFile('settings-python-path')" title="Vybrat soubor..." data-i18n="btn.browse">Procházet</button>
+                      <button class="btn btn-xs btn-secondary" onclick="App.browseFile('settings-python-path', 'dlg.pickPython')" data-i18n="btn.browse" data-i18n-title="tip.browseFile" title="Otevře systémový dialog pro výběr souboru">Procházet</button>
                     </div>
                   </div>
                 </div>
@@ -1371,8 +1396,8 @@
                     <div class="cfg-card-title" data-i18n="settings.lerobotDir.title">Repozitář LeRobot</div>
                     <div class="cfg-card-desc" data-i18n="settings.lerobotDir.desc">Složka s naklonovaným LeRobotem — zdroj CLI skriptů a konfigurací.</div>
                     <div class="cfg-card-input">
-                      <input type="text" id="settings-lerobot-dir-global" value="" placeholder="Cesta k repozitáři lerobot">
-                      <button class="btn btn-xs btn-secondary" onclick="App.browseDirectory('settings-lerobot-dir-global')" title="Vybrat adresář..." data-i18n="btn.browse">Procházet</button>
+                      <input type="text" id="settings-lerobot-dir-global" value="" placeholder="Cesta k repozitáři lerobot" data-i18n-ph="settings.lerobotDir.ph">
+                      <button class="btn btn-xs btn-secondary" onclick="App.browseDirectory('settings-lerobot-dir-global', 'dlg.pickLerobotDir')" data-i18n="btn.browse" data-i18n-title="tip.browseDir" title="Otevře systémový dialog pro výběr složky">Procházet</button>
                     </div>
                   </div>
                 </div>
@@ -1386,48 +1411,84 @@
                     <div class="cfg-card-desc" data-i18n="settings.storage.desc">Kam se ukládají nahrané demonstrace a checkpointy (HF_HOME). Prázdné = výchozí HuggingFace cache.</div>
                     <div class="cfg-card-input">
                       <input type="text" id="settings-dataset-storage-dir" value="" placeholder="Výchozí HuggingFace Cache cesta…" data-i18n-ph="settings.storage.ph" onchange="App.syncDatasetStorageDir('settings-dataset-storage-dir')">
-                      <button class="btn btn-xs btn-secondary" onclick="App.browseDirectory('settings-dataset-storage-dir')" title="Vybrat adresář..." data-i18n="btn.browse">Procházet</button>
+                      <button class="btn btn-xs btn-secondary" onclick="App.browseDirectory('settings-dataset-storage-dir', 'dlg.pickStorageDir')" data-i18n="btn.browse" data-i18n-title="tip.browseDir" title="Otevře systémový dialog pro výběr složky">Procházet</button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Panel 2: Diagnostics -->
-              <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <h4 style="font-size: 10px; color: var(--cyan); text-transform: uppercase; margin: 0; font-weight: 700; letter-spacing: 0.5px;" data-i18n="settings.diag.title">Systémová Diagnostika</h4>
-                  <button class="btn btn-xs btn-secondary" onclick="App.loadSysInfo()" title="Znovu načíst diagnostiku">
+              <!-- Right pane: read-only environment diagnostics -->
+              <div class="settings-pane">
+                <div class="settings-pane-head">
+                  <h4 class="settings-pane-title" data-i18n="settings.diag.title">Systémová Diagnostika</h4>
+                  <button class="btn btn-xs btn-secondary btn-refresh-sysinfo" onclick="App.loadSysInfo()" data-i18n-title="tip.refreshDiag" title="Znovu spustí detekci prostředí">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                     <span data-i18n="btn.refresh">Obnovit</span>
                   </button>
                 </div>
 
-                <div class="diag-list" style="flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0;">
+                <div class="diag-list">
                   <div class="diag-row">
-                    <div class="diag-row-icon" style="color: var(--cyan);">
+                    <div class="diag-row-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                    </div>
+                    <div class="diag-row-text">
+                      <span class="diag-row-label" data-i18n="diag.platform">Operační systém</span>
+                      <span id="diag-platform" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
+                    </div>
+                  </div>
+                  <div class="diag-row">
+                    <div class="diag-row-icon">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
                     </div>
                     <div class="diag-row-text">
                       <span class="diag-row-label" data-i18n="diag.python">Verze Pythonu</span>
-                      <span id="diag-python-version" class="diag-row-value" style="color: var(--cyan);">Načítání</span>
+                      <span id="diag-python-version" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
                     </div>
                   </div>
                   <div class="diag-row">
-                    <div class="diag-row-icon" style="color: var(--cyan);">
+                    <div class="diag-row-icon">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="1.4"></circle><circle cx="16" cy="16" r="1.4"></circle><path d="M12 2v9"></path></svg>
                     </div>
                     <div class="diag-row-text">
                       <span class="diag-row-label" data-i18n="diag.lerobot">Verze LeRobotu</span>
-                      <span id="diag-lerobot-version" class="diag-row-value" style="color: var(--cyan);">Načítání</span>
+                      <span id="diag-lerobot-version" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
                     </div>
                   </div>
                   <div class="diag-row">
-                    <div class="diag-row-icon" style="color: var(--yellow);">
+                    <div class="diag-row-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"></path><path d="m4.9 4.9 4.2 4.2"></path><circle cx="12" cy="14" r="7"></circle></svg>
+                    </div>
+                    <div class="diag-row-text">
+                      <span class="diag-row-label" data-i18n="diag.torch">Verze PyTorch</span>
+                      <span id="diag-torch-version" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
+                    </div>
+                  </div>
+                  <div class="diag-row">
+                    <div class="diag-row-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="15" x2="23" y2="15"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="15" x2="4" y2="15"></line></svg>
+                    </div>
+                    <div class="diag-row-text">
+                      <span class="diag-row-label" data-i18n="diag.device">Výpočetní zařízení</span>
+                      <span id="diag-compute-device" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
+                    </div>
+                  </div>
+                  <div class="diag-row">
+                    <div class="diag-row-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect></svg>
+                    </div>
+                    <div class="diag-row-text">
+                      <span class="diag-row-label" data-i18n="diag.ffmpeg">ffmpeg (kódování videa)</span>
+                      <span id="diag-ffmpeg" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
+                    </div>
+                  </div>
+                  <div class="diag-row">
+                    <div class="diag-row-icon">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline></svg>
                     </div>
                     <div class="diag-row-text">
                       <span class="diag-row-label" data-i18n="diag.conda">Conda Prostředí</span>
-                      <span id="diag-conda-env" class="diag-row-value" style="color: var(--yellow);">Načítání</span>
+                      <span id="diag-conda-env" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
                     </div>
                   </div>
                   <div class="diag-row">
@@ -1436,7 +1497,17 @@
                     </div>
                     <div class="diag-row-text">
                       <span class="diag-row-label" data-i18n="diag.miniconda">Složka Minicondy</span>
-                      <span id="diag-miniconda-path" class="diag-row-value">Načítání</span>
+                      <span id="diag-miniconda-path" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
+                    </div>
+                  </div>
+                  <div class="diag-row">
+                    <div class="diag-row-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"></line><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path><line x1="6" y1="16" x2="6.01" y2="16"></line><line x1="10" y1="16" x2="10.01" y2="16"></line></svg>
+                    </div>
+                    <div class="diag-row-text">
+                      <span class="diag-row-label" data-i18n="diag.disk">Volné místo v úložišti</span>
+                      <span id="diag-disk-free" class="diag-row-value" data-i18n="val.loading">Načítání…</span>
+                      <span id="diag-storage-root" class="diag-row-path"></span>
                     </div>
                   </div>
                 </div>
@@ -1444,11 +1515,11 @@
 
             </div>
 
-            <div class="block-actions" style="margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border-dark); display: flex; justify-content: space-between; align-items: center;">
-              <span class="block-actions-hint" data-i18n="hint.saveSettingsScope">Uloží popis scény a cesty výše do konfigurace aktivního projektu.</span>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-xs btn-cyan-dashed" onclick="App.installLerobotFromSettings()" data-i18n="btn.installLerobot" data-i18n-title="tip.installLerobot" title="Nainstaluje LeRobot a jeho závislosti do conda prostředí">Instalovat / opravit prostředí LeRobot</button>
-                <button class="btn btn-xs btn-primary" data-i18n="settings.save" onclick="App.saveGlobalSettings()" data-i18n-title="tip.saveSettings" title="Zepíše popis scény, cestu k Pythonu, k repozitáři LeRobot a k úložišti datasetů">Uložit Globální Nastavení</button>
+            <div class="block-actions">
+              <span class="block-actions-hint" data-i18n="hint.saveSettingsScope">Uložení zapíše hodnoty z levého panelu. Instalace doplní LeRobot a jeho závislosti do conda prostředí — může trvat několik minut.</span>
+              <div class="block-actions-buttons">
+                <button class="btn btn-xs btn-cyan-dashed btn-install-lerobot" onclick="App.installLerobotFromSettings()" data-i18n="btn.installLerobot" data-i18n-title="tip.installLerobot" title="Nainstaluje LeRobot a jeho závislosti do conda prostředí">Instalovat / opravit prostředí LeRobot</button>
+                <button class="btn btn-xs btn-primary btn-save-settings" data-i18n="settings.save" onclick="App.saveGlobalSettings()" data-i18n-title="tip.saveSettings" title="Zapíše popis scény, cestu k Pythonu, k repozitáři LeRobot a k úložišti datasetů">Uložit Globální Nastavení</button>
               </div>
             </div>
           </div>
@@ -2598,7 +2669,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.48.0" defer></script>
-  <script src="/static/app.js?v=3.48.0" defer></script>
+  <script src="/static/i18n.js?v=3.50.0" defer></script>
+  <script src="/static/app.js?v=3.50.0" defer></script>
 </body>
 </html>

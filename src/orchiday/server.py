@@ -1490,8 +1490,46 @@ async def save_settings(body: SettingsConfig):
     return {"ok": True}
 
 
+# Probe run inside the *target* interpreter (the one that has LeRobot), not
+# ours: which packages exist there is exactly what the diagnostics report on.
+_ENV_PROBE = (
+    "import json,os\n"
+    "o={}\n"
+    "try:\n"
+    "    import lerobot; o['lerobot']=getattr(lerobot,'__version__','')\n"
+    "except Exception: o['lerobot']=''\n"
+    "try:\n"
+    "    import torch\n"
+    "    o['torch']=torch.__version__\n"
+    "    if torch.cuda.is_available(): o['device']='cuda — '+torch.cuda.get_device_name(0)\n"
+    "    elif getattr(torch.backends,'mps',None) and torch.backends.mps.is_available(): o['device']='mps'\n"
+    "    else: o['device']='cpu'\n"
+    "except Exception:\n"
+    "    o['torch']=''; o['device']=''\n"
+    "o['conda']=os.environ.get('CONDA_DEFAULT_ENV','')\n"
+    "print(json.dumps(o))\n"
+)
+
+
+def _probe_environment(python_path: str) -> dict:
+    """Ask `python_path` what it has installed. {} if it cannot be run at all."""
+    import subprocess
+    # Importing torch is slow on a cold filesystem cache, hence the long timeout.
+    try:
+        res = subprocess.run(
+            [python_path, "-c", _ENV_PROBE], capture_output=True, text=True, timeout=90
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return json.loads(res.stdout.strip().splitlines()[-1])
+    except Exception as e:
+        log.debug("Environment probe failed for %s: %s", python_path, e)
+    return {}
+
+
 @app.get("/api/settings/sysinfo")
 def get_sysinfo():
+    import platform
+    import shutil
     import subprocess
     from orchiday.core.config import AppConfig
     cfg = AppConfig()
@@ -1499,63 +1537,84 @@ def get_sysinfo():
     python_path = cfg.get("python_path") or ctrl.lerobot_bridge._python
     lerobot_dir = cfg.get("lerobot_dir") or str(LEROBOT_DIR)
 
-    # 1. Python version
-    py_version = "Neznámá"
+    # 1. Python version of the configured interpreter
+    py_version = ""
     try:
-        res = subprocess.run([python_path, "--version"], capture_output=True, text=True, timeout=5)
+        res = subprocess.run([python_path, "--version"], capture_output=True, text=True, timeout=10)
         if res.returncode == 0:
-            py_version = res.stdout.strip().replace("Python ", "")
+            py_version = (res.stdout or res.stderr).strip().replace("Python ", "")
     except Exception:
         pass
 
-    # 2. LeRobot version
-    lerobot_version = "Nenalezeno"
-    try:
-        cmd = [python_path, "-c", "import lerobot; print(getattr(lerobot, '__version__', '0.5.1'))"]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        if res.returncode == 0 and res.stdout.strip():
-            lerobot_version = res.stdout.strip()
-        else:
-            cmd2 = ["python", "-c", "import lerobot; print(getattr(lerobot, '__version__', '0.5.1'))"]
-            res2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=5)
-            if res2.returncode == 0 and res2.stdout.strip():
-                lerobot_version = res2.stdout.strip()
-    except Exception:
-        pass
+    # 2/3/4. LeRobot, PyTorch, compute device and conda env — one probe process
+    probe = _probe_environment(python_path)
+    conda_env = probe.get("conda") or ""
+    if not conda_env:
+        # Not launched from an activated env: derive it from the path layout
+        # (…/envs/<name>/bin/python on POSIX, …\envs\<name>\python.exe on Windows).
+        parts = Path(python_path).parts
+        if "envs" in parts:
+            idx = len(parts) - 1 - list(reversed(parts)).index("envs")
+            if idx + 1 < len(parts):
+                conda_env = parts[idx + 1]
 
-    # 3. Conda env info
-    conda_env = "Neznámé"
-    try:
-        res = subprocess.run([python_path, "-c", "import os; print(os.environ.get('CONDA_DEFAULT_ENV', ''))"], capture_output=True, text=True, timeout=5)
-        val = res.stdout.strip()
-        if val:
-            conda_env = val
-        else:
-            if "envs/" in python_path:
-                parts = python_path.split("envs/")
-                conda_env = parts[1].split("/")[0]
-    except Exception:
-        pass
-
-    # 4. Miniconda / Anaconda path check
-    miniconda_path = "Nenalezeno"
-    possible_paths = [
+    # 5. Miniconda / Anaconda installation (all three platforms)
+    miniconda_path = ""
+    for p in (
         Path.home() / "miniconda3",
         Path.home() / "anaconda3",
+        Path.home() / "miniforge3",
         Path("/opt/miniconda3"),
-    ]
-    for p in possible_paths:
-        if p.exists():
-            miniconda_path = str(p)
-            break
+        Path("/opt/anaconda3"),
+        Path(os.environ.get("LOCALAPPDATA", "")) / "miniconda3" if os.name == "nt" else Path("/nonexistent"),
+        Path("C:/ProgramData/miniconda3") if os.name == "nt" else Path("/nonexistent"),
+    ):
+        try:
+            if p.exists():
+                miniconda_path = str(p)
+                break
+        except Exception:
+            continue
+
+    # 6. ffmpeg — LeRobot encodes every episode to video with it, so a missing
+    #    binary shows up only after a recording session is already lost.
+    ffmpeg_version = ""
+    ffmpeg_exe = shutil.which("ffmpeg")
+    if ffmpeg_exe:
+        try:
+            res = subprocess.run([ffmpeg_exe, "-version"], capture_output=True, text=True, timeout=10)
+            first = (res.stdout or "").splitlines()[:1]
+            if first:
+                ffmpeg_version = first[0].replace("ffmpeg version ", "").split(" ")[0]
+        except Exception:
+            ffmpeg_version = "?"
+
+    # 7. Free space where datasets and checkpoints are written
+    from orchiday.core.portability import hf_home_for
+    storage_root = hf_home_for(pm.current_project)
+    disk_free = ""
+    probe_dir = storage_root
+    while not probe_dir.exists() and probe_dir != probe_dir.parent:
+        probe_dir = probe_dir.parent
+    try:
+        usage = shutil.disk_usage(str(probe_dir))
+        disk_free = f"{usage.free / 1024 ** 3:.1f} GB / {usage.total / 1024 ** 3:.0f} GB"
+    except Exception:
+        pass
 
     return {
         "python_path": python_path,
         "lerobot_dir": lerobot_dir,
         "python_version": py_version,
-        "lerobot_version": lerobot_version,
+        "lerobot_version": probe.get("lerobot", ""),
         "conda_env": conda_env,
         "miniconda_path": miniconda_path,
+        "torch_version": probe.get("torch", ""),
+        "compute_device": probe.get("device", ""),
+        "platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
+        "ffmpeg_version": ffmpeg_version,
+        "storage_root": str(storage_root),
+        "disk_free": disk_free,
     }
 
 
@@ -1571,93 +1630,27 @@ async def configure_model(role: str, body: ModelConfig):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
 
-@app.post("/api/utils/browse_directory")
-def browse_directory():
-    import platform
-    import subprocess
-    import sys
-    import os
-
-    system = platform.system().lower()
-    directory = None
-
-    # Try native OS dialogs first for modern look on all OS
+async def _dialog_title(request: Request) -> str:
+    """Dialog caption from the request body; the UI sends it localized."""
     try:
-        if "darwin" in system:
-            script = 'POSIX path of (choose folder with prompt "Vyberte adresář LeRobot")'
-            proc = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if proc.returncode == 0:
-                directory = proc.stdout.strip()
-        elif "linux" in system:
-            # Try Zenity
-            proc = subprocess.run(
-                ["zenity", "--file-selection", "--directory", "--title=Vyberte adresář LeRobot"],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if proc.returncode == 0:
-                directory = proc.stdout.strip()
-            else:
-                # Try Kdialog
-                proc = subprocess.run(
-                    ["kdialog", "--getexistingdirectory"],
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
-                if proc.returncode == 0:
-                    directory = proc.stdout.strip()
-        elif "windows" in system or "nt" in system:
-            try:
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
-                directory = filedialog.askdirectory(title="Vyberte adresář LeRobot")
-                root.destroy()
-            except Exception as tk_err:
-                log.warning("Tkinter folder dialog failed, trying powershell fallback: %s", tk_err)
-                ps_cmd = (
-                    "Add-Type -AssemblyName System.Windows.Forms; "
-                    "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                    "$f.Description = 'Vyberte adresář LeRobot'; "
-                    "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
-                )
-                proc = subprocess.run(
-                    ["powershell", "-Command", ps_cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
-                if proc.returncode == 0:
-                    directory = proc.stdout.strip()
-    except Exception as e:
-        log.warning("Nativní dialog pro výběr složky selhal: %s", e)
+        body = await request.json()
+    except Exception:
+        return ""   # older callers post no body at all
+    return body.get("title", "") if isinstance(body, dict) else ""
 
-    # Fallback to Tkinter (for other platform options if native OS dialog failed)
-    if not directory:
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            directory = filedialog.askdirectory(title="Vyberte adresář LeRobot")
-            root.destroy()
-        except Exception as e:
-            log.debug("General Tkinter fallback skipped or failed: %s", e)
 
-    if not directory:
-        return {"ok": True, "path": ""}
-        
-    return {"ok": True, "path": directory}
+@app.post("/api/utils/browse_directory")
+async def browse_directory(request: Request):
+    """Open a native folder picker. Returns path="" when the user cancels."""
+    from orchiday.core.file_dialogs import DIRECTORY, pick_path
+    return {"ok": True, "path": pick_path(DIRECTORY, await _dialog_title(request))}
+
+
+@app.post("/api/utils/browse_file")
+async def browse_file(request: Request):
+    """Open a native file picker (used for the Python interpreter path)."""
+    from orchiday.core.file_dialogs import FILE, pick_path
+    return {"ok": True, "path": pick_path(FILE, await _dialog_title(request))}
 
 
 # ── Orchestration ────────────────────────────────────────────────────────

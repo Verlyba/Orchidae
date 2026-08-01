@@ -8,6 +8,118 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-01 (3) — Oprava rozbité stránky Nastavení (verify.sh na mainu neprocházel)
+
+**Výchozí stav byl rozbitý.** `bash scripts/verify.sh` na `main` (58277f7)
+padal na dvou kontrolách — priorita A, takže tenhle běh řešil jen to.
+
+**Co bylo rozbité a čím**
+
+Commit 58277f7 přepsal stránku Nastavení do jednoho panelu, ale přitom:
+
+1. `App.browseFile('settings-python-path')` — **taková metoda neexistuje**.
+   Tlačítko „Procházet" u cesty k Pythonu tiše nedělalo nic.
+2. Klíče `settings.title` a `settings.python.ph` se používaly v HTML, ale
+   nebyly v `i18n.js` → nadpis panelu a placeholder zůstaly natvrdo česky
+   i v anglickém režimu.
+3. **Zmizel textarea `settings-scene-desc`.** `saveGlobalSettings()` ho ale
+   dál četl přes `getElementById` → `null` → posílal `scene_description: ""`,
+   a backend (`server.py:1475`) přepisuje každý klíč, který dostane. Kliknutí
+   na „Uložit Globální Nastavení" tedy **smazalo popis scény projektu** —
+   povinné pole, které dostává CEO plánovač i VLM inspektor jako kontext.
+4. **Zmizel přepínač jazyka.** `.lang-toggle` nebyl v celém `index.html`
+   nikde jinde → aplikace se nedala přepnout do angličtiny z UI.
+5. `.editor-area .setup-block { flex: 1 }` je specifičtější než `.help-block
+   { flex: 0 0 auto }`, takže se pravidlo propsalo i na bloky uvnitř
+   `.help-scroll`. Změřeno v headless Chromiu: první blok Nápovědy měl
+   **59–73 px** místo ~324 px, při 1024×760 bylo zmáčknutých všech 8 bloků
+   a scrollport vůbec nescrolloval — stránka Nápověda byla nečitelná.
+
+**Ještě jedna rozbitá věc — přišla během běhu (4ea4279 / 4c27b2b)**
+
+Během práce přistály na `main` dva další commity se `styles.css`, které
+přidaly `.editor-area { flex: 1; display: flex; … }` na řádek ~4825.
+`.editor-area` má ale na řádku 548 `display: none` a zobrazuje se výhradně
+přes `.editor-area.active-page`. Stejná specificita + pozdější pozice v
+souboru = `display: flex` vyhrálo → **vykreslovalo se všech osm stránek
+najednou pod sebou, každá ~60 px vysoká**. Naměřeno v headless Chromiu:
+výška stránky 632 px → 70 px, `settings-pane` 456 px → 22 px, tlačítka
+v patičce přestala být klikatelná. Celá aplikace byla nepoužitelná.
+
+Pravidlo je přitom **beze zbytku duplicitní**: `flex: 1` a `min-height: 0`
+už `.editor-area` má, a `display: flex` + `flex-direction: column` +
+`gap: 14px` má `.editor-area.active-page`. Blok je proto smazaný a na jeho
+místě je komentář, proč se sem `.editor-area { display: … }` psát nesmí.
+Zbytek obou commitů (mřížky `projects/connect/manage/modelrun/train/adv`,
+`.setup-wizard-panel`, `.setup-block-content`) zůstal beze změny.
+
+**Co se změnilo**
+
+- **`src/orchiday/core/file_dialogs.py`** (nový) — jeden nativní dialog pro
+  všechny tři platformy, zvlášť varianta pro soubor a pro složku:
+  macOS `osascript` → Linux `zenity` → `kdialog` → Windows tkinter →
+  PowerShell WinForms, s tkinterem jako univerzální poslední záchranou.
+  Zrušení i „žádný dialog na stroji není" vrací `""`, nikdy výjimku.
+  Titulek se sanitizuje — v AppleScriptu a PowerShellu se vkládá do *kódu*,
+  ne do argv.
+- `server.py` — `/api/utils/browse_directory` přepsán na tenhle helper
+  (byl to 90řádkový blok s natvrdo českým titulkem „Vyberte adresář LeRobot"
+  i při výběru úložiště datasetů) a přibyl `/api/utils/browse_file`.
+  Oba snesou POST bez těla (tak je volá wizard).
+- `app.ts` — `browsePath()` + tenké `browseDirectory()` / `browseFile()`.
+  Tlačítko je po dobu otevřeného dialogu disabled (dialog je modální na
+  ploše, ne v prohlížeči — druhý klik jinak naskládá další okno) a titulek
+  dialogu se posílá lokalizovaný.
+- `saveGlobalSettings()` posílá **jen klíče, jejichž element na stránce
+  opravdu je**. Chybějící pole už nikdy nepřepíše uloženou hodnotu.
+  Tlačítko během ukládání ukazuje `btn.saving`.
+- Vrácen přepínač jazyka i popis scény. `.lang-row` dostal
+  `flex-direction: row` — `.cfg-card-body` je `column` a `.lang-row` směr
+  nepřepisoval, takže přepínač padal pod popisek doprostřed karty.
+- `.editor-area > .setup-block` / `> .setup-section` (přímý potomek) —
+  panely stránky vyplní výšku, vnořené bloky v scrollportu si nechají
+  přirozenou výšku.
+- **Diagnostika rozšířena ze 4 na 9 řádků** — operační systém, Python,
+  LeRobot, PyTorch, výpočetní zařízení (cuda/mps/cpu + název GPU), ffmpeg,
+  conda, Miniconda, volné místo + cesta k úložišti. Není to výplň: bez
+  ffmpegu LeRobot nedokóduje epizody a zjistí se to až po ztraceném sběru,
+  a `disk_free` je nad reálnou cestou z `hf_home_for(project)`.
+  Tři subprocessy nahradil jeden probe (`_ENV_PROBE`) běžící v *cílovém*
+  interpretu; `loadSysInfo()` po dobu detekce ukazuje `btn.detecting`.
+- Detekce Minicondy zná i `miniforge3`, `/opt/anaconda3`, `%LOCALAPPDATA%`
+  a `C:/ProgramData` — dřív to byly tři POSIXové cesty.
+- Backend už nevrací české řetězce „Neznámá"/„Nenalezeno" jako *data*;
+  vrací `""` a frontend (`setDiagValue()`) je lokalizuje sám.
+- `tests/test_file_dialogs.py` — 24 testů (výběr příkazu podle platformy,
+  soubor vs. složka, pořadí fallbacků, sanitizace titulku, chování při
+  zrušení a chybějícím binárce).
+- Bump assetů na `?v=3.50.0` (v souboru bylo pořád 3.48.0).
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **131 pytestů** (bylo 107),
+  compileall, i18n parita cs=en=728, žádná duplicitní id, 101 `App.*` odkazů.
+- `/api/settings/sysinfo` proti běžícímu backendu (TestClient): 200 za 0,3 s,
+  vrací všech 12 polí, `disk_free` „28.7 GB / 252 GB". `/api/utils/browse_file`
+  i `browse_directory` vrací 200 a `path: ""` (v kontejneru není tkinter ani
+  zenity) — včetně POSTu bez těla.
+- Headless Chromium přes lokální HTTP server (aby se `/static/*` opravdu
+  načetlo) na 1600×900, 1280×800 i 1024×760: obě tlačítka v patičce i
+  „Obnovit" jsou hit-testem klikatelná, žádný vodorovný přetok, žádný
+  roztažený prvek, přepínač jazyka i popis scény na stránce, 9 diag řádků.
+- Nápověda **před** změnou: 2–8 zmáčknutých bloků, první 59–73 px, scrollport
+  nescrolloval. **Po** změně: 0 zmáčknutých, první blok 324 px, scrolluje.
+
+**Zbývá vyzkoušet na fyzickém robotu / reálném desktopu** (v cloudu nelze)
+
+- Že se nativní dialog opravdu otevře: zenity i kdialog na Linuxu, Finder na
+  macOS, Explorer na Windows. V kontejneru není ani tkinter, takže se ověřilo
+  jen sestavení příkazů a to, že chybějící dialog nespadne.
+- Že `settings-python-path` vybraný přes dialog opravdu spustí LeRobot
+  (uloží se do `AppConfig`, čte ho `lerobot_bridge`).
+- Diagnostika proti prostředí s LeRobotem a GPU: verze PyTorch, `cuda — <GPU>`,
+  verze ffmpegu. V cloudu jsou všechna tato pole prázdná.
+
 ## 2026-08-01 (2) — Akční tlačítka dovnitř oken (`.block-actions`) + 3 layoutové chyby
 
 **Co se změnilo**
@@ -144,6 +256,14 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 **Frontend**
 - ~~Tlačítka akcí sedí v `page-header-row`~~ — hotovo 2026-08-01 (2), vzor
   `.block-actions`.
+- **Teleoperace: `.setup-block` se ořezává při nízkém okně.** Změřeno na
+  1280×800 (562 > 492 px) a 1024×760 (813 > 462 px) — blok nemá `overflow-y`,
+  takže spodek obsahu prostě zmizí. Existuje i na 58277f7, tedy ne regrese
+  z 2026-08-01 (3), ale je to skutečná chyba. Buď dát bloku scrollport,
+  nebo zmenšit obsah pod 1080p.
+- **Před commitem na `main` pouštět `scripts/verify.sh`.** 58277f7 přistál
+  s dvěma padajícími kontrolami (chybějící `App.browseFile`, dva nedefinované
+  i18n klíče) a se ztrátou popisu scény i přepínače jazyka.
 - **Prázdná plocha v panelech.** Setup/Connect: mezi výběrem portů a patičkou
   zbývá ~150 px prázdna; teleop „Ovládání relace" podobně. Vyplnit rozvržením
   nebo grafickým prvkem (v CSS existuje nepoužitý `#arm-visual-block`), NE
