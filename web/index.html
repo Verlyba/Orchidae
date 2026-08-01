@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.54.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.55.0">
 </head>
 <body>
 
@@ -943,125 +943,115 @@
           </div>
 
           <div class="setup-wizard-panel" data-tab-panel="train">
-          <div class="setup-section" style="grid-template-columns: 1.2fr 1fr 1.3fr;">
-            <!-- Left Column: Skills & Steps Checklist Tree -->
+          <div class="setup-section" style="grid-template-columns: 1fr;">
             <div class="setup-block" style="display: flex; flex-direction: column;">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg> <span data-i18n="blk.learn.skills">Seznam Dovedností a Kroků</span></h3>
-              
-              <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;" id="train-skills-checklist-container">
-                <!-- Dynamically filled by renderTrainingSkillsTree() -->
+              <div class="block-head-row">
+                <h3 style="margin:0;"><span data-i18n="blk.train.title"></span></h3>
+                <span class="block-head-sub" data-i18n="blk.train.sub"></span>
               </div>
-            </div>
+              <div class="setup-block-content">
+                <div class="merge-cols merge-cols-3">
+                  <section class="merge-col">
+                    <h4 class="merge-col-title" data-i18n="blk.learn.skills">Seznam Dovedností a Kroků</h4>
+                      <!-- Dynamically filled by renderTrainingSkillsTree() -->
+                  </section>
+                  <section class="merge-col">
+                    <h4 class="merge-col-title" data-i18n="blk.learn.config">Konfigurace Tréninku</h4>
+                      <div class="form-group" style="margin:0; flex:1; display:flex; flex-direction:column; min-height:0;">
+                        <div class="label-with-tooltip">
+                          <label id="policy-pick-label" data-i18n="lbl.policyArch">Model Policy (Architektura)</label>
+                          <span class="info-tooltip-trigger" data-i18n-tooltip="tip.policyArch">ⓘ</span>
+                        </div>
+                        <select id="train-policy-type" style="display:none;" aria-hidden="true">
+                          <option value="act" selected>ACT</option>
+                          <option value="diffusion">Diffusion Policy</option>
+                          <option value="smolvla">SmolVLA</option>
+                          <option value="vqbet">VQ-BeT</option>
+                          <option value="pi0">π0</option>
+                        </select>
+                        <div class="policy-pick" role="radiogroup" aria-labelledby="policy-pick-label">
+                          <div class="policy-pick-card active" data-value="act" role="radio" aria-checked="true" tabindex="0" onclick="App.selectPolicyCard('act')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('act')}">
+                            <strong>ACT</strong>
+                            <span data-i18n="pol.act">Přesné trajektorie — doporučeno pro SO-100/101</span>
+                          </div>
+                          <div class="policy-pick-card" data-value="diffusion" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('diffusion')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('diffusion')}">
+                            <strong>Diffusion</strong>
+                            <span data-i18n="pol.diffusion">Robustní vůči šumu a chybám operátora</span>
+                          </div>
+                          <div class="policy-pick-card" data-value="smolvla" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('smolvla')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('smolvla')}">
+                            <strong>SmolVLA</strong>
+                            <span data-i18n="pol.smolvla">Malý jazykově řízený VLA model</span>
+                          </div>
+                          <div class="policy-pick-card" data-value="vqbet" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('vqbet')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('vqbet')}">
+                            <strong>VQ-BeT</strong>
+                            <span data-i18n="pol.vqbet">Dlouhé úkoly (long-horizon)</span>
+                          </div>
+                          <div class="policy-pick-card" data-value="pi0" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('pi0')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('pi0')}">
+                            <strong>π0</strong>
+                            <span data-i18n="pol.pi0">Physical Intelligence VLA</span>
+                          </div>
+                        </div>
+                      </div>
 
-            <!-- Middle Column: Policy training config block -->
-            <div class="setup-block" style="display: flex; flex-direction: column;">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path><circle cx="12" cy="12" r="4"></circle></svg> <span data-i18n="blk.learn.config">Konfigurace Tréninku</span></h3>
-              
-              <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
-                <div class="form-group" style="margin:0; flex:1; display:flex; flex-direction:column; min-height:0;">
-                  <div class="label-with-tooltip">
-                    <label id="policy-pick-label" data-i18n="lbl.policyArch">Model Policy (Architektura)</label>
-                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.policyArch">ⓘ</span>
-                  </div>
-                  <select id="train-policy-type" style="display:none;" aria-hidden="true">
-                    <option value="act" selected>ACT</option>
-                    <option value="diffusion">Diffusion Policy</option>
-                    <option value="smolvla">SmolVLA</option>
-                    <option value="vqbet">VQ-BeT</option>
-                    <option value="pi0">π0</option>
-                  </select>
-                  <div class="policy-pick" role="radiogroup" aria-labelledby="policy-pick-label">
-                    <div class="policy-pick-card active" data-value="act" role="radio" aria-checked="true" tabindex="0" onclick="App.selectPolicyCard('act')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('act')}">
-                      <strong>ACT</strong>
-                      <span data-i18n="pol.act">Přesné trajektorie — doporučeno pro SO-100/101</span>
-                    </div>
-                    <div class="policy-pick-card" data-value="diffusion" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('diffusion')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('diffusion')}">
-                      <strong>Diffusion</strong>
-                      <span data-i18n="pol.diffusion">Robustní vůči šumu a chybám operátora</span>
-                    </div>
-                    <div class="policy-pick-card" data-value="smolvla" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('smolvla')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('smolvla')}">
-                      <strong>SmolVLA</strong>
-                      <span data-i18n="pol.smolvla">Malý jazykově řízený VLA model</span>
-                    </div>
-                    <div class="policy-pick-card" data-value="vqbet" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('vqbet')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('vqbet')}">
-                      <strong>VQ-BeT</strong>
-                      <span data-i18n="pol.vqbet">Dlouhé úkoly (long-horizon)</span>
-                    </div>
-                    <div class="policy-pick-card" data-value="pi0" role="radio" aria-checked="false" tabindex="0" onclick="App.selectPolicyCard('pi0')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectPolicyCard('pi0')}">
-                      <strong>π0</strong>
-                      <span data-i18n="pol.pi0">Physical Intelligence VLA</span>
-                    </div>
-                  </div>
-                </div>
+                      <div class="form-row" style="margin:0; gap:16px;">
+                        <div class="form-group">
+                          <div class="label-with-tooltip">
+                            <label for="train-steps" data-i18n="lbl.trainSteps">Tréninkové kroky (steps)</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainSteps">ⓘ</span>
+                          </div>
+                          <input type="number" id="train-steps" value="10000" min="100" step="100" style="font-size:12px; font-family:var(--font-mono);">
+                        </div>
+                        <div class="form-group" style="width: 90px;">
+                          <div class="label-with-tooltip">
+                            <label for="train-batch-size">Batch size</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainBatchSize">ⓘ</span>
+                          </div>
+                          <input type="number" id="train-batch-size" value="8" min="1" style="font-size:12px; font-family:var(--font-mono);">
+                        </div>
+                        <div class="form-group">
+                          <div class="label-with-tooltip">
+                            <label for="train-device" data-i18n="lbl.trainDevice">Trénovací Zařízení</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainDevice">ⓘ</span>
+                          </div>
+                          <select id="train-device" style="font-size:12px;">
+                            <option value="cuda" data-i18n="opt.cudaRec">CUDA GPU (Doporučeno)</option>
+                            <option value="mps">MPS Apple Silicon</option>
+                            <option value="cpu">Pouze CPU</option>
+                          </select>
+                        </div>
+                      </div>
 
-                <div class="form-row" style="margin:0; gap:16px;">
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label for="train-steps" data-i18n="lbl.trainSteps">Tréninkové kroky (steps)</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainSteps">ⓘ</span>
-                    </div>
-                    <input type="number" id="train-steps" value="10000" min="100" step="100" style="font-size:12px; font-family:var(--font-mono);">
-                  </div>
-                  <div class="form-group" style="width: 90px;">
-                    <div class="label-with-tooltip">
-                      <label for="train-batch-size">Batch size</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainBatchSize">ⓘ</span>
-                    </div>
-                    <input type="number" id="train-batch-size" value="8" min="1" style="font-size:12px; font-family:var(--font-mono);">
-                  </div>
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label for="train-device" data-i18n="lbl.trainDevice">Trénovací Zařízení</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainDevice">ⓘ</span>
-                    </div>
-                    <select id="train-device" style="font-size:12px;">
-                      <option value="cuda" data-i18n="opt.cudaRec">CUDA GPU (Doporučeno)</option>
-                      <option value="mps">MPS Apple Silicon</option>
-                      <option value="cpu">Pouze CPU</option>
-                    </select>
-                  </div>
-                </div>
+                      <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                          <input type="checkbox" id="train-wandb" style="width:14px; height:14px;">
+                          <label for="train-wandb" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;" data-i18n="lbl.logWandb">LOGOVAT WANDB</label>
+                          <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainWandb">ⓘ</span>
+                        </div>
+                      </div>
 
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="train-wandb" style="width:14px; height:14px;">
-                    <label for="train-wandb" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;" data-i18n="lbl.logWandb">LOGOVAT WANDB</label>
-                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainWandb">ⓘ</span>
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <div class="label-with-tooltip">
-                    <label data-i18n="lbl.extraArgsTrain">Vlastní LeRobot CLI argumenty (Trénování)</label>
-                    <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainExtraArgs">ⓘ</span>
-                  </div>
-                  <input type="text" id="train-extra-args" placeholder="např. --policy.n_obs_steps=8 --optimizer.lr=1e-4" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.trainExtra">
-                </div>
-              </div>
-
-              <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.trainScope">Spustí lerobot-train pro dovednosti zaškrtnuté vlevo, každou jako samostatný běh.</span>
-                <button class="btn btn-xs btn-primary" id="btn-start-training" onclick="App.startWorkflowTraining()" data-i18n="btn.startTraining">Spustit Trénink</button>
-                <button class="btn btn-xs btn-danger" id="btn-stop-training" onclick="App.stopWorkflowTraining()" disabled title="Žádný trénink neběží" data-i18n="btn.stop">Zastavit</button>
-              </div>
-            </div>
-
-            <!-- Right Column: Loss telemetry & training status -->
-            <div class="setup-block" style="display: flex; flex-direction: column;">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> <span data-i18n="blk.learn.loss">Loss Telemetrie & Průběh</span></h3>
-              
-              <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-                <div class="chart-header">
-                  <span style="font-size:10px; font-weight:700; color:var(--text-light); text-transform:uppercase;" data-i18n="hint.trainProgress">Průběh trénování</span>
-                  <div class="progress-bar-container">
-                    <div class="progress-bar-fill" id="training-progress-bar"></div>
-                  </div>
-                </div>
-                <div class="chart-container-docked" style="flex:1; min-height: 200px;">
-                  <canvas id="loss-chart" style="width:100%; height:100%;"></canvas>
-                </div>
-                <div class="latch-status-indicator" id="training-status-indicator">
-                  Ready. Zaškrtněte dovednosti a klikněte na 'Spustit Trénink'.
+                      <div class="form-group">
+                        <div class="label-with-tooltip">
+                          <label data-i18n="lbl.extraArgsTrain">Vlastní LeRobot CLI argumenty (Trénování)</label>
+                          <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainExtraArgs">ⓘ</span>
+                        </div>
+                        <input type="text" id="train-extra-args" placeholder="např. --policy.n_obs_steps=8 --optimizer.lr=1e-4" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.trainExtra">
+                      </div>
+                  </section>
+                  <section class="merge-col">
+                    <h4 class="merge-col-title" data-i18n="blk.learn.loss">Loss Telemetrie & Průběh</h4>
+                      <div class="chart-header">
+                        <span style="font-size:10px; font-weight:700; color:var(--text-light); text-transform:uppercase;" data-i18n="hint.trainProgress">Průběh trénování</span>
+                        <div class="progress-bar-container">
+                          <div class="progress-bar-fill" id="training-progress-bar"></div>
+                        </div>
+                      </div>
+                      <div class="chart-container-docked" style="flex:1; min-height: 200px;">
+                        <canvas id="loss-chart" style="width:100%; height:100%;"></canvas>
+                      </div>
+                      <div class="latch-status-indicator" id="training-status-indicator">
+                        Ready. Zaškrtněte dovednosti a klikněte na 'Spustit Trénink'.
+                      </div>
+                  </section>
                 </div>
               </div>
             </div>
@@ -1070,98 +1060,101 @@
 
           <!-- ── Tab 2: Pokročilé & Evaluace ──────────────────────────────── -->
           <div class="setup-wizard-panel" data-tab-panel="advanced" style="display:none;">
-            <div class="setup-section" style="grid-template-columns: 1fr 1fr;">
-              <!-- Resume + sim eval -->
-              <div class="setup-block" style="display:flex; flex-direction:column;">
-                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg> <span data-i18n="blk.adv.resume">Pokračování tréninku (Resume)</span></h3>
-                <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:14px; min-height:0;">
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label for="adv-resume-skill" data-i18n="lbl.skillWithCkpt">Dovednost s existujícím checkpointem</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advResumeSkill">ⓘ</span>
-                    </div>
-                    <select id="adv-resume-skill"><option value="">-- Vyberte dovednost --</option></select>
-                  </div>
-                  <div style="font-size:10.5px; color:var(--text-muted); line-height:1.5;" data-i18n-html="desc.resume">
-                    Najde poslední checkpoint v <code>checkpoints/last/pretrained_model</code> a pokračuje v tréninku
-                    (<code>lerobot-train --config_path=... --resume=true</code>). Pokud checkpoint neexistuje, spustí se nový trénink.
-                  </div>
-                  <button class="btn btn-xs btn-primary" style="align-self:flex-start;" onclick="App.advResumeTraining()" data-i18n="btn.resumeTraining">Pokračovat v tréninku</button>
-
-                  <h3 style="margin-top:14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg> <span data-i18n="blk.adv.eval">Simulační evaluace (lerobot-eval)</span></h3>
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label for="adv-eval-policy" data-i18n="lbl.policyPathOrHub">Policy (cesta nebo Hub id)</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalPolicy">ⓘ</span>
-                    </div>
-                    <input type="text" id="adv-eval-policy" placeholder="např. lerobot/diffusion_pusht nebo outputs/training/..." style="font-family:var(--font-mono); font-size:11px;" data-i18n-ph="ph.evalPolicy">
-                  </div>
-                  <div class="form-row" style="margin:0; gap:10px;">
-                    <div class="form-group">
-                      <div class="label-with-tooltip">
-                        <label for="adv-eval-env" data-i18n="lbl.env">Prostředí</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalEnv">ⓘ</span>
-                      </div>
-                      <select id="adv-eval-env">
-                        <option value="pusht" data-i18n="opt.pusht">PushT (2D tlačení)</option>
-                        <option value="aloha">ALOHA (bimanual)</option>
-                        <option value="xarm">XArm</option>
-                      </select>
-                    </div>
-                    <div class="form-group" style="width:90px;">
-                      <div class="label-with-tooltip">
-                        <label for="adv-eval-episodes" data-i18n="lbl.episodes">Epizody</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalEpisodes">ⓘ</span>
-                      </div>
-                      <input type="number" id="adv-eval-episodes" value="10" min="1" style="font-family:var(--font-mono); font-size:12px;">
-                    </div>
-                    <div class="form-group">
-                      <div class="label-with-tooltip">
-                        <label for="adv-eval-device" data-i18n="lbl.device">Zařízení</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalDevice">ⓘ</span>
-                      </div>
-                      <select id="adv-eval-device">
-                        <option value="cuda">CUDA</option>
-                        <option value="mps">MPS</option>
-                        <option value="cpu">CPU</option>
-                      </select>
-                    </div>
-                  </div>
-                  <button class="btn btn-xs btn-primary" style="align-self:flex-start;" onclick="App.advStartEval()" data-i18n="btn.runEval">Spustit evaluaci</button>
+            <div class="setup-section" style="grid-template-columns: 1fr;">
+              <div class="setup-block" style="display: flex; flex-direction: column;">
+                <div class="block-head-row">
+                  <h3 style="margin:0;"><span data-i18n="blk.adv.title"></span></h3>
+                  <span class="block-head-sub" data-i18n="blk.adv.sub"></span>
                 </div>
-              </div>
+                <div class="setup-block-content">
+                  <div class="merge-cols merge-cols-2">
+                    <section class="merge-col">
+                      <h4 class="merge-col-title" data-i18n="blk.adv.resume">Pokračování tréninku (Resume)</h4>
+                        <div class="form-group">
+                          <div class="label-with-tooltip">
+                            <label for="adv-resume-skill" data-i18n="lbl.skillWithCkpt">Dovednost s existujícím checkpointem</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advResumeSkill">ⓘ</span>
+                          </div>
+                          <select id="adv-resume-skill"><option value="">-- Vyberte dovednost --</option></select>
+                        </div>
+                        <div style="font-size:10.5px; color:var(--text-muted); line-height:1.5;" data-i18n-html="desc.resume">
+                          Najde poslední checkpoint v <code>checkpoints/last/pretrained_model</code> a pokračuje v tréninku
+                          (<code>lerobot-train --config_path=... --resume=true</code>). Pokud checkpoint neexistuje, spustí se nový trénink.
+                        </div>
+                        <button class="btn btn-xs btn-primary" style="align-self:flex-start;" onclick="App.advResumeTraining()" data-i18n="btn.resumeTraining">Pokračovat v tréninku</button>
 
-              <!-- Advanced modes reference -->
-              <div class="setup-block" style="display:flex; flex-direction:column;">
-                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> <span data-i18n="blk.adv.modes">Pokročilé režimy tréninku</span></h3>
-                <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:10px; overflow-y:auto;">
-                  <p style="font-size:10.5px; color:var(--text-muted); margin:0; line-height:1.5;" data-i18n-html="desc.advModes">
-                    Tyto režimy se aktivují přes pole <strong>„Vlastní LeRobot CLI argumenty“</strong> na stránce Imitační učení,
-                    nebo příkazem v terminálu. Kliknutím vložíte šablonu do terminálové konzole.
-                  </p>
+                        <h3 style="margin-top:14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg> <span data-i18n="blk.adv.eval">Simulační evaluace (lerobot-eval)</span></h3>
+                        <div class="form-group">
+                          <div class="label-with-tooltip">
+                            <label for="adv-eval-policy" data-i18n="lbl.policyPathOrHub">Policy (cesta nebo Hub id)</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalPolicy">ⓘ</span>
+                          </div>
+                          <input type="text" id="adv-eval-policy" placeholder="např. lerobot/diffusion_pusht nebo outputs/training/..." style="font-family:var(--font-mono); font-size:11px;" data-i18n-ph="ph.evalPolicy">
+                        </div>
+                        <div class="form-row" style="margin:0; gap:10px;">
+                          <div class="form-group">
+                            <div class="label-with-tooltip">
+                              <label for="adv-eval-env" data-i18n="lbl.env">Prostředí</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalEnv">ⓘ</span>
+                            </div>
+                            <select id="adv-eval-env">
+                              <option value="pusht" data-i18n="opt.pusht">PushT (2D tlačení)</option>
+                              <option value="aloha">ALOHA (bimanual)</option>
+                              <option value="xarm">XArm</option>
+                            </select>
+                          </div>
+                          <div class="form-group" style="width:90px;">
+                            <div class="label-with-tooltip">
+                              <label for="adv-eval-episodes" data-i18n="lbl.episodes">Epizody</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalEpisodes">ⓘ</span>
+                            </div>
+                            <input type="number" id="adv-eval-episodes" value="10" min="1" style="font-family:var(--font-mono); font-size:12px;">
+                          </div>
+                          <div class="form-group">
+                            <div class="label-with-tooltip">
+                              <label for="adv-eval-device" data-i18n="lbl.device">Zařízení</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.advEvalDevice">ⓘ</span>
+                            </div>
+                            <select id="adv-eval-device">
+                              <option value="cuda">CUDA</option>
+                              <option value="mps">MPS</option>
+                              <option value="cpu">CPU</option>
+                            </select>
+                          </div>
+                        </div>
+                        <button class="btn btn-xs btn-primary" style="align-self:flex-start;" onclick="App.advStartEval()" data-i18n="btn.runEval">Spustit evaluaci</button>
+                    </section>
+                    <section class="merge-col">
+                      <h4 class="merge-col-title" data-i18n="blk.adv.modes">Pokročilé režimy tréninku</h4>
+                        <p style="font-size:10.5px; color:var(--text-muted); margin:0; line-height:1.5;" data-i18n-html="desc.advModes">
+                          Tyto režimy se aktivují přes pole <strong>„Vlastní LeRobot CLI argumenty“</strong> na stránce Imitační učení,
+                          nebo příkazem v terminálu. Kliknutím vložíte šablonu do terminálové konzole.
+                        </p>
 
-                  <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('peft')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('peft')">
-                    <strong data-i18n="adv.peft.title">PEFT / LoRA fine-tuning</strong>
-                    <code>--peft.type=lora --peft.r=16 --peft.lora_alpha=32</code>
-                    <span data-i18n="adv.peft.desc">Paměťově úsporné doladění velkých VLA modelů (SmolVLA, π0).</span>
-                  </div>
+                        <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('peft')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('peft')">
+                          <strong data-i18n="adv.peft.title">PEFT / LoRA fine-tuning</strong>
+                          <code>--peft.type=lora --peft.r=16 --peft.lora_alpha=32</code>
+                          <span data-i18n="adv.peft.desc">Paměťově úsporné doladění velkých VLA modelů (SmolVLA, π0).</span>
+                        </div>
 
-                  <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('multigpu')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('multigpu')">
-                    <strong data-i18n="adv.multigpu.title">Multi-GPU trénink (accelerate)</strong>
-                    <code>accelerate launch --num_processes=2 -m lerobot.scripts.lerobot_train ...</code>
-                    <span data-i18n="adv.multigpu.desc">Distribuovaný trénink na více grafických kartách.</span>
-                  </div>
+                        <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('multigpu')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('multigpu')">
+                          <strong data-i18n="adv.multigpu.title">Multi-GPU trénink (accelerate)</strong>
+                          <code>accelerate launch --num_processes=2 -m lerobot.scripts.lerobot_train ...</code>
+                          <span data-i18n="adv.multigpu.desc">Distribuovaný trénink na více grafických kartách.</span>
+                        </div>
 
-                  <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('rl')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('rl')">
-                    <strong data-i18n="adv.rl.title">Reinforcement Learning (HIL-SERL / SAC)</strong>
-                    <code>--policy.type=sac --env.type=gym_hil ...</code>
-                    <span data-i18n="adv.rl.desc">Učení posilováním s člověkem ve smyčce — vyžaduje gym_hil prostředí.</span>
-                  </div>
+                        <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('rl')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('rl')">
+                          <strong data-i18n="adv.rl.title">Reinforcement Learning (HIL-SERL / SAC)</strong>
+                          <code>--policy.type=sac --env.type=gym_hil ...</code>
+                          <span data-i18n="adv.rl.desc">Učení posilováním s člověkem ve smyčce — vyžaduje gym_hil prostředí.</span>
+                        </div>
 
-                  <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('tokenizer')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('tokenizer')">
-                    <strong data-i18n="adv.tok.title">Trénink akčního tokenizéru (π0-FAST)</strong>
-                    <code>lerobot-train-tokenizer --dataset.repo_id=...</code>
-                    <span data-i18n="adv.tok.desc">Předpočítá FAST tokenizér akcí pro autoregresivní VLA modely.</span>
+                        <div class="adv-mode-card" role="button" tabindex="0" onclick="App.advInsertTemplate('tokenizer')" onkeydown="if(event.key==='Enter')App.advInsertTemplate('tokenizer')">
+                          <strong data-i18n="adv.tok.title">Trénink akčního tokenizéru (π0-FAST)</strong>
+                          <code>lerobot-train-tokenizer --dataset.repo_id=...</code>
+                          <span data-i18n="adv.tok.desc">Předpočítá FAST tokenizér akcí pro autoregresivní VLA modely.</span>
+                        </div>
+                    </section>
                   </div>
                 </div>
               </div>
@@ -2669,7 +2662,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.54.0" defer></script>
-  <script src="/static/app.js?v=3.54.0" defer></script>
+  <script src="/static/i18n.js?v=3.55.0" defer></script>
+  <script src="/static/app.js?v=3.55.0" defer></script>
 </body>
 </html>
