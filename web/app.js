@@ -2450,6 +2450,10 @@ const App = {
             }
         }
     },
+    async restartAllCameras() {
+        await this.api('POST', '/cameras/restart_all');
+        this.log('INFO', 'Obnovuji náhledy kamer...');
+    },
     showAddCameraModal() {
         this.scanHardware();
         this.openModal('modal-add-camera');

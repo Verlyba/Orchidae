@@ -462,6 +462,14 @@ async def stop_camera(camera_id: str):
     return {"ok": True}
 
 
+@app.post("/api/cameras/restart_all")
+async def restart_all_cameras():
+    ctrl = _get_controller()
+    if ctrl is not None:
+        ctrl.restart_all_cameras()
+    return {"ok": True}
+
+
 @app.get("/api/cameras/{camera_id}/feed")
 async def get_camera_feed(camera_id: str):
     import cv2

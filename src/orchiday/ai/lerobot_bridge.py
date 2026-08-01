@@ -84,6 +84,8 @@ class LeRobotBridge(QObject):
         # skill_slug -> {dataset, marks_path, fps, episodes, current_episode,
         #                phase, wrapper}
         self._record_marks: dict[str, dict] = {}
+        # Set of operation keys for which a stop/cancel was requested
+        self._cancelled_keys: set[str] = set()
         # Monotonic counter for numbered record-control sentinel files
         self._record_control_seq: int = 0
         # ── Calibration live-table state ───────────────────────────────────
@@ -187,8 +189,6 @@ class LeRobotBridge(QObject):
         """
         if self._camera_manager is None:
             return
-        if not any(".cameras=" in a for a in cmd):
-            return
         active = list(self._camera_manager.active_cameras)
         if not active:
             return
@@ -206,10 +206,12 @@ class LeRobotBridge(QObject):
         """Restart preview workers that were suspended for a finished process."""
         suspended = self._suspended_cameras.pop(key, None)
         if not suspended:
+            project = self._current_project()
+            if project:
+                suspended = [c.get("id") for c in project.get("cameras", []) if c.get("id")]
+        if not suspended:
             return
         for cam_id in suspended:
-            # camera_started is a REQUEST signal — the controller slot restarts
-            # the worker using the project camera configuration.
             event_bus.camera_started.emit(cam_id)
         event_bus.log_message.emit(
             "INFO", f"Camera preview resumed ({', '.join(suspended)}) after {key} finished")
@@ -334,10 +336,15 @@ class LeRobotBridge(QObject):
         event_bus.log_message.emit("WARN", "LeRobot not found — install it first")
         return False
 
-    def _run_preflight_check(self, port: str, robot_type: str, on_success_callback: Callable[[], None]) -> None:
+    def _run_preflight_check(self, port: str, robot_type: str, on_success_callback: Callable[[], None], target_key: str = "") -> None:
         """Run pre-flight check asynchronously via QProcess. If success, execute callback."""
         if not port:
             on_success_callback()
+            return
+
+        if target_key and target_key in self._cancelled_keys:
+            log.warning("Pre-flight check for '%s' aborted — cancel was requested.", target_key)
+            self._release_process_resources(target_key)
             return
 
         is_feetech = any(f in robot_type.lower() for f in ("so100", "so101", "bi_so", "lekiwi"))
@@ -390,6 +397,11 @@ except Exception as e:
 
         def on_finished(exit_code: int):
             self._active_processes.pop(temp_key, None)
+            if target_key and target_key in self._cancelled_keys:
+                log.warning("Pre-flight check for '%s' finished after cancel — skipping launch.", target_key)
+                self._cancelled_keys.discard(target_key)
+                self._release_process_resources(target_key)
+                return
             output = bytes(check_process.readAllStandardOutput().data()).decode("utf-8", errors="replace").strip()
             if exit_code == 0 and "SUCCESS" in output:
                 log.info("Pre-flight hardware check passed for port %s.", port)
@@ -547,6 +559,7 @@ except Exception as e:
     ) -> None:
         """Run LeRobot teleoperation between leader and follower with validations."""
         key = "teleop"
+        self._cancelled_keys.discard(key)
         if key in self._active_processes:
             event_bus.log_message.emit("WARN", "Teleoperation already running")
             return
@@ -606,11 +619,16 @@ except Exception as e:
                 cmd.append(f"--{k}={v}")
 
         def launch():
+            if key in self._cancelled_keys:
+                log.warning("Teleoperation launch cancelled before process spawn.")
+                self._cancelled_keys.discard(key)
+                self._release_process_resources(key)
+                return
             event_bus.log_message.emit("INFO", f"Starting teleoperation: {robot_type} <-> {teleop_type}")
             self._spawn_process(key, cmd, kind="teleop", skill_slug="teleop")
 
         self._run_preflight_check(robot_port, robot_type,
-            lambda: self._run_preflight_check(teleop_port, teleop_type, launch))
+            lambda: self._run_preflight_check(teleop_port, teleop_type, launch, target_key=key), target_key=key)
 
     def stop_teleop(self) -> None:
         """Stop running teleoperation."""
@@ -2628,18 +2646,34 @@ if __name__ == "__main__":
 
     def _kill_process(self, key: str) -> None:
         """Forcibly terminate a running subprocess (Emergency Stop)."""
-        if key not in self._active_processes:
-            return
-        process = self._active_processes[key]
         log.warning("Emergency Stop: Terminating LeRobot process: %s", key)
-        process.kill()
-        process.waitForFinished(3000)
-        self._active_processes.pop(key, None)
+        self._cancelled_keys.add(key)
+
+        # 1. Kill any preflight processes that might be running for this key
+        for temp_key in list(self._active_processes.keys()):
+            if temp_key.startswith("preflight_"):
+                proc = self._active_processes.pop(temp_key, None)
+                if proc:
+                    try:
+                        proc.kill()
+                        proc.waitForFinished(500)
+                    except Exception:
+                        pass
+
+        # 2. Kill main process if running
+        process = self._active_processes.pop(key, None)
+        if process:
+            try:
+                process.kill()
+                process.waitForFinished(1000)
+            except Exception as e:
+                log.warning("Error waiting for process '%s' to terminate: %s", key, e)
+
+        # 3. Always release resources and restore preview cameras!
         self._release_process_resources(key)
-        # _handle_finished normally emits process_finished; cover the timeout path too
-        if key in self._process_kinds:
-            event_bus.process_finished.emit(key, self._process_kinds.pop(key))
-        event_bus.log_message.emit("WARN", f"Process {key} terminated by Emergency Stop!")
+        kind = self._process_kinds.pop(key, "unknown")
+        event_bus.process_finished.emit(key, kind)
+        event_bus.log_message.emit("WARN", f"Process '{key}' terminated by Emergency Stop!")
 
     def kill_all(self) -> None:
         """Kill all active processes and the persistent shell."""

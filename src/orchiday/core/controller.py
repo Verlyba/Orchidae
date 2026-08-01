@@ -416,6 +416,15 @@ class OrchidayController(QObject):
         self.camera_manager.stop_camera(camera_id)
         event_bus.log_message.emit("INFO", f"Camera '{camera_id}' stopped")
 
+    def restart_all_cameras(self) -> None:
+        """Restart all cameras configured in the current project."""
+        if not self.pm.current_project:
+            return
+        for cam in self.pm.current_project.get("cameras", []):
+            cam_id = cam.get("id")
+            if cam_id:
+                event_bus.camera_started.emit(cam_id)
+
     @Slot(str)
     def _on_inference_finished(self, skill_slug: str) -> None:
         """Triggered when LeRobot inference subprocess completes."""

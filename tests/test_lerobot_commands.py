@@ -34,7 +34,7 @@ def bridge(monkeypatch) -> Any:
         captured["cmd"] = cmd
         captured["kind"] = kind
 
-    def fake_preflight(port, robot_type, on_success_callback):
+    def fake_preflight(port, robot_type, on_success_callback, *args, **kwargs):
         on_success_callback()
 
     monkeypatch.setattr(b, "_spawn_process", fake_spawn)

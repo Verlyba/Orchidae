@@ -2475,6 +2475,11 @@ const App = {
     }
   },
 
+  async restartAllCameras(): Promise<void> {
+    await this.api('POST', '/cameras/restart_all');
+    this.log('INFO', 'Obnovuji náhledy kamer...');
+  },
+
   showAddCameraModal(): void {
     this.scanHardware();
     this.openModal('modal-add-camera');
