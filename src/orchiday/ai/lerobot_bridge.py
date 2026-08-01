@@ -572,14 +572,26 @@ except Exception as e:
         if not self._guard_ports(robot_port, teleop_port):
             return
 
+        # Resolve effective follower_id and leader_id from current project configuration to match calibration files
+        effective_robot_id = robot_id
+        effective_teleop_id = teleop_id
+        if self._pm and self._pm.current_project:
+            robots = self._pm.current_project.get("robots", [])
+            setup = next((r for r in robots if r.get("id") in (robot_id, teleop_id) or r.get("follower_id") == robot_id), None)
+            if not setup and robots:
+                setup = robots[0]
+            if setup:
+                effective_robot_id = setup.get("follower_id") or setup.get("id") or robot_id
+                effective_teleop_id = setup.get("leader_id") or teleop_id
+
         cmd = [
             self._python, "-m", "lerobot.scripts.lerobot_teleoperate",
             f"--robot.type={robot_type}",
             f"--robot.port={robot_port}",
-            f"--robot.id={robot_id}",
+            f"--robot.id={effective_robot_id}",
             f"--teleop.type={teleop_type}",
             f"--teleop.port={teleop_port}",
-            f"--teleop.id={teleop_id}",
+            f"--teleop.id={effective_teleop_id}",
         ]
         if cameras:
             cmd.append(f"--robot.cameras={cameras}")
@@ -660,10 +672,12 @@ except Exception as e:
             elif t_type.endswith("_follower"):
                 t_type = f"{t_type[:-9]}_leader"
 
-            self._purge_robot_calibration_cache(robot_id, t_type, "teleoperators")
+            # Derive distinct teleop ID (e.g. my_leader_arm or setup1_leader)
+            t_id = robot_id if "leader" in robot_id.lower() else f"{robot_id}_leader"
+            self._purge_robot_calibration_cache(t_id, t_type, "teleoperators")
             cmd.append(f"--teleop.type={t_type}")
             cmd.append(f"--teleop.port={teleop_port}")
-            cmd.append(f"--teleop.id={robot_id}")
+            cmd.append(f"--teleop.id={t_id}")
         else:
             r_type = robot_type or "so100_follower"
             standalone = ("lekiwi", "lekiwi_client", "hope_jr_hand", "hope_jr_arm", "unitree_g1")
@@ -672,10 +686,12 @@ except Exception as e:
             elif r_type.endswith("_leader"):
                 r_type = f"{r_type[:-7]}_follower"
 
-            self._purge_robot_calibration_cache(robot_id, r_type, "robots")
+            # Derive distinct follower ID (e.g. my_follower_arm or setup1_follower)
+            f_id = robot_id if ("follower" in robot_id.lower() or robot_id in standalone) else f"{robot_id}_follower"
+            self._purge_robot_calibration_cache(f_id, r_type, "robots")
             cmd.append(f"--robot.type={r_type}")
             cmd.append(f"--robot.port={port}")
-            cmd.append(f"--robot.id={robot_id}")
+            cmd.append(f"--robot.id={f_id}")
 
         if extra_args:
             for k, v in extra_args.items():
@@ -753,14 +769,26 @@ except Exception as e:
             single_task = skill_slug.replace("_", " ")
             event_bus.log_message.emit("WARN", f"No task description provided — using '{single_task}' as the dataset task annotation.")
 
+        # Resolve effective follower_id and leader_id from current project configuration to match calibration files
+        effective_robot_id = robot_id or 'my_follower_arm'
+        effective_teleop_id = teleop_id or 'my_leader_arm'
+        if self._pm and self._pm.current_project:
+            robots = self._pm.current_project.get("robots", [])
+            setup = next((r for r in robots if r.get("id") in (robot_id, teleop_id) or r.get("follower_id") == robot_id), None)
+            if not setup and robots:
+                setup = robots[0]
+            if setup:
+                effective_robot_id = setup.get("follower_id") or setup.get("id") or effective_robot_id
+                effective_teleop_id = setup.get("leader_id") or effective_teleop_id
+
         cmd = [
             self._python, self._ensure_record_wrapper(),
             f"--robot.type={robot_type}",
             f"--robot.port={port}",
-            f"--robot.id={robot_id or 'my_follower_arm'}",
+            f"--robot.id={effective_robot_id}",
             f"--teleop.type={teleop_type or 'so100_leader'}",
             f"--teleop.port={teleop_port}",
-            f"--teleop.id={teleop_id or 'my_leader_arm'}",
+            f"--teleop.id={effective_teleop_id}",
             f"--dataset.repo_id={dataset_name}",
             f"--dataset.single_task={single_task}",
             f"--dataset.fps={fps}",
@@ -1945,6 +1973,7 @@ if __name__ == "__main__":
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("HF_HOME", hf_home)
+        env.insert("HF_LEROBOT_CALIBRATION", str(APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration"))
 
         # Ensure pip-installed executables (e.g. rerun.exe) are on PATH
         python_dir = Path(self._python).resolve().parent
@@ -2002,25 +2031,19 @@ if __name__ == "__main__":
             process.write(b"\n")
 
     def _purge_robot_calibration_cache(self, robot_id: str, device_type: str, category: str) -> None:
-        """Purge old calibration JSON files from HuggingFace/LeRobot cache dirs before a fresh calibration."""
+        """Purge old calibration JSON files strictly from HuggingFace/LeRobot cache category dirs before a fresh calibration."""
         from orchiday.core.constants import APP_DATA_DIR
         base_cache_dirs = [
             Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration",
             APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration",
         ]
         target_names = {f"{robot_id}.json", f"{device_type}.json"}
-        if robot_id.endswith("_leader") or robot_id.endswith("_follower"):
-            base_id = robot_id.rsplit("_", 1)[0]
-            target_names.add(f"{base_id}.json")
-            target_names.add(f"{base_id}_leader.json")
-            target_names.add(f"{base_id}_follower.json")
 
         for b_dir in base_cache_dirs:
-            if not b_dir.exists():
-                continue
             cat_dir = b_dir / category
-            search_dir = cat_dir if cat_dir.exists() else b_dir
-            for json_file in search_dir.rglob("*.json"):
+            if not cat_dir.exists():
+                continue
+            for json_file in cat_dir.rglob("*.json"):
                 if json_file.name in target_names or robot_id in json_file.name:
                     try:
                         json_file.unlink()
@@ -2237,7 +2260,8 @@ if __name__ == "__main__":
             event_bus.recording_phase.emit(skill_slug, state["phase"])
 
         elif ev == "episode_discarded":
-            episode = int(payload.get("episode", state.get("current_episode", -1)))
+            raw_ep = payload.get("episode") if payload.get("episode") is not None else state.get("current_episode", -1)
+            episode = int(raw_ep if raw_ep is not None else -1)
             state["phase"] = "idle"
             dropped = state["episodes"].pop(str(episode), None)
             self._persist_step_marks(skill_slug)
@@ -2268,7 +2292,8 @@ if __name__ == "__main__":
 
     def _append_step_mark(self, skill_slug: str, state: dict, payload: dict) -> None:
         """Store a boundary mark reported by the recording process."""
-        episode = int(payload.get("episode", state.get("current_episode", -1)))
+        raw_ep = payload.get("episode") if payload.get("episode") is not None else state.get("current_episode", -1)
+        episode = int(raw_ep if raw_ep is not None else -1)
         if episode < 0:
             return
         marks = state["episodes"].setdefault(str(episode), [])

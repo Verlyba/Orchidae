@@ -570,6 +570,13 @@ def delete_calibration(category: str, device_type: str, filename: str):
     return {"ok": True}
 
 
+@app.post("/api/calibration/purge_all")
+def purge_all_calibrations():
+    ctrl = _get_controller()
+    res = ctrl.calibration_manager.purge_all_calibrations()
+    return res
+
+
 @app.post("/api/hardware/pair")
 def pair_hardware():
     if not pm.current_project:
@@ -1222,6 +1229,12 @@ async def start_recording(body: RecordingConfig):
 
     # Increment execution count
     pm.increment_skill_execution_count(body.skill_slug)
+
+    # Ensure active project calibration is deployed to LeRobot cache before recording
+    try:
+        ctrl.calibration_manager.deploy_active_bindings()
+    except Exception as e:
+        log.warning("Failed deploying calibration bindings before recording: %s", e)
 
     ctrl.lerobot_bridge.start_recording(
         robot_type=robot_type,

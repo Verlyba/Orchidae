@@ -658,7 +658,7 @@ class OrchidayController(QObject):
 
         # Determine category based on arm_id and setup config
         is_leader = "leader" in arm_id.lower() or any(r.get("leader_id") == arm_id for r in robots)
-        is_follower = "follower" in arm_id.lower() or any(r.get("follower_id") == arm_id for r in robots)
+        is_follower = "follower" in arm_id.lower() or any(r.get("follower_id") == arm_id for r in robots) or not is_leader
 
         if is_leader:
             log.info("Auto-saving leader calibration for arm '%s' (setup %s)", arm_id, setup_id)
@@ -670,14 +670,6 @@ class OrchidayController(QObject):
             new_file = self.calibration_manager.backup_active_calibration(setup_id, "robots")
             if new_file:
                 event_bus.log_message.emit("SUCCESS", f"Auto-backed up follower calibration: {new_file}")
-        else:
-            # Fallback: attempt both categories
-            new_file_l = self.calibration_manager.backup_active_calibration(setup_id, "teleoperators")
-            new_file_f = self.calibration_manager.backup_active_calibration(setup_id, "robots")
-            if new_file_l:
-                event_bus.log_message.emit("SUCCESS", f"Auto-backed up leader calibration: {new_file_l}")
-            if new_file_f:
-                event_bus.log_message.emit("SUCCESS", f"Auto-backed up follower calibration: {new_file_f}")
 
     def _save_model_metadata(self, skill_slug: str, save_project: bool = True) -> None:
         if not self.pm.current_project:
@@ -963,6 +955,11 @@ class OrchidayController(QObject):
         extra_args: dict | None = None,
     ) -> None:
         """Launch the teleoperation procedure via LeRobotBridge."""
+        try:
+            self.calibration_manager.deploy_active_bindings()
+        except Exception as e:
+            log.warning("Failed deploying calibration bindings before teleop: %s", e)
+
         self.lerobot_bridge.start_teleop(
             robot_type=robot_type,
             robot_port=robot_port,

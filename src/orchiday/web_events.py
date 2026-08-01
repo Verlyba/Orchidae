@@ -56,7 +56,7 @@ class WebEventBridge:
     async def _async_broadcast(self, message: str) -> None:
         """Send a message to all connected clients."""
         disconnected = set()
-        for ws in self._clients:
+        for ws in list(self._clients):
             try:
                 await ws.send_text(message)
             except Exception:

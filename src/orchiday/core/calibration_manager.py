@@ -41,8 +41,11 @@ class CalibrationManager:
         self._pm = project_manager
 
     def get_lerobot_calibration_dir(self) -> Path:
-        """Get the global LeRobot cache calibration directory."""
-        return Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration"
+        """Get the LeRobot cache calibration directory used by subprocesses."""
+        from orchiday.core.constants import APP_DATA_DIR
+        cal_dir = APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration"
+        cal_dir.mkdir(parents=True, exist_ok=True)
+        return cal_dir
 
     def get_project_calibration_dir(self) -> Path | None:
         """Get the calibration directory of the currently open project."""
@@ -248,7 +251,7 @@ class CalibrationManager:
             device_type = robot_setup.get("follower_type", "so100_follower")
             candidate_ids = [
                 robot_setup.get("follower_id"),
-                robot_setup_id,
+                f"{actual_setup_id}_follower" if not actual_setup_id.endswith("_follower") else actual_setup_id,
                 "my_robot_follower",
                 "my_follower_arm",
                 "F1",
@@ -257,7 +260,7 @@ class CalibrationManager:
             device_type = robot_setup.get("leader_type", "so100_leader")
             candidate_ids = [
                 robot_setup.get("leader_id"),
-                robot_setup_id,
+                f"{actual_setup_id}_leader" if not actual_setup_id.endswith("_leader") else actual_setup_id,
                 "my_robot_leader",
                 "my_leader_arm",
                 "L1",
@@ -294,10 +297,11 @@ class CalibrationManager:
             if not b_dir.exists():
                 continue
             cat_dir = b_dir / arm_category
-            search_dir = cat_dir if cat_dir.exists() else b_dir
+            if not cat_dir.exists():
+                continue
 
             for dt in cand_types:
-                dev_dir = search_dir / dt
+                dev_dir = cat_dir / dt
                 if not dev_dir.exists():
                     continue
                 for cid in candidate_ids:
@@ -310,14 +314,13 @@ class CalibrationManager:
             if source_file:
                 break
 
-        # Fallback: search for any .json file matching candidate_ids across all subfolders
+        # Fallback: search for any .json file matching candidate_ids strictly inside cat_dir
         if not source_file:
             for b_dir in base_cache_dirs:
-                if not b_dir.exists():
-                    continue
                 cat_dir = b_dir / arm_category
-                search_dir = cat_dir if cat_dir.exists() else b_dir
-                for json_file in search_dir.rglob("*.json"):
+                if not cat_dir.exists():
+                    continue
+                for json_file in cat_dir.rglob("*.json"):
                     if any(cid in json_file.name for cid in candidate_ids) or json_file.stem in candidate_ids:
                         source_file = json_file
                         log.info("Found active calibration file by rglob candidate match: %s", source_file)
@@ -402,14 +405,34 @@ class CalibrationManager:
                 proj_target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, proj_target)
 
-        # Destination in LeRobot cache
-        dest_dir = self.get_lerobot_calibration_dir() / arm_category / device_type
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_file = dest_dir / f"{device_id}.json"
+        # Destination in LeRobot cache: deploy to device_type subfolder as well as generic LeRobot class name subfolders
+        # (e.g. so_leader, so_follower, so100_leader, so101_leader) to match internal class name resolution in LeRobot.
+        dest_dirs = {self.get_lerobot_calibration_dir() / arm_category / device_type}
+        if arm_category == "teleoperators":
+            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so_leader")
+            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so100_leader")
+            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so101_leader")
+        elif arm_category == "robots":
+            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so_follower")
+            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so100_follower")
+            dest_dirs.add(self.get_lerobot_calibration_dir() / arm_category / "so101_follower")
+        
+        # Deploy under primary device_id (e.g. my_follower_arm) as well as setup_id aliases
+        # (e.g. my_robot, my_robot_follower) so LeRobot CLI finds it under any ID argument
+        aliases = {device_id, robot_setup_id}
+        if arm_category == "robots":
+            aliases.add(f"{robot_setup_id}_follower")
+        elif arm_category == "teleoperators":
+            aliases.add(f"{robot_setup_id}_leader")
 
         try:
-            shutil.copy2(source_file, dest_file)
-            log.info("Applied calibration %s to LeRobot cache at %s", source_file, dest_file)
+            for d in dest_dirs:
+                d.mkdir(parents=True, exist_ok=True)
+                for alias in aliases:
+                    if alias:
+                        dest_file = d / f"{alias}.json"
+                        shutil.copy2(source_file, dest_file)
+                        log.info("Applied calibration %s to LeRobot cache at %s", source_file, dest_file)
             
             # Save binding
             self._update_setup_binding(robot_setup_id, arm_category, filename)
@@ -648,3 +671,93 @@ class CalibrationManager:
 
         self._pm.save_project()
         event_bus.calibration_list_changed.emit()
+
+    def purge_all_calibrations(self) -> dict[str, Any]:
+        """
+        Purge all calibration files in current project, all projects in projects_dir,
+        and LeRobot global caches, reset active calibration bindings, and return summary.
+        """
+        from orchiday.core.constants import APP_DATA_DIR
+        from orchiday.core.config import AppConfig
+        purged_count = 0
+        dirs_to_clean: set[Path] = set()
+
+        # Project calibration dir
+        proj_cal_dir = self.get_project_calibration_dir()
+        if proj_cal_dir and proj_cal_dir.exists():
+            dirs_to_clean.add(proj_cal_dir)
+
+        # All projects in projects_dir
+        try:
+            cfg = AppConfig()
+            p_root = cfg.get("projects_dir")
+            if p_root:
+                p_path = Path(p_root)
+                if p_path.exists():
+                    for proj_folder in p_path.iterdir():
+                        if proj_folder.is_dir() and (proj_folder / "calibration").exists():
+                            dirs_to_clean.add(proj_folder / "calibration")
+        except Exception as e:
+            log.warning("Failed scanning projects_dir for calibration purge: %s", e)
+
+        # Global/Local LeRobot cache dirs
+        dirs_to_clean.add(self.get_lerobot_calibration_dir())
+        dirs_to_clean.add(APP_DATA_DIR / "data" / "huggingface" / "lerobot" / "calibration")
+
+        for c_dir in dirs_to_clean:
+            if not c_dir.exists():
+                continue
+            for json_file in list(c_dir.rglob("*.json")):
+                try:
+                    json_file.unlink()
+                    purged_count += 1
+                    log.info("Purged calibration file: %s", json_file)
+                except Exception as e:
+                    log.warning("Failed to delete %s: %s", json_file, e)
+
+        # Clear bindings in active project
+        if self._pm.current_project:
+            for r in self._pm.current_project.get("robots", []):
+                r.pop("follower_calibration", None)
+                r.pop("leader_calibration", None)
+            self._pm.save_project()
+
+        # Clear bindings in all project.json files across projects_dir
+        try:
+            p_root = AppConfig().get("projects_dir")
+            if p_root:
+                p_path = Path(p_root)
+                if p_path.exists():
+                    for proj_folder in p_path.iterdir():
+                        p_file = proj_folder / "project.json"
+                        if p_file.exists():
+                            try:
+                                with open(p_file, "r", encoding="utf-8") as f:
+                                    p_data = json.load(f)
+                                if isinstance(p_data, dict) and "robots" in p_data:
+                                    mod = False
+                                    for r in p_data.get("robots", []):
+                                        if "follower_calibration" in r or "leader_calibration" in r:
+                                            r.pop("follower_calibration", None)
+                                            r.pop("leader_calibration", None)
+                                            mod = True
+                                    if mod:
+                                        with open(p_file, "w", encoding="utf-8") as f:
+                                            json.dump(p_data, f, indent=2)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+
+        # Clear meta.json
+        meta_p = self._meta_path()
+        if meta_p and meta_p.exists():
+            try:
+                meta_p.unlink()
+            except Exception:
+                pass
+
+        event_bus.calibration_list_changed.emit()
+        log.info("Purged %d calibration files across all projects and LeRobot cache", purged_count)
+        return {"ok": True, "purged_count": purged_count}
+

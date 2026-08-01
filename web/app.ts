@@ -2519,7 +2519,7 @@ const App = {
     // Prefill Step 1: Teleop
     const leaderIdEl = document.getElementById('tele-leader-id') as HTMLInputElement | null;
     if (leaderIdEl) {
-      leaderIdEl.value = `${activeRobot.id.replace('_follower', '')}_leader`;
+      leaderIdEl.value = activeRobot.leader_id || `${activeRobot.id.replace('_follower', '')}_leader`;
     }
     
     // Prefill leader port ONLY if it is physically scanned and available.
@@ -2536,7 +2536,7 @@ const App = {
     }
     const followerIdEl = document.getElementById('tele-follower-id') as HTMLInputElement | null;
     if (followerIdEl) {
-      followerIdEl.value = activeRobot.id;
+      followerIdEl.value = activeRobot.follower_id || activeRobot.id;
     }
     
     // Prefill follower port ONLY if it is physically scanned and available
