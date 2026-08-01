@@ -162,129 +162,142 @@
           <div class="setup-section" style="grid-template-columns: 1fr;">
             <div class="setup-block" style="display: flex; flex-direction: column;">
               <div class="block-head-row">
-                <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path><circle cx="10" cy="10" r="2"></circle></svg> <span data-i18n="blk.connect.title">Připojení hardwaru</span></h3>
-                <span class="block-head-sub" data-i18n="blk.connect.sub">Sériové porty obou ramen a USB kamery projektu.</span>
+                <h3 style="margin:0;"><span data-i18n="blk.connect.title"></span></h3>
+                <span class="block-head-sub" data-i18n="blk.connect.sub"></span>
               </div>
               <div class="setup-block-content">
-                <div class="connect-cols">
-                  <section class="connect-col">
-                    <h4 class="connect-col-title" data-i18n="blk.hw.arms">Robotická ramena</h4>
-                     <!-- segmented track slider -->
-                    <div class="robot-slider-container">
-                      <div class="robot-slider-track">
-                        <div class="robot-type-pill active" data-value="so100_follower" onclick="App.selectRobot('so100_follower')">
-                          <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle><circle cx="16" cy="16" r="2"></circle><path d="M12 2v9"></path></svg>
-                          <span class="pill-title">SO-100</span>
-                          <span class="pill-subtitle">Follower</span>
-                        </div>
-                        <div class="robot-type-pill" data-value="so101_follower" onclick="App.selectRobot('so101_follower')">
-                          <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle><circle cx="16" cy="16" r="2"></circle><path d="M12 2v9"></path></svg>
-                          <span class="pill-title">SO-101</span>
-                          <span class="pill-subtitle">Follower</span>
-                        </div>
-                        <div class="robot-type-pill" data-value="bi_so_follower" onclick="App.selectRobot('bi_so_follower')">
-                          <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="8" height="10" rx="2"></rect><rect x="13" y="11" width="8" height="10" rx="2"></rect><path d="M7 2v9M17 2v9"></path></svg>
-                          <span class="pill-title">Bimanual SO</span>
-                          <span class="pill-subtitle">Follower</span>
-                        </div>
-                        <div class="robot-type-pill" data-value="koch_follower" onclick="App.selectRobot('koch_follower')">
-                          <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle></svg>
-                          <span class="pill-title">Koch v1.1</span>
-                          <span class="pill-subtitle">Follower</span>
-                        </div>
-                        <div class="robot-type-pill" data-value="openarm_follower" onclick="App.selectRobot('openarm_follower')">
-                          <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v7M12 15v7"></path></svg>
-                          <span class="pill-title">OpenArm</span>
-                          <span class="pill-subtitle">CAN Bus</span>
-                        </div>
-                        <div class="robot-type-pill" data-value="lekiwi" onclick="App.selectRobot('lekiwi')">
-                          <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M3 9l1 1M21 9l-1 1M3 15l1-1M21 15l-1-1"></path></svg>
-                          <span class="pill-title">LeKiwi</span>
-                          <span class="pill-subtitle">Mobile</span>
+                <div class="merge-cols">
+                  <section class="merge-col">
+                    <h4 class="merge-col-title" data-i18n="blk.hw.arms">Konfigurace robotických ramen</h4>
+              
+                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                       <!-- segmented track slider -->
+                      <div class="robot-slider-container">
+                        <div class="robot-slider-track">
+                          <div class="robot-type-pill active" data-value="so100_follower" onclick="App.selectRobot('so100_follower')">
+                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle><circle cx="16" cy="16" r="2"></circle><path d="M12 2v9"></path></svg>
+                            <span class="pill-title">SO-100</span>
+                            <span class="pill-subtitle">Follower</span>
+                          </div>
+                          <div class="robot-type-pill" data-value="so101_follower" onclick="App.selectRobot('so101_follower')">
+                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle><circle cx="16" cy="16" r="2"></circle><path d="M12 2v9"></path></svg>
+                            <span class="pill-title">SO-101</span>
+                            <span class="pill-subtitle">Follower</span>
+                          </div>
+                          <div class="robot-type-pill" data-value="bi_so_follower" onclick="App.selectRobot('bi_so_follower')">
+                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="8" height="10" rx="2"></rect><rect x="13" y="11" width="8" height="10" rx="2"></rect><path d="M7 2v9M17 2v9"></path></svg>
+                            <span class="pill-title">Bimanual SO</span>
+                            <span class="pill-subtitle">Follower</span>
+                          </div>
+                          <div class="robot-type-pill" data-value="koch_follower" onclick="App.selectRobot('koch_follower')">
+                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle></svg>
+                            <span class="pill-title">Koch v1.1</span>
+                            <span class="pill-subtitle">Follower</span>
+                          </div>
+                          <div class="robot-type-pill" data-value="openarm_follower" onclick="App.selectRobot('openarm_follower')">
+                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v7M12 15v7"></path></svg>
+                            <span class="pill-title">OpenArm</span>
+                            <span class="pill-subtitle">CAN Bus</span>
+                          </div>
+                          <div class="robot-type-pill" data-value="lekiwi" onclick="App.selectRobot('lekiwi')">
+                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M3 9l1 1M21 9l-1 1M3 15l1-1M21 15l-1-1"></path></svg>
+                            <span class="pill-title">LeKiwi</span>
+                            <span class="pill-subtitle">Mobile</span>
+                          </div>
                         </div>
                       </div>
+
+                      <!-- hidden fields -->
+                      <input type="hidden" id="tele-leader-type" value="so100_leader">
+                      <input type="hidden" id="tele-follower-type" value="so100_follower">
+                      <input type="hidden" id="tele-leader-port-custom" value="">
+                      <input type="hidden" id="tele-leader-id" value="my_leader_arm">
+                      <input type="hidden" id="tele-follower-port-custom" value="">
+                      <input type="hidden" id="tele-follower-id" value="my_follower_arm">
+                      <select id="robot-type-select" onchange="App.onRobotTypeChange()" style="display:none;">
+                        <option value="so100_follower">so100_follower</option>
+                        <option value="so101_follower">so101_follower</option>
+                        <option value="bi_so_follower">bi_so_follower</option>
+                        <option value="koch_follower">koch_follower</option>
+                        <option value="openarm_follower">openarm_follower</option>
+                        <option value="bi_openarm_follower">bi_openarm_follower</option>
+                        <option value="hope_jr_arm">hope_jr_arm</option>
+                        <option value="lekiwi">lekiwi</option>
+                        <option value="unitree_g1">unitree_g1</option>
+                        <option value="reachy2">reachy2</option>
+                      </select>
+
+                      <div class="form-row" style="margin:0; gap:16px;">
+                        <div class="form-group" id="leader-config-group">
+                          <label data-i18n="lbl.leaderPort">Leader Arm Port (Řídicí)</label>
+                          <select id="tele-leader-port" onchange="App.onTelePortChange('leader')" style="width:100%;">
+                            <option value="">-- Vyberte port --</option>
+                          </select>
+                        </div>
+                        <div class="form-group" id="follower-config-group">
+                          <label data-i18n="lbl.followerPort">Follower Arm Port (Vykonávací)</label>
+                          <select id="tele-follower-port" onchange="App.onTelePortChange('follower')" style="width:100%;">
+                            <option value="">-- Vyberte port --</option>
+                          </select>
+                        </div>
+                      </div>
+
                     </div>
 
-                    <!-- hidden fields -->
-                    <input type="hidden" id="tele-leader-type" value="so100_leader">
-                    <input type="hidden" id="tele-follower-type" value="so100_follower">
-                    <input type="hidden" id="tele-leader-port-custom" value="">
-                    <input type="hidden" id="tele-leader-id" value="my_leader_arm">
-                    <input type="hidden" id="tele-follower-port-custom" value="">
-                    <input type="hidden" id="tele-follower-id" value="my_follower_arm">
-                    <select id="robot-type-select" onchange="App.onRobotTypeChange()" style="display:none;">
-                      <option value="so100_follower">so100_follower</option>
-                      <option value="so101_follower">so101_follower</option>
-                      <option value="bi_so_follower">bi_so_follower</option>
-                      <option value="koch_follower">koch_follower</option>
-                      <option value="openarm_follower">openarm_follower</option>
-                      <option value="bi_openarm_follower">bi_openarm_follower</option>
-                      <option value="hope_jr_arm">hope_jr_arm</option>
-                      <option value="lekiwi">lekiwi</option>
-                      <option value="unitree_g1">unitree_g1</option>
-                      <option value="reachy2">reachy2</option>
-                    </select>
-
-                    <div class="form-row" style="margin:0; gap:16px;">
-                      <div class="form-group" id="leader-config-group">
-                        <label data-i18n="lbl.leaderPort">Leader Arm Port (Řídicí)</label>
-                        <select id="tele-leader-port" onchange="App.onTelePortChange('leader')" style="width:100%;">
-                          <option value="">-- Vyberte port --</option>
-                        </select>
-                      </div>
-                      <div class="form-group" id="follower-config-group">
-                        <label data-i18n="lbl.followerPort">Follower Arm Port (Vykonávací)</label>
-                        <select id="tele-follower-port" onchange="App.onTelePortChange('follower')" style="width:100%;">
-                          <option value="">-- Vyberte port --</option>
-                        </select>
-                      </div>
+                    <div class="block-actions">
+                      <span class="block-actions-hint" data-i18n="hint.setupGoCalibrate">Až budou porty vybrané, pokračuj na kartu "2. Kalibrace" nahoře.</span>
+                      <button class="btn btn-xs btn-cyan-dashed" onclick="App.openAutoDetectPortsModal()" data-i18n="btn.portWizard" data-i18n-title="tip.portWizard" title="Otevře průvodce: odpoj rameno, znovu připoj a port se přiřadí sám">Průvodce detekcí portů</button>
+                      <button class="btn btn-xs btn-primary btn-save-hw-config" onclick="App.saveModelConfig()" data-i18n="btn.saveHw" data-i18n-title="tip.saveHw" title="Uloží typ robota, porty ramen a nastavení modelů do projektu">Uložit nastavení hardwaru</button>
                     </div>
-
                   </section>
-                  <section class="connect-col">
-                    <h4 class="connect-col-title" data-i18n="blk.hw.cameras">USB kamery</h4>
-                    <div class="form-row" style="margin: 0; gap: 12px; align-items: flex-end;">
-                      <div class="form-group" style="flex: 1.2;">
-                        <label data-i18n="lbl.selectVideoPort">Vybrat video port</label>
-                        <select id="hw-camera-port-select" onchange="App.hwOnCameraPortChange()">
-                          <option value="" data-i18n="opt.noCameras">-- Žádné kamery nenačteny --</option>
-                        </select>
-                      </div>
-                      <div class="form-group" style="flex: 1;">
-                        <label data-i18n="lbl.camTypeRole">Typ kamery (Role)</label>
-                        <select id="hw-camera-role-select">
-                          <option value="overhead" data-i18n="opt.overheadScene">Overhead (Scéna)</option>
-                          <option value="wrist" data-i18n="opt.wristGripper">Wrist (Kleště)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <!-- Camera preview and Actions row -->
-                    <div style="display: flex; gap: 12px; align-items: stretch; width: 100%; flex: 1; min-height: 0;">
-                      <!-- Preview Box -->
-                      <div style="flex: 1.2; display: flex; flex-direction: column; gap: 4px; min-height: 0;">
-                        <span style="font-size: 11px; font-weight: bold; color: var(--text-muted);" data-i18n="hint.livePreview">Live náhled</span>
-                        <div id="hw-camera-preview-box" style="flex: 1; min-height: 150px; background: #000; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
-                          <img id="hw-camera-preview-img" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
-                          <span id="hw-camera-preview-placeholder" style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 10px;" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
+                  <section class="merge-col">
+                    <h4 class="merge-col-title" data-i18n="blk.hw.cameras">Nakonfigurované USB Kamery</h4>
+              
+                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                      <div class="form-row" style="margin: 0; gap: 12px; align-items: flex-end;">
+                        <div class="form-group" style="flex: 1.2;">
+                          <label data-i18n="lbl.selectVideoPort">Vybrat video port</label>
+                          <select id="hw-camera-port-select" onchange="App.hwOnCameraPortChange()">
+                            <option value="" data-i18n="opt.noCameras">-- Žádné kamery nenačteny --</option>
+                          </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                          <label data-i18n="lbl.camTypeRole">Typ kamery (Role)</label>
+                          <select id="hw-camera-role-select">
+                            <option value="overhead" data-i18n="opt.overheadScene">Overhead (Scéna)</option>
+                            <option value="wrist" data-i18n="opt.wristGripper">Wrist (Kleště)</option>
+                          </select>
                         </div>
                       </div>
 
-                      <!-- Actions & List -->
-                      <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
-                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                          <button class="btn btn-xs btn-primary" onclick="App.hwAddCamera()" data-i18n="btn.addCamera">Přidat kameru</button>
-                          <button class="btn btn-xs btn-secondary" onclick="App.hwClearCameras()" data-i18n="btn.clearAll">Vymazat všechny</button>
+                      <!-- Camera preview and Actions row -->
+                      <div style="display: flex; gap: 12px; align-items: stretch; width: 100%; flex: 1; min-height: 0;">
+                        <!-- Preview Box -->
+                        <div style="flex: 1.2; display: flex; flex-direction: column; gap: 4px; min-height: 0;">
+                          <span style="font-size: 11px; font-weight: bold; color: var(--text-muted);" data-i18n="hint.livePreview">Live náhled</span>
+                          <div id="hw-camera-preview-box" style="flex: 1; min-height: 150px; background: #000; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+                            <img id="hw-camera-preview-img" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
+                            <span id="hw-camera-preview-placeholder" style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 10px;" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
+                          </div>
                         </div>
 
-                        <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; flex: 1; overflow: hidden;">
-                          <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;" data-i18n="hint.configuredCams">Nakonfigurované kamery:</span>
-                          <div id="hw-camera-list" style="flex: 1; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; display: flex; flex-direction: column; gap: 2px;">
-                            <div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
+                        <!-- Actions & List -->
+                        <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <button class="btn btn-xs btn-primary" onclick="App.hwAddCamera()" data-i18n="btn.addCamera">Přidat kameru</button>
+                            <button class="btn btn-xs btn-secondary" onclick="App.hwClearCameras()" data-i18n="btn.clearAll">Vymazat všechny</button>
+                          </div>
+
+                          <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; flex: 1; overflow: hidden;">
+                            <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;" data-i18n="hint.configuredCams">Nakonfigurované kamery:</span>
+                            <div id="hw-camera-list" style="flex: 1; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; display: flex; flex-direction: column; gap: 2px;">
+                              <div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
+
                   </section>
                 </div>
               </div>
@@ -803,127 +816,134 @@
 
           <!-- ── Tab 2: Správa datasetů ────────────────────────────────── -->
           <div class="setup-wizard-panel" data-tab-panel="manage" style="display:none;">
-            <div class="setup-section">
-              <!-- Left: dataset picker + read-only actions -->
-              <div class="setup-block" style="display:flex; flex-direction:column;">
-                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg> <span data-i18n="blk.ds.local">Lokální datasety dovedností</span></h3>
-                <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:10px;">
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label for="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsSelect">ⓘ</span>
-                    </div>
-                    <select id="ds-select" onchange="App.dsOnSelect()">
-                      <option value="" data-i18n="opt.noDatasets">-- Žádné datasety --</option>
-                    </select>
-                  </div>
-                  <div id="ds-info-box" class="ds-info-box">
-                    <div class="ds-stat"><span class="ds-stat-label">Stav na disku</span><strong id="ds-info-exists" class="ds-stat-value">—</strong></div>
-                    <div class="ds-stat"><span class="ds-stat-label">Epizody</span><strong id="ds-info-episodes" class="ds-stat-value">—</strong></div>
-                    <div class="ds-stat"><span class="ds-stat-label">FPS</span><strong id="ds-info-fps" class="ds-stat-value">—</strong></div>
-                    <div class="ds-stat"><span class="ds-stat-label">Velikost</span><strong id="ds-info-size" class="ds-stat-value">—</strong></div>
-                  </div>
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label for="ds-viz-episode" data-i18n="lbl.vizEpisode">Epizoda pro vizualizaci (Rerun)</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsVizEpisode">ⓘ</span>
-                    </div>
-                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                      <input type="number" id="ds-viz-episode" value="0" min="0" style="width:80px; font-family:var(--font-mono); font-size:12px;">
-                      <button class="btn btn-xs btn-secondary" id="ds-btn-viz" onclick="App.dsVisualize()" disabled data-i18n="btn.visualize">Vizualizovat</button>
-                      <button class="btn btn-xs btn-secondary" id="ds-btn-replay" onclick="App.startReplay()" disabled title="Přehraje epizodu na reálném follower rameni (lerobot-replay)" data-i18n="btn.replay">Přehrát na rameni</button>
-                      <button class="btn btn-xs btn-secondary" id="ds-btn-info" onclick="App.dsRunOp('info')" disabled title="Vypíše metadata datasetu do konzole" data-i18n="btn.detailInfo">Detailní info</button>
-                      <button class="btn btn-xs btn-secondary" id="ds-btn-stats" onclick="App.dsRunOp('recompute_stats')" disabled title="Přepočítá normalizační statistiky (nutné po ruční úpravě dat)" data-i18n="btn.recomputeStats">Přepočítat statistiky</button>
-                    </div>
-                  </div>
-                  <div class="form-group" style="border-top:1px solid var(--border); padding-top:12px;">
-                    <div class="label-with-tooltip">
-                      <label for="ds-hub-id" data-i18n="lbl.publishHub">Publikovat na Hugging Face Hub</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubId">ⓘ</span>
-                    </div>
-                    <div style="display:flex; gap:6px; align-items:center;">
-                      <input type="text" id="ds-hub-id" placeholder="uzivatel/nazev_datasetu" style="flex:1; font-family:var(--font-mono); font-size:11px;">
-                      <input type="checkbox" id="ds-hub-private" checked style="width:14px; height:14px;">
-                      <label for="ds-hub-private" style="font-size:10px; color:var(--text-muted); font-weight:700;">PRIVATE</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubPrivate">ⓘ</span>
-                      <button class="btn btn-xs btn-primary" id="ds-btn-push" onclick="App.dsPush()" disabled data-i18n="btn.pushHub">Push na Hub</button>
-                    </div>
-                  </div>
+            <div class="setup-section" style="grid-template-columns: 1fr;">
+              <div class="setup-block" style="display: flex; flex-direction: column;">
+                <div class="block-head-row">
+                  <h3 style="margin:0;"><span data-i18n="blk.manage.title"></span></h3>
+                  <span class="block-head-sub" data-i18n="blk.manage.sub"></span>
                 </div>
+                <div class="setup-block-content">
+                  <div class="merge-cols">
+                    <section class="merge-col">
+                      <h4 class="merge-col-title" data-i18n="blk.ds.local">Lokální datasety dovedností</h4>
+                      <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                        <div class="form-group">
+                          <div class="label-with-tooltip">
+                            <label for="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsSelect">ⓘ</span>
+                          </div>
+                          <select id="ds-select" onchange="App.dsOnSelect()">
+                            <option value="" data-i18n="opt.noDatasets">-- Žádné datasety --</option>
+                          </select>
+                        </div>
+                        <div id="ds-info-box" class="ds-info-box">
+                          <div class="ds-stat"><span class="ds-stat-label">Stav na disku</span><strong id="ds-info-exists" class="ds-stat-value">—</strong></div>
+                          <div class="ds-stat"><span class="ds-stat-label">Epizody</span><strong id="ds-info-episodes" class="ds-stat-value">—</strong></div>
+                          <div class="ds-stat"><span class="ds-stat-label">FPS</span><strong id="ds-info-fps" class="ds-stat-value">—</strong></div>
+                          <div class="ds-stat"><span class="ds-stat-label">Velikost</span><strong id="ds-info-size" class="ds-stat-value">—</strong></div>
+                        </div>
+                        <div class="form-group">
+                          <div class="label-with-tooltip">
+                            <label for="ds-viz-episode" data-i18n="lbl.vizEpisode">Epizoda pro vizualizaci (Rerun)</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsVizEpisode">ⓘ</span>
+                          </div>
+                          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <input type="number" id="ds-viz-episode" value="0" min="0" style="width:80px; font-family:var(--font-mono); font-size:12px;">
+                            <button class="btn btn-xs btn-secondary" id="ds-btn-viz" onclick="App.dsVisualize()" disabled data-i18n="btn.visualize">Vizualizovat</button>
+                            <button class="btn btn-xs btn-secondary" id="ds-btn-replay" onclick="App.startReplay()" disabled title="Přehraje epizodu na reálném follower rameni (lerobot-replay)" data-i18n="btn.replay">Přehrát na rameni</button>
+                            <button class="btn btn-xs btn-secondary" id="ds-btn-info" onclick="App.dsRunOp('info')" disabled title="Vypíše metadata datasetu do konzole" data-i18n="btn.detailInfo">Detailní info</button>
+                            <button class="btn btn-xs btn-secondary" id="ds-btn-stats" onclick="App.dsRunOp('recompute_stats')" disabled title="Přepočítá normalizační statistiky (nutné po ruční úpravě dat)" data-i18n="btn.recomputeStats">Přepočítat statistiky</button>
+                          </div>
+                        </div>
+                        <div class="form-group" style="border-top:1px solid var(--border); padding-top:12px;">
+                          <div class="label-with-tooltip">
+                            <label for="ds-hub-id" data-i18n="lbl.publishHub">Publikovat na Hugging Face Hub</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubId">ⓘ</span>
+                          </div>
+                          <div style="display:flex; gap:6px; align-items:center;">
+                            <input type="text" id="ds-hub-id" placeholder="uzivatel/nazev_datasetu" style="flex:1; font-family:var(--font-mono); font-size:11px;">
+                            <input type="checkbox" id="ds-hub-private" checked style="width:14px; height:14px;">
+                            <label for="ds-hub-private" style="font-size:10px; color:var(--text-muted); font-weight:700;">PRIVATE</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubPrivate">ⓘ</span>
+                            <button class="btn btn-xs btn-primary" id="ds-btn-push" onclick="App.dsPush()" disabled data-i18n="btn.pushHub">Push na Hub</button>
+                          </div>
+                        </div>
+                      </div>
 
-                <div class="block-actions">
-                  <span class="block-actions-hint" data-i18n="hint.dsActionsScope">Akce se vztahují k datasetu vybranému výše.</span>
-                  <button class="btn btn-xs btn-secondary" data-i18n="btn.refreshList" onclick="App.dsRefreshList()" data-i18n-title="tip.refreshList" title="Znovu načte seznam datasetů a jejich stav na disku">Obnovit seznam</button>
-                  <button class="btn btn-xs btn-secondary" data-i18n="btn.importModel" onclick="App.importSkillModel()" data-i18n-title="tip.importModel" title="Importovat natrénovaný model (checkpoint) z jiného zařízení">Importovat model</button>
-                  <button class="btn btn-xs btn-secondary" id="ds-btn-export-model" onclick="App.exportSkillModel(App.dsSelectedSkill())" disabled data-i18n="btn.exportModel" data-i18n-title="tip.exportModel" title="Exportovat natrénovaný model vybrané dovednosti">Exportovat model</button>
-                  <button class="btn btn-xs btn-primary" id="ds-btn-split-steps" onclick="App.splitDatasetSteps()" disabled data-i18n="btn.splitSteps" data-i18n-title="tip.splitSteps" title="Rozdělit dataset podle značek kroků na dílčí datasety pro trénink orchestrace">Rozdělit podle kroků</button>
+                      <div class="block-actions">
+                        <span class="block-actions-hint" data-i18n="hint.dsActionsScope">Akce se vztahují k datasetu vybranému výše.</span>
+                        <button class="btn btn-xs btn-secondary" data-i18n="btn.refreshList" onclick="App.dsRefreshList()" data-i18n-title="tip.refreshList" title="Znovu načte seznam datasetů a jejich stav na disku">Obnovit seznam</button>
+                        <button class="btn btn-xs btn-secondary" data-i18n="btn.importModel" onclick="App.importSkillModel()" data-i18n-title="tip.importModel" title="Importovat natrénovaný model (checkpoint) z jiného zařízení">Importovat model</button>
+                        <button class="btn btn-xs btn-secondary" id="ds-btn-export-model" onclick="App.exportSkillModel(App.dsSelectedSkill())" disabled data-i18n="btn.exportModel" data-i18n-title="tip.exportModel" title="Exportovat natrénovaný model vybrané dovednosti">Exportovat model</button>
+                        <button class="btn btn-xs btn-primary" id="ds-btn-split-steps" onclick="App.splitDatasetSteps()" disabled data-i18n="btn.splitSteps" data-i18n-title="tip.splitSteps" title="Rozdělit dataset podle značek kroků na dílčí datasety pro trénink orchestrace">Rozdělit podle kroků</button>
+                      </div>
+                    </section>
+                    <section class="merge-col">
+                      <h4 class="merge-col-title" data-i18n="blk.ds.ops">Operace s datasetem (lerobot-edit-dataset)</h4>
+                      <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:14px; overflow-y:auto;">
+
+                        <div class="ds-op-row">
+                          <div class="form-group" style="flex:1;">
+                            <div class="label-with-tooltip">
+                              <label for="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsDelIndices">ⓘ</span>
+                            </div>
+                            <input type="text" id="ds-del-indices" placeholder="např. 0, 2, 5" style="font-family:var(--font-mono); font-size:12px;" data-i18n-ph="ph.delIndices">
+                          </div>
+                          <button class="btn btn-xs btn-danger" id="ds-btn-del" onclick="App.dsDeleteEpisodes()" disabled data-i18n="btn.delete">Smazat</button>
+                        </div>
+
+                        <div class="ds-op-row">
+                          <div class="form-group" style="flex:1;">
+                            <div class="label-with-tooltip">
+                              <label for="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsNewTask">ⓘ</span>
+                            </div>
+                            <input type="text" id="ds-newtask" placeholder="např. Pick up the cube and place it in the bowl" style="font-size:12px;">
+                          </div>
+                          <button class="btn btn-xs btn-secondary" id="ds-btn-task" onclick="App.dsModifyTask()" disabled data-i18n="btn.rewriteTask">Přepsat task</button>
+                        </div>
+
+                        <div class="ds-op-row">
+                          <div class="form-group" style="width:110px;">
+                            <div class="label-with-tooltip">
+                              <label for="ds-split-train" data-i18n="lbl.trainSplit">Train podíl</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsSplitTrain">ⓘ</span>
+                            </div>
+                            <input type="number" id="ds-split-train" value="0.8" min="0.1" max="0.95" step="0.05" style="font-family:var(--font-mono); font-size:12px;">
+                          </div>
+                          <div style="flex:1; font-size:10px; color:var(--text-muted); align-self:center;" data-i18n-html="hint.dsSplit">Rozdělí dataset na <code>train</code>/<code>val</code> části.</div>
+                          <button class="btn btn-xs btn-secondary" id="ds-btn-split" onclick="App.dsSplit()" disabled data-i18n="btn.split">Rozdělit</button>
+                        </div>
+
+                        <div class="ds-op-row">
+                          <div class="form-group" style="flex:1;">
+                            <div class="label-with-tooltip">
+                              <label for="ds-merge-source" data-i18n="lbl.mergeWith">Sloučit s datasetem (repo id)</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeSource">ⓘ</span>
+                            </div>
+                            <select id="ds-merge-source"><option value="" data-i18n="opt.selectSecondDs">-- Vyberte druhý dataset --</option></select>
+                          </div>
+                          <div class="form-group" style="flex:1;">
+                            <div class="label-with-tooltip">
+                              <label for="ds-merge-target" data-i18n="lbl.newRepoId">Nový repo id</label>
+                              <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeTarget">ⓘ</span>
+                            </div>
+                            <input type="text" id="ds-merge-target" placeholder="local/merged_dataset" style="font-family:var(--font-mono); font-size:12px;">
+                          </div>
+                          <button class="btn btn-xs btn-secondary" id="ds-btn-merge" onclick="App.dsMerge()" disabled data-i18n="btn.merge">Sloučit</button>
+                        </div>
+
+                        <div style="font-size:10px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:8px; line-height:1.5;" data-i18n-html="desc.dsOps">
+                          Operace se provádějí <strong>na místě</strong> — LeRobot vytvoří zálohu původního datasetu. Průběh sledujte v terminálové konzoli.
+                          Po smazání epizod či úpravách doporučujeme spustit „Přepočítat statistiky“.
+                        </div>
+                      </div>
+                    </section>
+                  </div>
                 </div>
               </div>
-
-              <!-- Right: destructive / transforming operations -->
-              <div class="setup-block" style="display:flex; flex-direction:column;">
-                <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg> <span data-i18n="blk.ds.ops">Operace s datasetem (lerobot-edit-dataset)</span></h3>
-                <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:14px; overflow-y:auto;">
-
-                  <div class="ds-op-row">
-                    <div class="form-group" style="flex:1;">
-                      <div class="label-with-tooltip">
-                        <label for="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsDelIndices">ⓘ</span>
-                      </div>
-                      <input type="text" id="ds-del-indices" placeholder="např. 0, 2, 5" style="font-family:var(--font-mono); font-size:12px;" data-i18n-ph="ph.delIndices">
-                    </div>
-                    <button class="btn btn-xs btn-danger" id="ds-btn-del" onclick="App.dsDeleteEpisodes()" disabled data-i18n="btn.delete">Smazat</button>
-                  </div>
-
-                  <div class="ds-op-row">
-                    <div class="form-group" style="flex:1;">
-                      <div class="label-with-tooltip">
-                        <label for="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsNewTask">ⓘ</span>
-                      </div>
-                      <input type="text" id="ds-newtask" placeholder="např. Pick up the cube and place it in the bowl" style="font-size:12px;">
-                    </div>
-                    <button class="btn btn-xs btn-secondary" id="ds-btn-task" onclick="App.dsModifyTask()" disabled data-i18n="btn.rewriteTask">Přepsat task</button>
-                  </div>
-
-                  <div class="ds-op-row">
-                    <div class="form-group" style="width:110px;">
-                      <div class="label-with-tooltip">
-                        <label for="ds-split-train" data-i18n="lbl.trainSplit">Train podíl</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsSplitTrain">ⓘ</span>
-                      </div>
-                      <input type="number" id="ds-split-train" value="0.8" min="0.1" max="0.95" step="0.05" style="font-family:var(--font-mono); font-size:12px;">
-                    </div>
-                    <div style="flex:1; font-size:10px; color:var(--text-muted); align-self:center;" data-i18n-html="hint.dsSplit">Rozdělí dataset na <code>train</code>/<code>val</code> části.</div>
-                    <button class="btn btn-xs btn-secondary" id="ds-btn-split" onclick="App.dsSplit()" disabled data-i18n="btn.split">Rozdělit</button>
-                  </div>
-
-                  <div class="ds-op-row">
-                    <div class="form-group" style="flex:1;">
-                      <div class="label-with-tooltip">
-                        <label for="ds-merge-source" data-i18n="lbl.mergeWith">Sloučit s datasetem (repo id)</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeSource">ⓘ</span>
-                      </div>
-                      <select id="ds-merge-source"><option value="" data-i18n="opt.selectSecondDs">-- Vyberte druhý dataset --</option></select>
-                    </div>
-                    <div class="form-group" style="flex:1;">
-                      <div class="label-with-tooltip">
-                        <label for="ds-merge-target" data-i18n="lbl.newRepoId">Nový repo id</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeTarget">ⓘ</span>
-                      </div>
-                      <input type="text" id="ds-merge-target" placeholder="local/merged_dataset" style="font-family:var(--font-mono); font-size:12px;">
-                    </div>
-                    <button class="btn btn-xs btn-secondary" id="ds-btn-merge" onclick="App.dsMerge()" disabled data-i18n="btn.merge">Sloučit</button>
-                  </div>
-
-                  <div style="font-size:10px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:8px; line-height:1.5;" data-i18n-html="desc.dsOps">
-                    Operace se provádějí <strong>na místě</strong> — LeRobot vytvoří zálohu původního datasetu. Průběh sledujte v terminálové konzoli.
-                    Po smazání epizod či úpravách doporučujeme spustit „Přepočítat statistiky“.
-                  </div>
-                </div>
-              </div>
-            </div><!-- /.setup-section -->
+            </div>
           </div><!-- /.setup-wizard-panel[manage] -->
         </div><!-- /#page-datasety -->
 
@@ -953,10 +973,15 @@
                 <div class="merge-cols merge-cols-3">
                   <section class="merge-col">
                     <h4 class="merge-col-title" data-i18n="blk.learn.skills">Seznam Dovedností a Kroků</h4>
+              
+                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;" id="train-skills-checklist-container">
                       <!-- Dynamically filled by renderTrainingSkillsTree() -->
+                    </div>
                   </section>
                   <section class="merge-col">
                     <h4 class="merge-col-title" data-i18n="blk.learn.config">Konfigurace Tréninku</h4>
+              
+                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
                       <div class="form-group" style="margin:0; flex:1; display:flex; flex-direction:column; min-height:0;">
                         <div class="label-with-tooltip">
                           <label id="policy-pick-label" data-i18n="lbl.policyArch">Model Policy (Architektura)</label>
@@ -1036,9 +1061,18 @@
                         </div>
                         <input type="text" id="train-extra-args" placeholder="např. --policy.n_obs_steps=8 --optimizer.lr=1e-4" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.trainExtra">
                       </div>
+                    </div>
+
+                    <div class="block-actions">
+                      <span class="block-actions-hint" data-i18n="hint.trainScope">Spustí lerobot-train pro dovednosti zaškrtnuté vlevo, každou jako samostatný běh.</span>
+                      <button class="btn btn-xs btn-primary" id="btn-start-training" onclick="App.startWorkflowTraining()" data-i18n="btn.startTraining">Spustit Trénink</button>
+                      <button class="btn btn-xs btn-danger" id="btn-stop-training" onclick="App.stopWorkflowTraining()" disabled title="Žádný trénink neběží" data-i18n="btn.stop">Zastavit</button>
+                    </div>
                   </section>
                   <section class="merge-col">
                     <h4 class="merge-col-title" data-i18n="blk.learn.loss">Loss Telemetrie & Průběh</h4>
+              
+                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
                       <div class="chart-header">
                         <span style="font-size:10px; font-weight:700; color:var(--text-light); text-transform:uppercase;" data-i18n="hint.trainProgress">Průběh trénování</span>
                         <div class="progress-bar-container">
@@ -1051,6 +1085,7 @@
                       <div class="latch-status-indicator" id="training-status-indicator">
                         Ready. Zaškrtněte dovednosti a klikněte na 'Spustit Trénink'.
                       </div>
+                    </div>
                   </section>
                 </div>
               </div>
@@ -1067,9 +1102,10 @@
                   <span class="block-head-sub" data-i18n="blk.adv.sub"></span>
                 </div>
                 <div class="setup-block-content">
-                  <div class="merge-cols merge-cols-2">
+                  <div class="merge-cols">
                     <section class="merge-col">
                       <h4 class="merge-col-title" data-i18n="blk.adv.resume">Pokračování tréninku (Resume)</h4>
+                      <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:14px; min-height:0;">
                         <div class="form-group">
                           <div class="label-with-tooltip">
                             <label for="adv-resume-skill" data-i18n="lbl.skillWithCkpt">Dovednost s existujícím checkpointem</label>
@@ -1123,9 +1159,11 @@
                           </div>
                         </div>
                         <button class="btn btn-xs btn-primary" style="align-self:flex-start;" onclick="App.advStartEval()" data-i18n="btn.runEval">Spustit evaluaci</button>
+                      </div>
                     </section>
                     <section class="merge-col">
                       <h4 class="merge-col-title" data-i18n="blk.adv.modes">Pokročilé režimy tréninku</h4>
+                      <div class="setup-block-content" style="flex:1; display:flex; flex-direction:column; gap:10px; overflow-y:auto;">
                         <p style="font-size:10.5px; color:var(--text-muted); margin:0; line-height:1.5;" data-i18n-html="desc.advModes">
                           Tyto režimy se aktivují přes pole <strong>„Vlastní LeRobot CLI argumenty“</strong> na stránce Imitační učení,
                           nebo příkazem v terminálu. Kliknutím vložíte šablonu do terminálové konzole.
@@ -1154,6 +1192,7 @@
                           <code>lerobot-train-tokenizer --dataset.repo_id=...</code>
                           <span data-i18n="adv.tok.desc">Předpočítá FAST tokenizér akcí pro autoregresivní VLA modely.</span>
                         </div>
+                      </div>
                     </section>
                   </div>
                 </div>

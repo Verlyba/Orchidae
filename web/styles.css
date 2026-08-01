@@ -934,7 +934,7 @@ input[readonly] {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 18px;
-    align-items: start;
+    align-items: stretch;
 }
 
 .merge-cols-3 { grid-template-columns: 1.2fr 1fr 1.3fr; }
@@ -967,6 +967,23 @@ input[readonly] {
     margin: 0 0 2px;
     padding-bottom: 5px;
     border-bottom: 1px solid var(--border-dark);
+}
+
+/* A column keeps the body it had as a standalone panel, including the
+   .setup-block-content wrapper. That wrapper scrolls on its own when it is a
+   window; as a column it must not, or the window grows scrollbars inside
+   scrollbars. The window's own content area does the scrolling. */
+.merge-col > .setup-block-content {
+    flex: 0 1 auto;
+    overflow: visible;
+    padding-right: 0;
+}
+
+/* Each column keeps its own action footer — the buttons act on that column's
+   selection, not the window's. Bottom-aligning them keeps the footers on one
+   line instead of stepping down with each column's content height. */
+.merge-col > .block-actions {
+    margin-top: auto;
 }
 
 .panel-toolbar {
