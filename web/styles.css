@@ -926,6 +926,38 @@ input[readonly] {
 
 /* Toolbar: a row of related controls sharing one baseline, used at the top of
    a panel body rather than floating in the page header. */
+/* Connect step: arms and cameras are one window with two columns, not two
+   competing panels. Collapses to a single column when there is no room for
+   two — the fields keep their natural size either way. */
+.connect-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .connect-cols { grid-template-columns: 1fr; }
+}
+
+.connect-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.connect-col-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0 0 2px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border-dark);
+}
+
 .panel-toolbar {
     display: flex;
     align-items: center;
