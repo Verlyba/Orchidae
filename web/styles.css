@@ -4802,7 +4802,17 @@ body { min-width: 320px; }
     font-size: 9.5px;
 }
 
-/* Unified Teleoperation Page Grid */
+/* Unified Page Layout & Grid Styles */
+.editor-area .setup-block {
+    flex: 1;
+    min-height: 0;
+}
+
+.editor-area .setup-section {
+    flex: 1;
+    min-height: 0;
+}
+
 #page-teleoperation .setup-block {
     flex: 1;
     min-height: 0;
@@ -4817,9 +4827,24 @@ body { min-width: 320px; }
     min-height: 0;
 }
 
+.settings-unified-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 16px;
+    align-items: stretch;
+    min-height: 0;
+}
+
 @media (max-width: 1200px) {
     .teleop-unified-grid {
         grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 1000px) {
+    .settings-unified-grid {
+        grid-template-columns: 1fr;
     }
 }
 
