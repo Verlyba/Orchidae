@@ -80,9 +80,12 @@ class LeRobotBridge(QObject):
         self._infer_policy_paths: dict[str, str] = {}
         # Waiters for [SNAPSHOT]/[STATUS] POLICY_* daemon replies: key -> (Event, [payload])
         self._daemon_waiters: dict[str, tuple] = {}
-        # ── Step-mark state (sub-task flags clicked during recording) ─────
-        # skill_slug -> {dataset, marks_path, fps, episodes, current_episode, episode_started}
+        # ── Step-mark state (sub-task boundary flags during recording) ────
+        # skill_slug -> {dataset, marks_path, fps, episodes, current_episode,
+        #                phase, wrapper}
         self._record_marks: dict[str, dict] = {}
+        # Monotonic counter for numbered record-control sentinel files
+        self._record_control_seq: int = 0
         # ── Calibration live-table state ───────────────────────────────────
         # process key -> {motor: {min, pos, max}}, accumulated while
         # lerobot_calibrate.py streams its live range-of-motion table.
@@ -817,7 +820,12 @@ except Exception as e:
                 "fps": fps,
                 "episodes": {},
                 "current_episode": -1,
-                "episode_started": 0.0,
+                # "record" while an episode runs, "reset" during the environment
+                # reset pause, "idle" otherwise — marks are only accepted while
+                # recording, and the wrapper enforces that on its side too.
+                "phase": "idle",
+                # Set once the wrapper's structured protocol has been seen.
+                "wrapper": False,
             }
             if resume and marks_path.exists():
                 try:
@@ -1296,7 +1304,41 @@ if __name__ == "__main__":
     # either: with no listener running there is nothing to receive the key.
     # This wrapper swaps in a listener that watches sentinel files, which is
     # deterministic, needs no TTY/hook/focus, and sets exactly the same flags.
+    #
+    # The wrapper additionally owns SUB-TASK MARK TIMING, because only the
+    # recording process can measure it correctly — see the module docstring of
+    # the wrapper source below.
     _RECORD_WRAPPER_SRC = '''\
+"""Orchiday wrapper around lerobot-record.
+
+Runs INSIDE the user's LeRobot environment (Orchiday itself never imports it)
+and adds the two things lerobot-record has no notion of:
+
+1. Episode control without a keyboard hook. lerobot's own listener needs either
+   pynput (a global OS hook) or a controlling TTY; a QProcess started by the app
+   has neither, so the three control flags are driven by sentinel files instead.
+   The mapping mirrors lerobot.utils.keyboard_input.apply_recording_control:
+   next -> exit_early, rerecord -> rerecord_episode + exit_early,
+   stop -> stop_recording + exit_early.
+
+2. Sub-task boundary marks. A mark is only useful if it is comparable with the
+   dataset's per-frame `timestamp` column, and LeRobot computes that column as
+   frame_index / fps (lerobot/datasets/dataset_writer.py) — NOT from a wall
+   clock. This wrapper therefore counts the frames actually written into the
+   episode buffer and stamps every mark as frames / fps. That stays exact even
+   when the control loop runs slower than the target FPS (lerobot warns about
+   this but keeps recording), and it is immune to UI/IPC latency, which a mark
+   timestamped by the app never could be.
+
+Episode boundaries are taken from record_loop() calls rather than from log text:
+record() calls it WITH a dataset while recording an episode and WITHOUT one
+during the "reset the environment" pause, and a re-recorded episode reuses its
+index, which prose logging cannot distinguish.
+
+Everything the app needs is printed as one-line JSON prefixed with
+[ORCHIDAY_REC]; LeRobotBridge._handle_record_event() consumes it.
+"""
+import json
 import os
 import threading
 import time
@@ -1306,9 +1348,48 @@ _CONTROL_DIR = os.environ.get("ORCHIDAY_RECORD_CONTROL_DIR", "")
 # Same three flags lerobot's own listener sets; record_loop polls this dict.
 _EVENTS = {"exit_early": False, "rerecord_episode": False, "stop_recording": False}
 
+# Live episode state. `frames` is the mark time base; `counted` says whether it
+# is trustworthy (see _install_frame_counter).
+_STATE = {"episode": -1, "frames": 0, "fps": 0.0, "t0": 0.0,
+          "recording": False, "counted": False}
+_LOCK = threading.Lock()
+
+
+def _emit(event, **fields):
+    """Print one protocol line for the app to parse."""
+    fields["ev"] = event
+    print("[ORCHIDAY_REC] " + json.dumps(fields, ensure_ascii=False), flush=True)
+
+
+def _mark(label=""):
+    """Stamp a sub-task boundary at the current position of the episode."""
+    with _LOCK:
+        if not _STATE["recording"]:
+            _emit("mark_rejected", reason="no_episode_running", label=label)
+            return
+        if _STATE["counted"] and _STATE["fps"] > 0:
+            frames = _STATE["frames"]
+            t = frames / _STATE["fps"]
+            source = "frames"
+        else:
+            # Fallback only: the frame counter could not be installed.
+            frames = -1
+            t = time.perf_counter() - _STATE["t0"]
+            source = "clock"
+        _emit("mark", episode=_STATE["episode"], frame=frames,
+              t=round(t, 4), label=label, source=source)
+
 
 class _OrchidayFileListener:
-    """Drop-in replacement for lerobot's keyboard listener, driven by files."""
+    """Drop-in replacement for lerobot's keyboard listener, driven by files.
+
+    Sentinel names: `next`, `rerecord` and `stop` are single idempotent files;
+    `mark#<n>` / `unmark#<n>` are numbered so that two marks made in quick
+    succession can never overwrite each other before the poll picks them up.
+    A mark file's contents are its optional label.
+    """
+
+    POLL_S = 0.01
 
     def __init__(self):
         self._running = True
@@ -1327,24 +1408,65 @@ class _OrchidayFileListener:
             return True
         return False
 
+    def _consume_numbered(self, prefix):
+        """Consume every pending `<prefix>#<n>` file, lowest number first."""
+        if not _CONTROL_DIR:
+            return []
+        try:
+            names = sorted(n for n in os.listdir(_CONTROL_DIR)
+                           if n.startswith(prefix + "#"))
+        except OSError:
+            return []
+        payloads = []
+        for name in names:
+            path = os.path.join(_CONTROL_DIR, name)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payloads.append(f.read())
+            except OSError:
+                payloads.append("")
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return payloads
+
+    def poll_once(self):
+        # Mirrors lerobot.utils.keyboard_input.apply_recording_control
+        if self._consume("next"):
+            _emit("control", action="next")
+            _EVENTS["exit_early"] = True
+        if self._consume("rerecord"):
+            _emit("control", action="rerecord")
+            with _LOCK:
+                episode = _STATE["episode"]
+                _STATE["recording"] = False
+            # lerobot clears the episode buffer and re-records the SAME index,
+            # so every mark of the aborted take has to be dropped with it.
+            _emit("episode_discarded", episode=episode)
+            _EVENTS["rerecord_episode"] = True
+            _EVENTS["exit_early"] = True
+        if self._consume("stop"):
+            _emit("control", action="stop")
+            _EVENTS["stop_recording"] = True
+            _EVENTS["exit_early"] = True
+        for label in self._consume_numbered("mark"):
+            _mark(label)
+        for _ in self._consume_numbered("unmark"):
+            _emit("unmark", episode=_STATE["episode"])
+
     def _run(self):
         while self._running:
-            # Mirrors lerobot.utils.keyboard_input.apply_recording_control
-            if self._consume("next"):
-                print("[ORCHIDAY] Next episode requested.", flush=True)
-                _EVENTS["exit_early"] = True
-            if self._consume("rerecord"):
-                print("[ORCHIDAY] Re-record episode requested.", flush=True)
-                _EVENTS["rerecord_episode"] = True
-                _EVENTS["exit_early"] = True
-            if self._consume("stop"):
-                print("[ORCHIDAY] Stop recording requested.", flush=True)
-                _EVENTS["stop_recording"] = True
-                _EVENTS["exit_early"] = True
-            time.sleep(0.05)
+            self.poll_once()
+            time.sleep(self.POLL_S)
 
     def stop(self):
+        """Stop polling and wait for the thread, so no control can still fire
+        after lerobot has torn the recording down."""
         self._running = False
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
 
 
 def _orchiday_init_keyboard_listener():
@@ -1352,7 +1474,65 @@ def _orchiday_init_keyboard_listener():
 
 
 import lerobot.scripts.lerobot_record as _rec
+
 _rec.init_keyboard_listener = _orchiday_init_keyboard_listener
+_ORIGINAL_RECORD_LOOP = _rec.record_loop
+
+
+def _install_frame_counter(dataset):
+    """Count every frame written to the episode buffer (the mark time base).
+
+    Returns True when the counter is in place. A False result is not fatal:
+    marks then fall back to a wall clock and say so in their `source` field.
+    """
+    if getattr(dataset, "_orchiday_counted", False):
+        return True
+    try:
+        original = dataset.add_frame
+
+        def add_frame(frame, *args, **kwargs):
+            with _LOCK:
+                _STATE["frames"] += 1
+            return original(frame, *args, **kwargs)
+
+        dataset.add_frame = add_frame
+        dataset._orchiday_counted = True
+        return True
+    except Exception as e:
+        _emit("warning", message="frame counter unavailable: %s" % e)
+        return False
+
+
+def _orchiday_record_loop(*args, **kwargs):
+    """Announce the phase boundaries lerobot only logs as prose."""
+    dataset = kwargs.get("dataset")
+    if dataset is None:
+        with _LOCK:
+            _STATE["recording"] = False
+            episode = _STATE["episode"]
+        _emit("reset_begin", episode=episode)
+    else:
+        counted = _install_frame_counter(dataset)
+        with _LOCK:
+            _STATE["episode"] = int(getattr(dataset, "num_episodes", 0) or 0)
+            _STATE["fps"] = float(getattr(dataset, "fps", 0) or kwargs.get("fps") or 0)
+            _STATE["frames"] = 0
+            _STATE["t0"] = time.perf_counter()
+            _STATE["counted"] = counted
+            _STATE["recording"] = True
+            episode, fps = _STATE["episode"], _STATE["fps"]
+        _emit("episode_begin", episode=episode, fps=fps, counted=counted)
+    try:
+        return _ORIGINAL_RECORD_LOOP(*args, **kwargs)
+    finally:
+        if dataset is not None:
+            with _LOCK:
+                _STATE["recording"] = False
+                episode, frames = _STATE["episode"], _STATE["frames"]
+            _emit("episode_end", episode=episode, frames=frames)
+
+
+_rec.record_loop = _orchiday_record_loop
 
 if __name__ == "__main__":
     _rec.main()
@@ -1380,17 +1560,13 @@ if __name__ == "__main__":
         """Per-process directory holding the record control sentinel files."""
         return Path(tempfile.gettempdir()) / f"orchiday_rec_ctl_{key}"
 
-    def send_record_control(self, skill_slug: str, action: str) -> bool:
-        """Request next-episode / re-record / stop on a running recording.
+    def _write_record_sentinel(self, skill_slug: str, name: str, payload: str = "1") -> bool:
+        """Drop one sentinel file for the record wrapper's listener thread.
 
-        Drops a sentinel file the wrapper's listener thread picks up (see
-        _RECORD_WRAPPER_SRC) — the only mechanism that reaches lerobot's
-        events dict when it runs without a TTY or global keyboard hook.
+        This is the only mechanism that reaches lerobot's events dict when
+        lerobot-record runs without a TTY or global keyboard hook (see
+        _RECORD_WRAPPER_SRC).
         """
-        mapping = {"next": "next", "reset": "rerecord", "stop": "stop"}
-        name = mapping.get(action)
-        if name is None:
-            return False
         key = f"record_{skill_slug}"
         process = self._active_processes.get(key)
         if not (process and process.state() == QProcess.ProcessState.Running):
@@ -1398,11 +1574,37 @@ if __name__ == "__main__":
         ctl_dir = self._record_control_dir(key)
         try:
             ctl_dir.mkdir(parents=True, exist_ok=True)
-            (ctl_dir / name).write_text("1", encoding="utf-8")
+            # Write, then rename into place: the wrapper polls this directory
+            # continuously and must never read a half-written label. The staging
+            # name starts with a dot so it cannot match a sentinel prefix.
+            staged = ctl_dir / f".{name.replace('#', '_')}"
+            staged.write_text(payload, encoding="utf-8")
+            os.replace(staged, ctl_dir / name)
         except OSError as e:
             log.warning("Could not write record control '%s' for %s: %s", name, key, e)
             return False
-        log.info("Record control '%s' requested for %s", name, key)
+        return True
+
+    def _queue_record_sentinel(self, skill_slug: str, prefix: str, payload: str = "") -> bool:
+        """Drop a NUMBERED sentinel (`<prefix>#<n>`) so bursts are never lost.
+
+        `next`/`rerecord`/`stop` are idempotent flags, but marks are not: two
+        marks made within one poll interval must both survive, so each gets its
+        own file and the wrapper consumes them in order.
+        """
+        self._record_control_seq += 1
+        return self._write_record_sentinel(
+            skill_slug, f"{prefix}#{self._record_control_seq:09d}", payload)
+
+    def send_record_control(self, skill_slug: str, action: str) -> bool:
+        """Request next-episode / re-record / stop on a running recording."""
+        mapping = {"next": "next", "reset": "rerecord", "stop": "stop"}
+        name = mapping.get(action)
+        if name is None:
+            return False
+        if not self._write_record_sentinel(skill_slug, name):
+            return False
+        log.info("Record control '%s' requested for record_%s", name, skill_slug)
         return True
 
     def _calibration_confirm_file(self, key: str) -> Path:
@@ -1860,9 +2062,14 @@ if __name__ == "__main__":
         """
         Extract recording progress from `lerobot-record` output.
 
-        Matches both "Episode 3/50" style and LeRobot's
-        "Recording episode 3" voice-log style.
+        Structured `[ORCHIDAY_REC]` lines from our record wrapper are handled
+        first and authoritatively; the regexes below only read LeRobot's own
+        prose logging ("Recording episode 3") to drive the progress bar.
         """
+        if line.startswith(self._RECORD_EVENT_PREFIX):
+            self._handle_record_event(skill_slug, line)
+            return
+
         ep_match = re.search(r"[Ee]pisode[:\s_]+(\d+)\s*/\s*(\d+)", line)
         if ep_match:
             current = int(ep_match.group(1))
@@ -1881,56 +2088,148 @@ if __name__ == "__main__":
             self._track_episode_start(skill_slug, current)
 
     def _track_episode_start(self, skill_slug: str, episode_index: int) -> None:
-        """Anchor the wall-clock start of an episode so step marks clicked in the
-        UI can be converted to in-episode timestamps (matching the dataset's
-        per-frame `timestamp` column, which starts at 0 each episode)."""
-        import time
+        """Fallback episode tracking from LeRobot's own prose logging.
+
+        Only used when the record wrapper's structured protocol never arrived
+        (a hand-rolled record command, or an older wrapper still on disk). Prose
+        cannot distinguish a re-recorded episode from a new one, so as soon as
+        one [ORCHIDAY_REC] line has been seen this becomes a no-op.
+        """
         state = self._record_marks.get(skill_slug)
-        if state is None or state.get("current_episode") == episode_index:
+        if state is None or state.get("wrapper"):
+            return
+        if state.get("current_episode") == episode_index:
             return
         state["current_episode"] = episode_index
-        state["episode_started"] = time.monotonic()
+        state["phase"] = "record"
         event_bus.recording_episode.emit(skill_slug, episode_index)
 
-    def mark_step(self, skill_slug: str, step: int, label: str = "") -> dict:
-        """Record a sub-task boundary flag during an active recording.
+    # Structured protocol emitted by the record wrapper (_RECORD_WRAPPER_SRC).
+    _RECORD_EVENT_PREFIX = "[ORCHIDAY_REC]"
 
-        The mark stores the elapsed time within the current episode; the dataset
-        splitter later cuts the episode into per-step segments at these times.
-        Returns a result dict {ok, episode, t, step, label} or {ok: False, error}.
+    def _handle_record_event(self, skill_slug: str, line: str) -> None:
+        """Apply one record-wrapper protocol line to the step-mark state.
+
+        The wrapper is the single source of truth for episode boundaries and
+        mark timing: it measures both inside the recording process, against the
+        frames actually written to the dataset.
         """
-        import time
-        key = f"record_{skill_slug}"
+        try:
+            payload = json.loads(line[len(self._RECORD_EVENT_PREFIX):].strip())
+        except (ValueError, TypeError):
+            log.warning("Unparseable record event: %s", line)
+            return
         state = self._record_marks.get(skill_slug)
-        if key not in self._active_processes or state is None:
-            return {"ok": False, "error": "no active recording for this skill"}
-        episode = state.get("current_episode", -1)
+        if state is None or not isinstance(payload, dict):
+            return
+        state["wrapper"] = True
+        ev = payload.get("ev", "")
+
+        if ev == "episode_begin":
+            episode = int(payload.get("episode", -1))
+            state["current_episode"] = episode
+            state["phase"] = "record"
+            # A re-recorded episode reuses its index, so anything already marked
+            # for it belongs to the take LeRobot just threw away.
+            if state["episodes"].pop(str(episode), None) is not None:
+                self._persist_step_marks(skill_slug)
+            if not payload.get("counted", True):
+                event_bus.log_message.emit(
+                    "WARN", "Frame counter unavailable — step marks fall back to wall-clock "
+                            "timing and may drift if the control loop runs below the target FPS.")
+            event_bus.recording_episode.emit(skill_slug, episode)
+            event_bus.recording_phase.emit(skill_slug, "record")
+
+        elif ev in ("reset_begin", "episode_end"):
+            state["phase"] = "reset" if ev == "reset_begin" else "idle"
+            event_bus.recording_phase.emit(skill_slug, state["phase"])
+
+        elif ev == "episode_discarded":
+            episode = int(payload.get("episode", state.get("current_episode", -1)))
+            state["phase"] = "idle"
+            dropped = state["episodes"].pop(str(episode), None)
+            self._persist_step_marks(skill_slug)
+            event_bus.recording_episode_discarded.emit(skill_slug, episode)
+            event_bus.log_message.emit(
+                "WARN", f"Episode {episode} discarded — {len(dropped or [])} step mark(s) "
+                        f"dropped with it ({skill_slug}).")
+
+        elif ev == "mark":
+            self._append_step_mark(skill_slug, state, payload)
+
+        elif ev == "unmark":
+            self._remove_step_mark(skill_slug, state, payload)
+
+        elif ev == "mark_rejected":
+            event_bus.log_message.emit(
+                "WARN", "Step mark ignored — no episode is being recorded right now "
+                        "(environment reset or episode being saved).")
+
+        elif ev == "warning":
+            event_bus.log_message.emit("WARN", f"Recorder: {payload.get('message', '')}")
+
+    def _append_step_mark(self, skill_slug: str, state: dict, payload: dict) -> None:
+        """Store a boundary mark reported by the recording process."""
+        episode = int(payload.get("episode", state.get("current_episode", -1)))
         if episode < 0:
-            return {"ok": False, "error": "no episode started yet"}
-
-        t = round(time.monotonic() - state["episode_started"], 3)
-        mark = {"t": t, "step": step, "label": label}
-        state["episodes"].setdefault(str(episode), []).append(mark)
+            return
+        marks = state["episodes"].setdefault(str(episode), [])
+        mark = {
+            "t": round(float(payload.get("t", 0.0)), 3),
+            # The boundary number is derived here, not sent by the client: it is
+            # simply how many boundaries of this episode are already marked.
+            "step": len(marks) + 1,
+            "label": str(payload.get("label", "")),
+        }
+        marks.append(mark)
         self._persist_step_marks(skill_slug)
+        event_bus.step_marked.emit(skill_slug, {
+            "episode": episode, "frame": payload.get("frame", -1),
+            "source": payload.get("source", "frames"), **mark})
+        event_bus.log_message.emit(
+            "INFO", f"Step mark {mark['step']} ({mark['label'] or 'unnamed'}) at "
+                    f"{mark['t']:.2f}s of episode {episode} ({skill_slug})")
 
-        payload = {"episode": episode, **mark}
-        event_bus.step_marked.emit(skill_slug, payload)
-        event_bus.log_message.emit("INFO", f"Step mark: '{label or step}' at {t:.2f}s of episode {episode} ({skill_slug})")
-        return {"ok": True, **payload}
-
-    def undo_step_mark(self, skill_slug: str) -> dict:
-        """Remove the last step mark of the current episode (misclick recovery)."""
-        state = self._record_marks.get(skill_slug)
-        if state is None:
-            return {"ok": False, "error": "no active recording for this skill"}
-        episode = str(state.get("current_episode", -1))
+    def _remove_step_mark(self, skill_slug: str, state: dict, payload: dict) -> None:
+        """Drop the last boundary mark of an episode (misclick recovery)."""
+        episode = str(payload.get("episode", state.get("current_episode", -1)))
         marks = state["episodes"].get(episode) or []
         if not marks:
-            return {"ok": False, "error": "no marks in current episode"}
+            event_bus.log_message.emit(
+                "WARN", f"No step mark left to undo in episode {episode} ({skill_slug}).")
+            return
         removed = marks.pop()
         self._persist_step_marks(skill_slug)
         event_bus.step_marked.emit(skill_slug, {"episode": int(episode), "undone": True, **removed})
-        return {"ok": True, "removed": removed}
+        event_bus.log_message.emit(
+            "INFO", f"Step mark {removed['step']} of episode {episode} undone ({skill_slug}).")
+
+    def mark_step(self, skill_slug: str, step: int = 0, label: str = "") -> dict:
+        """Request a sub-task boundary mark on a running recording.
+
+        The timestamp is deliberately NOT taken here. LeRobot stores a frame's
+        `timestamp` as frame_index / fps, so a mark is only comparable with the
+        dataset if it is measured the same way — which only the recording
+        process can do. This drops a sentinel the wrapper picks up; the finished
+        mark arrives asynchronously as a `step_marked` event.
+        """
+        if skill_slug not in self._record_marks:
+            return {"ok": False, "error": "no active recording for this skill"}
+        if not self._queue_record_sentinel(skill_slug, "mark", label):
+            return {"ok": False, "error": "no active recording for this skill"}
+        return {"ok": True, "queued": True}
+
+    def undo_step_mark(self, skill_slug: str) -> dict:
+        """Remove the last step mark of the current episode (misclick recovery).
+
+        Routed through the recorder like mark_step() so both paths stay ordered
+        with respect to each other.
+        """
+        if skill_slug not in self._record_marks:
+            return {"ok": False, "error": "no active recording for this skill"}
+        if not self._queue_record_sentinel(skill_slug, "unmark"):
+            return {"ok": False, "error": "no active recording for this skill"}
+        return {"ok": True, "queued": True}
 
     def _persist_step_marks(self, skill_slug: str) -> None:
         """Write the marks sidecar JSON next to the dataset directory."""

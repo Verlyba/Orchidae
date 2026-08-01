@@ -1523,12 +1523,139 @@ input[readonly] {
     background: rgba(240, 178, 50, 0.06);
     border: 1px dashed rgba(240, 178, 50, 0.3);
     color: var(--yellow);
-    padding: 7px;
+    padding: 7px 10px;
     border-radius: var(--radius);
     font-family: var(--font-mono);
     font-size: 10px;
+    line-height: 1.7;
     text-align: center;
     letter-spacing: 0.3px;
+}
+
+/* ── Sub-task boundary marking during recording ──────────────────── */
+
+.tagging-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    margin-top: 8px;
+}
+
+.tagging-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tagging-header .sidebar-subtitle {
+    margin: 0;
+    color: var(--cyan);
+}
+
+.tagging-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tagging-step {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border: 1px solid var(--border-dark);
+    border-left: 2px solid var(--border-light);
+    border-radius: var(--radius);
+    background: var(--bg-sidebar);
+    font-size: 11px;
+    color: var(--text-main);
+}
+
+.tagging-step.is-active {
+    border-left-color: var(--cyan);
+    color: var(--text-white);
+}
+
+.tagging-step.is-done {
+    border-left-color: var(--green);
+    color: var(--text-muted);
+}
+
+.tagging-step-idx {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.tagging-step-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tagging-step.is-active .tagging-step-name { font-weight: 700; }
+
+.tagging-step-t {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.tagging-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+}
+
+.tagging-actions .btn svg { vertical-align: middle; margin-right: 4px; }
+.tagging-actions .btn:last-child svg { margin-right: 3px; }
+
+.tagging-meta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 12px;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.tagging-meta strong {
+    font-family: var(--font-mono);
+    color: var(--text-light);
+    font-weight: 600;
+}
+
+.tagging-meta strong.is-count { color: var(--yellow); }
+
+/* State badges shared by the step rows and the phase indicator */
+.tagging-panel .tag {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border-light);
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.tagging-panel .tag-active,
+.tagging-panel .tag-live {
+    border-color: var(--cyan);
+    color: var(--cyan);
+}
+
+.tagging-panel .tag-done {
+    border-color: var(--green);
+    color: var(--green);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

@@ -1311,13 +1311,17 @@ def _ordered_sub_steps(skill_slug: str) -> list[dict]:
 
 @app.post("/api/recording/mark_step")
 async def mark_recording_step(body: dict):
-    """Flag a sub-task boundary at the current moment of an active recording."""
+    """Flag a sub-task boundary at the current moment of an active recording.
+
+    Returns as soon as the request is queued: the mark is timestamped inside
+    the recording process (against the frames already written to the episode)
+    and arrives back over the WebSocket as a `step_marked` event.
+    """
     ctrl = _get_controller()
     skill = body.get("skill_slug", "")
     if not skill:
         return {"ok": False, "error": "skill_slug is required"}
-    return ctrl.lerobot_bridge.mark_step(
-        skill, int(body.get("step", 0)), str(body.get("label", "")))
+    return ctrl.lerobot_bridge.mark_step(skill, label=str(body.get("label", "")))
 
 
 @app.post("/api/recording/undo_mark")

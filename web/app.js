@@ -39,6 +39,8 @@ const App = {
     taggingPoints: [],
     taggingInterval: null,
     taggingEpisode: -1,
+    // Phase of lerobot's record loop: 'record' | 'reset' | 'idle'
+    taggingPhase: 'idle',
     armVisualConfig: null,
     armJointRanges: { leader: {}, follower: {} },
     wizardActivePage: 1,
@@ -191,29 +193,41 @@ const App = {
         window.addEventListener('resize', () => {
             this.drawLossChart();
         });
-        // Global keyboard listener for live recording step controls
+        // Live recording keys. lerobot's own listener needs pynput or a TTY and has
+        // neither under our subprocess, so the app is what turns a key press into a
+        // recording control (the same three flags lerobot's listener sets) and into
+        // a sub-task boundary mark. They therefore only work while this window has
+        // focus, which is what the on-screen key guide says.
         window.addEventListener('keydown', (e) => {
             const liveControls = document.getElementById('rec-live-controls');
             const taggingWizard = document.getElementById('rec-tagging-wizard');
             const recordingActive = liveControls && liveControls.style.display === 'flex';
-            if (recordingActive) {
-                if (e.key === 'ArrowRight') {
+            // Never steal keys from a field the user is typing into.
+            const target = e.target;
+            const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+                target.tagName === 'SELECT' || target.isContentEditable);
+            if (recordingActive && !typing) {
+                if (e.key === 'ArrowRight' || e.key === 'n' || e.key === 'N') {
                     e.preventDefault();
                     this.sendRecordingAction('next');
                 }
-                else if (e.key === 'ArrowLeft') {
+                else if (e.key === 'ArrowLeft' || e.key === 'r' || e.key === 'R') {
                     e.preventDefault();
                     this.sendRecordingAction('reset');
                 }
-                else if (e.key === 'Escape') {
+                else if (e.key === 'Escape' || e.key === 'q' || e.key === 'Q') {
                     e.preventDefault();
                     this.sendRecordingAction('stop');
                 }
             }
-            if (taggingWizard && taggingWizard.style.display === 'flex') {
-                if (e.key === ' ' || e.key === '2') {
+            if (taggingWizard && taggingWizard.style.display === 'flex' && !typing) {
+                if (e.key === ' ' || e.key === 'm' || e.key === 'M') {
                     e.preventDefault();
                     this.taggingNextStep();
+                }
+                else if (e.key === 'Backspace' || e.key === 'u' || e.key === 'U') {
+                    e.preventDefault();
+                    this.taggingUndoStep();
                 }
             }
             // Escape closes the topmost modal dialog (unless a recording session owns the key)
@@ -394,10 +408,16 @@ const App = {
                 this.log('INFO', this.t('log.episodeStarted', { n: data.episode }));
                 this.onRecordingEpisodeStarted(data.episode);
                 break;
+            case 'recording_phase':
+                this.onRecordingPhase(data.phase);
+                break;
+            case 'recording_episode_discarded':
+                this.onRecordingEpisodeDiscarded(data.episode);
+                break;
             case 'step_marked':
-                // Server-side confirmation of a step mark (also covers other clients)
-                if (data && data.undone)
-                    this.log('INFO', this.t('log.markUndone'));
+                // The recording process confirmed a mark — this is what advances the
+                // wizard, whichever client (or key) asked for it.
+                this.onStepMarked(data);
                 break;
             case 'recording_stopped':
                 this.log('SUCCESS', `Demonstration episode recorded successfully for: ${data.skill}`);
@@ -4462,12 +4482,14 @@ const App = {
         const stepsContainer = document.getElementById('rec-tagging-steps');
         if (subSkills.length > 0 && wizard && stepsContainer) {
             wizard.style.display = 'flex';
-            // Marks are timestamped SERVER-SIDE against the real episode start parsed
-            // from lerobot-record output — this local timer is display-only.
+            // Marks are timestamped INSIDE the recording process, from the frames
+            // already written to the episode — this local timer is display-only.
             this.taggingStartTime = Date.now();
             this.taggingActiveIndex = 0;
             this.taggingPoints = [];
             this.taggingEpisode = -1;
+            this.taggingPhase = 'idle';
+            this.onRecordingPhase('idle');
             this.renderTaggingSteps(subSkills);
             const timerEl = document.getElementById('rec-tagging-timer');
             const epEl = document.getElementById('rec-tagging-episode');
@@ -4481,7 +4503,6 @@ const App = {
             if (this.taggingInterval) {
                 clearInterval(this.taggingInterval);
             }
-            this.setTaggingNextEnabled(true);
             this.taggingInterval = setInterval(() => {
                 const elapsedSecs = ((Date.now() - this.taggingStartTime) / 1000).toFixed(1);
                 const tEl = document.getElementById('rec-tagging-timer');
@@ -4496,15 +4517,23 @@ const App = {
     },
     setTaggingNextEnabled(enabled) {
         const btnNext = document.getElementById('btn-tagging-next');
+        const btnUndo = document.getElementById('btn-tagging-undo');
+        if (btnUndo)
+            btnUndo.disabled = this.taggingPoints.length === 0;
         if (!btnNext)
             return;
         btnNext.disabled = !enabled;
         const label = btnNext.querySelector('span');
-        if (label)
-            label.textContent = enabled ? this.t('rec.markPhaseEnd') : this.t('rec.allPhasesMarked');
+        if (!label)
+            return;
+        // The disabled state has two different causes — say which one it is.
+        const allMarked = this.taggingActiveIndex >= Math.max(0, this.taggingSubSkills().length - 1);
+        label.textContent = enabled ? this.t('rec.markPhaseEnd')
+            : allMarked ? this.t('rec.allPhasesMarked') : this.t('rec.markUnavailable');
     },
     onRecordingEpisodeStarted(episode) {
-        // A new episode began — step marking restarts from phase 0
+        // A new episode began — step marking restarts from phase 0. lerobot reuses
+        // the index of a re-recorded episode, so this also covers a retried take.
         if (this.taggingSubSkills().length === 0)
             return;
         this.taggingEpisode = episode;
@@ -4518,7 +4547,7 @@ const App = {
         if (pointsEl)
             pointsEl.textContent = '0';
         this.renderTaggingSteps(this.taggingSubSkills());
-        this.setTaggingNextEnabled(true);
+        this.onRecordingPhase('record');
     },
     renderTaggingSteps(subSkills) {
         const stepsContainer = document.getElementById('rec-tagging-steps');
@@ -4528,26 +4557,29 @@ const App = {
         stepsContainer.innerHTML = subSkills.map((sub, idx) => {
             const isCompleted = idx < this.taggingActiveIndex;
             const isActive = idx === this.taggingActiveIndex;
-            let badgeCls = 'bg-syntax-type/20 text-syntax-type';
-            let stateLabel = this.t('tag.waiting');
-            if (isCompleted) {
-                badgeCls = 'bg-green-500/20 text-green';
-                stateLabel = this.t('tag.done');
-            }
-            else if (isActive) {
-                badgeCls = 'bg-cyan-500/20 text-cyan font-bold';
-                stateLabel = this.t('tag.active');
-            }
+            const rowCls = isCompleted ? 'is-done' : isActive ? 'is-active' : 'is-waiting';
+            const stateLabel = isCompleted ? this.t('tag.done')
+                : isActive ? this.t('tag.active') : this.t('tag.waiting');
+            // Boundary marks sit BETWEEN steps, so the last step never gets one.
+            const boundary = isCompleted && idx < this.taggingPoints.length
+                ? `<span class="tagging-step-t">${this.taggingPoints[idx].toFixed(2)}s</span>` : '';
             return `
-        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:4px; border:1px solid ${isActive ? 'var(--cyan)' : 'rgba(255,255,255,0.04)'};" class="${isActive ? 'pulse-light-cyan' : ''}">
-          <span style="font-size:11px; ${isActive ? 'color:var(--text-white); font-weight:700;' : 'color:var(--text-light);'}">
-            ${idx + 1}. ${this.esc(details[sub]?.name || sub)}
-          </span>
-          <span class="tag ${badgeCls}" style="font-size:9.5px; text-transform:uppercase; font-weight:700;">${stateLabel}</span>
+        <div class="tagging-step ${rowCls}">
+          <span class="tagging-step-idx">${idx + 1}</span>
+          <span class="tagging-step-name">${this.esc(details[sub]?.name || sub)}</span>
+          ${boundary}
+          <span class="tag tag-${rowCls.replace('is-', '')}">${stateLabel}</span>
         </div>
       `;
         }).join('');
     },
+    /**
+     * Request a boundary mark. The request only queues it: the recording process
+     * timestamps the mark against the frames already written to the episode
+     * (LeRobot stores frame timestamps as frame_index / fps), and the finished
+     * mark comes back over the WebSocket as `step_marked` — which is also how a
+     * mark made by any other client shows up here. onStepMarked() owns the state.
+     */
     async taggingNextStep() {
         const s = this.activeSkill;
         if (!s)
@@ -4557,32 +4589,16 @@ const App = {
             this.log('WARN', this.t('log.allPhasesMarked'));
             return;
         }
-        // The mark timestamp is taken server-side against the real episode start
-        // parsed from lerobot-record output (immune to UI/network latency drift).
-        const nextIdx = this.taggingActiveIndex + 1;
+        if (this.taggingPhase !== 'record') {
+            this.log('WARN', this.t('log.markNotRecording'));
+            return;
+        }
         const res = await this.api('POST', '/recording/mark_step', {
             skill_slug: s,
-            step: nextIdx,
             label: subSkills[this.taggingActiveIndex],
         });
         if (!res || res.ok === false) {
             this.log('WARN', this.t('log.markFail', { e: res?.error || '?' }));
-            return;
-        }
-        this.taggingPoints.push(res.t);
-        this.taggingActiveIndex = nextIdx;
-        const pointsEl = document.getElementById('rec-tagging-points');
-        if (pointsEl)
-            pointsEl.textContent = String(this.taggingPoints.length);
-        const epEl = document.getElementById('rec-tagging-episode');
-        if (epEl && typeof res.episode === 'number')
-            epEl.textContent = String(res.episode);
-        this.renderTaggingSteps(subSkills);
-        this.log('SUCCESS', this.t('log.markSaved', {
-            s: subSkills[nextIdx - 1], t: Number(res.t).toFixed(2), next: subSkills[nextIdx]
-        }));
-        if (this.taggingActiveIndex === subSkills.length - 1) {
-            this.setTaggingNextEnabled(false);
         }
     },
     async taggingUndoStep() {
@@ -4592,24 +4608,84 @@ const App = {
         const res = await this.api('POST', '/recording/undo_mark', { skill_slug: s });
         if (!res || res.ok === false) {
             this.log('WARN', this.t('log.undoFail', { e: res?.error || '?' }));
-            return;
         }
-        this.taggingPoints.pop();
-        this.taggingActiveIndex = Math.max(0, this.taggingActiveIndex - 1);
+    },
+    /** Confirmed mark (or undo) reported by the recording process. */
+    onStepMarked(data) {
+        if (!data)
+            return;
+        if (data.skill && this.activeSkill && data.skill !== this.activeSkill)
+            return;
+        const subSkills = this.taggingSubSkills();
+        if (subSkills.length === 0)
+            return;
+        if (data.undone) {
+            this.taggingPoints.pop();
+            this.taggingActiveIndex = Math.max(0, this.taggingActiveIndex - 1);
+            this.log('INFO', this.t('log.markUndone'));
+        }
+        else {
+            this.taggingPoints.push(Number(data.t) || 0);
+            // `step` is the boundary number counted by the backend — it is the single
+            // source of truth, so keyboard, button and remote marks cannot diverge.
+            const step = Number(data.step) || this.taggingPoints.length;
+            this.taggingActiveIndex = Math.min(Math.max(step, 0), subSkills.length - 1);
+            this.log('SUCCESS', this.t('log.markSaved', {
+                s: subSkills[Math.max(0, this.taggingActiveIndex - 1)],
+                t: (Number(data.t) || 0).toFixed(2),
+                next: subSkills[this.taggingActiveIndex] || '—',
+            }));
+        }
         const pointsEl = document.getElementById('rec-tagging-points');
         if (pointsEl)
             pointsEl.textContent = String(this.taggingPoints.length);
+        const epEl = document.getElementById('rec-tagging-episode');
+        if (epEl && typeof data.episode === 'number')
+            epEl.textContent = String(data.episode);
+        this.renderTaggingSteps(subSkills);
+        this.setTaggingNextEnabled(this.taggingPhase === 'record' && this.taggingActiveIndex < subSkills.length - 1);
+    },
+    /**
+     * lerobot's record loop alternates between capturing an episode and an
+     * unrecorded "reset the environment" pause. Marks only mean something during
+     * the capture phase, so the control reflects that instead of failing silently.
+     */
+    onRecordingPhase(phase) {
+        this.taggingPhase = phase;
+        const subSkills = this.taggingSubSkills();
+        const status = document.getElementById('rec-tagging-phase');
+        if (status) {
+            const key = phase === 'record' ? 'rec.phaseRecording'
+                : phase === 'reset' ? 'rec.phaseReset' : 'rec.phaseIdle';
+            // Keep data-i18n in sync so switching language re-renders the CURRENT
+            // phase rather than resetting the badge to its initial one.
+            status.setAttribute('data-i18n', key);
+            status.textContent = this.t(key);
+            status.className = 'tag ' + (phase === 'record' ? 'tag-live' : 'tag-idle');
+        }
+        this.setTaggingNextEnabled(phase === 'record' && subSkills.length > 0
+            && this.taggingActiveIndex < subSkills.length - 1);
+    },
+    /** lerobot re-recorded the episode (rerecord_episode) — its marks are gone. */
+    onRecordingEpisodeDiscarded(episode) {
+        if (this.taggingSubSkills().length === 0)
+            return;
+        this.log('WARN', this.t('log.episodeDiscarded', { n: episode }));
+        this.taggingActiveIndex = 0;
+        this.taggingPoints = [];
+        const pointsEl = document.getElementById('rec-tagging-points');
+        if (pointsEl)
+            pointsEl.textContent = '0';
         this.renderTaggingSteps(this.taggingSubSkills());
-        this.setTaggingNextEnabled(true);
-        this.log('INFO', this.t('log.markUndone'));
     },
     async finishTaggingPostProcess() {
-        // Marks are persisted server-side next to the dataset as they are clicked —
-        // nothing to post-process here, just close the wizard UI.
+        // Marks are persisted next to the dataset as they are made — nothing to
+        // post-process here, just close the wizard UI.
         if (this.taggingInterval) {
             clearInterval(this.taggingInterval);
             this.taggingInterval = null;
         }
+        this.taggingPhase = 'idle';
         const wizard = document.getElementById('rec-tagging-wizard');
         if (wizard)
             wizard.style.display = 'none';

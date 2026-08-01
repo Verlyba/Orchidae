@@ -58,6 +58,11 @@ class EventBus(QObject):
     recording_requested = Signal(str, bool)   # skill_slug, resume
     recording_stop_requested = Signal(str)    # skill_slug
     recording_episode = Signal(str, int)      # skill_slug, episode_index (new episode started)
+    # An episode was thrown away (lerobot rerecord_episode) — its marks go with it
+    recording_episode_discarded = Signal(str, int)  # skill_slug, episode_index
+    # Which phase of lerobot's record loop is running: "record" (an episode is
+    # being captured, marks accepted), "reset" (environment reset pause) or "idle"
+    recording_phase = Signal(str, str)        # skill_slug, phase
     step_marked = Signal(str, dict)           # skill_slug, mark {episode, t, step, label}
 
     # ── Training ─────────────────────────────────────────────────────────

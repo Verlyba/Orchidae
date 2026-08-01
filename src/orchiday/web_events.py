@@ -133,6 +133,10 @@ class WebEventBridge:
             lambda s, p: self.broadcast("recording_progress", {"skill": s, "progress": p}))
         event_bus.recording_episode.connect(
             lambda s, ep: self.broadcast("recording_episode", {"skill": s, "episode": ep}))
+        event_bus.recording_episode_discarded.connect(
+            lambda s, ep: self.broadcast("recording_episode_discarded", {"skill": s, "episode": ep}))
+        event_bus.recording_phase.connect(
+            lambda s, phase: self.broadcast("recording_phase", {"skill": s, "phase": phase}))
         event_bus.step_marked.connect(
             lambda s, mark: self.broadcast("step_marked", {"skill": s, **(mark or {})}))
 

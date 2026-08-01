@@ -409,44 +409,46 @@ def test_dataset_dir_does_not_duplicate_local_namespace(bridge):
 # ── Step marks (sub-task flags during recording) ─────────────────────────────
 
 def test_mark_step_requires_active_recording(bridge):
-    result = bridge.mark_step("pick_cube", 1, "lift")
+    result = bridge.mark_step("pick_cube", label="lift")
     assert result["ok"] is False
 
 
-def test_mark_step_records_in_episode_time(bridge, tmp_path, monkeypatch):
-    import time
-    bridge._active_processes["record_pick_cube"] = object()
+def test_mark_step_queues_a_sentinel_for_the_recorder(bridge, tmp_path, monkeypatch):
+    """The bridge only queues the request.
+
+    A mark has to be timestamped from the frames already written to the episode
+    (LeRobot stores frame timestamps as frame_index / fps), which only the
+    recording process can do — see tests/test_record_marks.py for the timing
+    itself and for how the resulting mark comes back.
+    """
+    from PySide6.QtCore import QProcess
+
+    class _FakeProc:
+        def state(self):
+            return QProcess.ProcessState.Running
+
+    key = "record_pick_cube"
+    bridge._active_processes[key] = _FakeProc()
+    monkeypatch.setattr(bridge, "_record_control_dir", lambda k: tmp_path / k)
     bridge._record_marks["pick_cube"] = {
         "dataset": "local/pick_cube",
         "marks_path": str(tmp_path / "pick_cube.step_marks.json"),
-        "fps": 30,
-        "episodes": {},
-        "current_episode": 2,
-        "episode_started": time.monotonic() - 1.5,
+        "fps": 30, "episodes": {}, "current_episode": 2,
+        "phase": "record", "wrapper": True,
     }
-    result = bridge.mark_step("pick_cube", 1, "lift")
-    assert result["ok"] is True
-    assert result["episode"] == 2
-    assert 1.0 < result["t"] < 5.0
-    # Persisted sidecar file
-    import json as _json
-    data = _json.loads((tmp_path / "pick_cube.step_marks.json").read_text(encoding="utf-8"))
-    assert data["episodes"]["2"][0]["label"] == "lift"
 
-    # Undo removes it again
-    undo = bridge.undo_step_mark("pick_cube")
-    assert undo["ok"] is True
-    data = _json.loads((tmp_path / "pick_cube.step_marks.json").read_text(encoding="utf-8"))
-    assert data["episodes"]["2"] == []
+    assert bridge.mark_step("pick_cube", label="lift") == {"ok": True, "queued": True}
+    assert bridge.undo_step_mark("pick_cube") == {"ok": True, "queued": True}
+
+    # Numbered files, so two marks in the same poll interval both survive
+    files = sorted(p.name for p in (tmp_path / key).iterdir())
+    assert [f.split("#")[0] for f in files] == ["mark", "unmark"]
+    assert (tmp_path / key / files[0]).read_text(encoding="utf-8") == "lift"
 
 
-def test_mark_step_before_first_episode(bridge):
-    bridge._active_processes["record_x"] = object()
-    bridge._record_marks["x"] = {
-        "dataset": "local/x", "marks_path": "unused", "fps": 30,
-        "episodes": {}, "current_episode": -1, "episode_started": 0.0,
-    }
-    assert bridge.mark_step("x", 1)["ok"] is False
+def test_mark_step_without_recording_state_is_rejected(bridge):
+    assert bridge.mark_step("never_recorded")["ok"] is False
+    assert bridge.undo_step_mark("never_recorded")["ok"] is False
 
 
 # ── Dataset splitting (per-step orchestration datasets) ──────────────────────
