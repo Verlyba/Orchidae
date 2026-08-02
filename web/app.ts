@@ -128,6 +128,16 @@ const App = {
   // repaint the plan column without refetching (and without silently showing
   // checkpoint readiness from a different moment than the numbers above it).
   orchPreview: null as any,
+  // Last /api/training/targets response. Cached so a language switch or a
+  // progress event repaints the list without another round trip; refetched
+  // whenever something on disk could have changed (page opened, run finished).
+  trainTargets: null as any,
+  // Which targets the user ticked. Kept in state, not read off the DOM: the
+  // list re-renders whenever readiness changes (a run in the queue finishes and
+  // writes a checkpoint), and re-rendering must not silently drop the rest of
+  // the user's selection mid-queue.
+  trainSelected: new Set<string>(),
+  trainStatusKey: null as { key: string; params?: Record<string, string | number>; color?: string } | null,
   // Sub-steps currently offered to the inference daemon, plus which one it was
   // last told to run. Held in state because the rows are rebuilt on a language
   // switch and the running row must survive that.
@@ -235,7 +245,6 @@ const App = {
       this.renderProjectList(this.knownProjects, []);
       if (this.project) {
         this.renderSkillsFull();
-        this.renderTrainingSkillsTree();
         this.renderRobots();
         this.renderCameras();
       }
@@ -250,7 +259,19 @@ const App = {
       const dsPage = document.getElementById('page-datasety');
       if (dsPage && dsPage.classList.contains('active-page')) this.dsRefreshList();
       const trainPage = document.getElementById('page-uceni');
-      if (trainPage && trainPage.classList.contains('active-page')) this.advPopulateResumeSkills();
+      if (trainPage && trainPage.classList.contains('active-page')) {
+        this.advPopulateResumeSkills();
+        // Built in JS from the cached response, so it would otherwise keep the
+        // previous language — no refetch just to change the wording.
+        this.renderTrainingSkillsTree();
+        // The status line carries runtime values (a step, a loss, an error), so
+        // it has no static data-i18n to repaint it — re-render from the
+        // remembered key instead.
+        if (this.trainStatusKey) {
+          const k = this.trainStatusKey;
+          this.updateTrainingStatus(this.t(k.key, k.params), k.color, k.key, k.params);
+        }
+      }
       // The orchestration page builds its plan preview and its sub-task queue
       // in JS as well, so both would keep the previous language. Rendered from
       // the cached response — no refetch just to change the wording.
@@ -546,7 +567,8 @@ const App = {
           this.trainingQueue = this.trainingQueue.filter(s => s !== data);
         }
         this.renderTrainingSkillsTree();
-        this.updateTrainingStatus(this.t('status.trainingStep', {s: data}), 'var(--cyan)');
+        this.updateTrainingStatus(this.t('status.trainingStep', {s: data}), 'var(--cyan)',
+          'status.trainingStep', {s: data});
         break;
       case 'training_progress':
         this.addLossPoint(data.epoch, data.loss);
@@ -554,7 +576,8 @@ const App = {
         break;
       case 'training_finished':
         this.log('SUCCESS', this.t('log.trainDone', {s: data.skill}));
-        this.updateTrainingStatus(this.t('status.trainDoneCkpt'), 'var(--green)');
+        this.updateTrainingStatus(this.t('status.trainDoneCkpt'), 'var(--green)',
+          'status.trainDoneCkpt');
         if (data.skill) {
           const fill = document.getElementById(`train-progress-fill-${data.skill}`);
           if (fill) fill.style.width = `100%`;
@@ -565,13 +588,17 @@ const App = {
           this.activeTrainingSkill = null;
         }
         this.refreshProject();
+        // A checkpoint now exists that did not before, so the readiness flags
+        // on the target list are stale until they are re-read from disk.
+        this.loadTrainingTargets();
         break;
       case 'training_error':
         this.log('ERROR', this.t('log.trainErr', {s: data.skill, e: data.error}));
-        this.updateTrainingStatus(`Chyba: ${data.error}`, 'var(--red)');
+        this.updateTrainingStatus(this.t('status.trainErrShort', {e: data.error}), 'var(--red)',
+          'status.trainErrShort', {e: data.error});
         if (data.skill) {
           const txt = document.getElementById(`train-progress-text-${data.skill}`);
-          if (txt) txt.textContent = `Chyba`;
+          if (txt) txt.textContent = this.t('val.error');
         }
         if (this.activeTrainingSkill === data.skill) {
           this.activeTrainingSkill = null;
@@ -792,16 +819,19 @@ const App = {
       this.syncPolicyCards();
       // Force chart redraw to fill container
       setTimeout(() => this.drawLossChart(), 100);
+      // Datasets and checkpoints appear on disk between visits (a recording
+      // finished, a training run completed), so readiness is only true as of
+      // the moment it was fetched — re-read it every time the page opens
+      // rather than trusting the cached answer.
       this.api('GET', '/training/status')
         .then(status => {
           this.activeTrainingSkill = status.active_skill;
           this.trainingQueue = status.queue || [];
-          this.renderTrainingSkillsTree();
         })
         .catch(err => {
           console.error("Failed to fetch training status", err);
-          this.renderTrainingSkillsTree();
-        });
+        })
+        .finally(() => this.loadTrainingTargets());
     } else if (tabId === 'settings') {
       this.loadSysInfo();
     } else if (tabId === 'datasety') {
@@ -1821,7 +1851,9 @@ const App = {
     this.renderRobots();
     this.renderCameras();
     this.renderSkillsFull();
-    this.renderTrainingSkillsTree();
+    // A different project means different targets and different files on disk,
+    // so the cached readiness answers no longer apply — re-read them.
+    this.loadTrainingTargets();
     this.loadModelConfig();
     this.scanHardware().then(() => {
       this.prefillWorkflowData();
@@ -3282,12 +3314,9 @@ const App = {
 
   // ── Step 4: Policy Training ─────────────────────────────────────────
   async startWorkflowTraining(): Promise<void> {
-    const checkedCheckboxes = document.querySelectorAll('.train-step-checkbox:checked');
-    const checkedSkills: string[] = [];
-    checkedCheckboxes.forEach(cb => {
-      const slug = cb.getAttribute('data-skill');
-      if (slug) checkedSkills.push(slug);
-    });
+    // Read from state, not the DOM: a row scrolled out of view or repainted by
+    // a readiness refresh is still selected, and it must still be trained.
+    const checkedSkills = this.selectedTrainTargets().map(t => t.slug);
 
     if (checkedSkills.length === 0) {
       const msg = this.t('alert.selectStepToTrain');
@@ -3310,18 +3339,28 @@ const App = {
     const wandb = (document.getElementById('train-wandb') as HTMLInputElement | null)?.checked || false;
     const extraArgs = (document.getElementById('train-extra-args') as HTMLInputElement | null)?.value.trim() || '';
 
-    this.log('INFO', `Spouštění sekvenčního trénování pro: ${checkedSkills.join(', ')} (${steps} kroků, batch ${batchSize})...`);
+    this.log('INFO', this.t('log.trainQueueStart',
+      { s: checkedSkills.join(', '), steps, batch: batchSize }));
     this.renderTrainingSkillsTree();
 
-    await this.api('POST', '/training/start', {
-      skills: checkedSkills,
-      policy_type: policy,
-      steps: steps,
-      batch_size: batchSize,
-      device: device,
-      use_wandb: wandb,
-      extra_args_str: extraArgs
-    });
+    const btn = document.getElementById('btn-start-training') as HTMLButtonElement | null;
+    const label = btn?.textContent || '';
+    // The server spawns lerobot-train (imports torch, opens the dataset), so
+    // the round trip is not instant — the button has to say it is working.
+    if (btn) { btn.disabled = true; btn.textContent = this.t('btn.startingShort'); }
+    try {
+      await this.api('POST', '/training/start', {
+        skills: checkedSkills,
+        policy_type: policy,
+        steps: steps,
+        batch_size: batchSize,
+        device: device,
+        use_wandb: wandb,
+        extra_args_str: extraArgs
+      });
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = label || this.t('btn.startTraining'); }
+    }
   },
 
   async stopWorkflowTraining(): Promise<void> {
@@ -3981,121 +4020,199 @@ const App = {
     }
   },
 
+  /** Fetches what `lerobot-train` would actually be started for.
+   *
+   * The page cannot answer "can this be trained?" from `project.json` alone:
+   * the answer depends on what is on disk (was the dataset recorded, does a
+   * checkpoint already exist), and the trainer refuses to start when the
+   * dataset is missing. The endpoint resolves through the trainer's own
+   * helpers, so a row this marks untrainable really would be refused. */
+  async loadTrainingTargets(): Promise<void> {
+    const btn = document.getElementById('btn-train-reload') as HTMLButtonElement | null;
+    const label = btn?.textContent || '';
+    if (btn) { btn.disabled = true; btn.textContent = this.t('btn.loading'); }
+    try {
+      const data = await this.api('GET', '/training/targets');
+      this.trainTargets = data;
+    } catch (err) {
+      console.error('Failed to load the training targets', err);
+      this.trainTargets = null;
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = label || this.t('btn.reload'); }
+      this.renderTrainingSkillsTree();
+    }
+  },
+
+  /** Paints both trainable branches of every task.
+   *
+   * `baseline` is the whole recorded dataset — plain ACT, the control arm of
+   * the project's comparison — and `steps` are the sub-datasets the splitter
+   * cuts out of that same recording, one policy each. Both are ordinary
+   * training targets, so both are selectable; before this the page offered the
+   * sub-steps only and the baseline could not be started from the UI at all. */
   renderTrainingSkillsTree(): void {
     const container = document.getElementById('train-skills-checklist-container');
     if (!container) return;
 
-    const skills = this.project?.skills || [];
-    const details = this.project?.skills_details || {};
+    const data = this.trainTargets;
+    const tasks: any[] = data?.tasks || [];
+    const all: any[] = tasks.flatMap(t => [t.baseline, ...(t.steps || [])]).filter(Boolean);
 
-    if (!skills.length) {
-      container.innerHTML = `
-        <div class="empty-state" style="padding: 12px; text-align: center;">
-          <div class="empty-state-text" style="color: var(--text-muted); font-size: 12px;">${App.t('hint.noSkillsAvail')}</div>
-        </div>`;
+    const setStat = (id: string, text: string, warn = false) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text;
+      el.classList.toggle('is-warn', warn);
+    };
+    const recorded = all.filter(x => x.dataset_ready).length;
+    const trained = all.filter(x => x.policy_ready).length;
+    setStat('train-stat-tasks', String(tasks.length));
+    setStat('train-stat-datasets', `${recorded}/${all.length}`, all.length > 0 && recorded < all.length);
+    setStat('train-stat-ckpts', `${trained}/${all.length}`, trained < all.length);
+    setStat('train-stat-arch', String(data?.policy_architecture || '–').toUpperCase());
+
+    if (!this.project) {
+      container.innerHTML = `<div class="train-empty">${this.esc(this.t('hint.noProjectForTrain'))}</div>`;
+      this.updateTrainCmdPreview();
+      return;
+    }
+    if (!tasks.length) {
+      container.innerHTML = `<div class="train-empty">${this.esc(this.t('hint.noSkillsAvail'))}</div>`;
+      this.updateTrainCmdPreview();
       return;
     }
 
-    const parentSkills = skills.filter(s => !details[s]?.parent_slug);
-    let html = '';
+    const row = (target: any, opts: { idx?: number; baseline?: boolean }): string => {
+      const slug = target.slug;
+      const blocked = !target.dataset_ready;
+      const active = this.activeTrainingSkill === slug;
+      const queued = !active && (this.trainingQueue || []).includes(slug);
+      const cls = [
+        'train-row',
+        opts.baseline ? 'is-baseline' : '',
+        target.policy_ready ? 'is-trained' : '',
+        blocked ? 'is-blocked' : '',
+      ].filter(Boolean).join(' ');
+      // Missing dataset = lerobot-train would abort on the validation error, so
+      // the row must not be selectable. The title says which repo_id is absent.
+      const blockedTitle = blocked
+        ? this.t('tip.trainNoDataset', { repo: target.repo_id })
+        : this.t('tip.trainTarget', { repo: target.repo_id });
+      const progress = (active || queued) ? `
+          <div class="train-row-progress">
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" id="train-progress-fill-${this.esc(slug)}" style="width:0%;"></div>
+            </div>
+            <div class="train-row-progress-meta">
+              <span id="train-progress-text-${this.esc(slug)}">${
+                this.esc(this.t(active ? 'val.training' : 'val.queued'))}</span>
+              <span id="train-progress-loss-${this.esc(slug)}"></span>
+            </div>
+          </div>` : '';
+      return `
+        <div class="${cls}" title="${this.esc(blockedTitle)}">
+          <input type="checkbox" class="train-target-checkbox" data-skill="${this.esc(slug)}"
+                 id="train-check-${this.esc(slug)}" onchange="App.setTrainTargetChecked('${this.esc(slug)}', this.checked)"
+                 ${blocked ? 'disabled' : ''} ${!blocked && this.trainSelected.has(slug) ? 'checked' : ''}>
+          <span class="train-row-idx">${opts.baseline ? '#' : String(opts.idx)}</span>
+          <span class="train-row-body">
+            <span class="train-row-name">${this.esc(target.name)}</span>
+            <span class="train-row-repo" title="${this.esc(target.policy_path)}">${this.esc(target.repo_id)}</span>
+          </span>
+          <span class="train-row-flags">
+            <span class="train-flag ${target.dataset_ready ? 'ready' : 'missing'}">${
+              this.esc(this.t(target.dataset_ready ? 'val.dataOk' : 'val.dataMissing'))}</span>
+            <span class="train-flag ${target.policy_ready ? 'ready' : 'missing'}">${
+              this.esc(this.t(target.policy_ready ? 'val.ckptReady' : 'val.ckptMissing'))}</span>
+          </span>
+          ${progress}
+        </div>`;
+    };
 
-    parentSkills.forEach(parent => {
-      const subSkills = skills.filter(s => details[s]?.parent_slug === parent);
-      const isCollapsed = this.collapsedFolders.has('train_' + parent);
-
-      html += `
-        <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); padding: 8px; margin-bottom: 10px; transition: all 0.2s;">
-          <div style="display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.02); margin-bottom: 6px;">
-            <button onclick="App.toggleTrainSkillsFolder('${parent}')" style="background: none; border: none; padding: 0; color: var(--text-muted); display: flex; align-items: center; cursor: pointer; transition: transform 0.2s; transform: rotate(${isCollapsed ? '0deg' : '90deg'});">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 10px; height: 10px;"><path d="M9 5l7 7-7 7"></path></svg>
-            </button>
-            <input type="checkbox" id="train-check-parent-${parent}" onchange="App.toggleTrainParentCheckbox('${parent}', this.checked)" style="width: 14px; height: 14px; cursor: pointer;">
-            <span style="font-weight: 700; font-size: 13px; color: var(--text-light);">${details[parent]?.name || parent}</span>
+    container.innerHTML = tasks.map(task => {
+      const steps: any[] = task.steps || [];
+      const stepRows = steps.length
+        ? steps.map((s, i) => row(s, { idx: i + 1 })).join('')
+        : `<div class="train-empty">${this.esc(this.t('hint.noStepsToLearn'))}</div>`;
+      return `
+        <div class="train-task ${task.orchestrated ? 'is-orchestrated' : ''}">
+          <div class="train-task-head">
+            <input type="checkbox" id="train-check-parent-${this.esc(task.slug)}"
+                   onchange="App.toggleTrainParentCheckbox('${this.esc(task.slug)}', this.checked)"
+                   title="${this.esc(this.t('tip.trainSelectAll'))}">
+            <span class="train-task-name" title="${this.esc(task.slug)}">${this.esc(task.name)}</span>
+            <span class="pd-task-mode ${task.orchestrated ? 'ok' : 'baseline'}">${
+              this.esc(this.t(task.orchestrated ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
           </div>
-          
-          <ul id="train-subs-${parent}" style="list-style: none; padding-left: 18px; margin: 0; border-left: 1.5px solid rgba(0, 188, 212, 0.15); display: ${isCollapsed ? 'none' : 'block'};">
-      `;
+          <div class="train-group">
+            <div class="train-group-title">${this.esc(this.t('grp.trainBaseline'))}</div>
+            ${row(task.baseline, { baseline: true })}
+          </div>
+          <div class="train-group">
+            <div class="train-group-title">${this.esc(this.t('grp.trainOrchestration'))}</div>
+            ${stepRows}
+          </div>
+        </div>`;
+    }).join('');
 
-      if (!subSkills.length) {
-        html += `
-          <li style="padding: 4px 0; font-size: 11px; color: var(--text-muted); font-style: italic;">
-            ${App.t('hint.noStepsToLearn')}
-          </li>
-        `;
-      } else {
-        subSkills.forEach(sub => {
-          const meta = details[sub]?.model_metadata;
-          let metaHtml = '<span style="color: var(--text-muted); font-style: italic; font-size: 9px;">' + App.t('val.notLearned') + '</span>';
-          if (meta) {
-            const formattedParams = meta.param_count ? (meta.param_count >= 1000000 ? (meta.param_count / 1000000).toFixed(1) + 'M' : (meta.param_count / 1000).toFixed(0) + 'k') : 'N/A';
-            metaHtml = `
-              <span class="meta-badge" style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.15); color: var(--cyan); padding: 1px 4px; font-size: 9px; font-weight: 600;">
-                ${meta.policy_type || 'diffusion'} | ${meta.epochs || 0} ep | ${formattedParams} param
-              </span>
-            `;
-          }
-
-          const isActive = this.activeTrainingSkill === sub;
-          const isQueued = this.trainingQueue && this.trainingQueue.includes(sub);
-
-          let progressStyle = 'display: none;';
-          let progressVal = 0;
-          let progressText = this.t('val.waiting');
-
-          if (isActive) {
-            progressStyle = 'display: block;';
-            progressText = this.t('val.training');
-          } else if (isQueued) {
-            progressStyle = 'display: block;';
-            progressText = this.t('val.queued');
-          }
-
-          html += `
-            <li style="margin-bottom: 8px; display: flex; flex-direction: column; width: 100%;">
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                  <input type="checkbox" class="train-step-checkbox" data-parent="${parent}" data-skill="${sub}" id="train-check-sub-${sub}" style="width: 14px; height: 14px; cursor: pointer;">
-                  <span style="font-size: 12px; color: var(--text-light); font-weight: 500;">${details[sub]?.name || sub}</span>
-                </div>
-                <div style="flex-shrink: 0;">
-                  ${metaHtml}
-                </div>
-              </div>
-              
-              <div class="train-step-progress-wrapper" id="train-progress-wrapper-${sub}" style="${progressStyle} margin-top: 6px; padding-left: 22px;">
-                <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.05); overflow: hidden; position: relative;">
-                  <div class="progress-bar-fill" id="train-progress-fill-${sub}" style="width: ${progressVal}%; height: 100%; background: linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end)); transition: width 0.3s ease;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 2px;">
-                  <span id="train-progress-text-${sub}">${progressText}</span>
-                  <span id="train-progress-loss-${sub}"></span>
-                </div>
-              </div>
-            </li>
-          `;
-        });
-      }
-
-      html += `</ul></div>`;
-    });
-
-    container.innerHTML = html;
+    this.updateTrainCmdPreview();
   },
 
-  toggleTrainSkillsFolder(parent: string): void {
-    const key = 'train_' + parent;
-    if (this.collapsedFolders.has(key)) {
-      this.collapsedFolders.delete(key);
-    } else {
-      this.collapsedFolders.add(key);
+  /** The ticked targets that are actually runnable right now.
+   * Filtered against the current readiness, so a selection made before a
+   * dataset was deleted cannot queue a run the trainer would refuse. */
+  selectedTrainTargets(): any[] {
+    return (this.trainTargets?.tasks || [])
+      .flatMap((t: any) => [t.baseline, ...(t.steps || [])])
+      .filter((x: any) => x && x.dataset_ready && this.trainSelected.has(x.slug));
+  },
+
+  /** Records a row's tick in state so a re-render keeps it. */
+  setTrainTargetChecked(slug: string, checked: boolean): void {
+    if (checked) this.trainSelected.add(slug);
+    else this.trainSelected.delete(slug);
+    this.updateTrainCmdPreview();
+  },
+
+  /** Restates the checked rows as the command that will really be spawned.
+   * Kept in the config column so the run is described next to the settings
+   * that shape it, and it is the only place the page names `lerobot-train`. */
+  updateTrainCmdPreview(): void {
+    const el = document.getElementById('train-cmd-preview-text');
+    const hint = document.getElementById('train-scope-hint');
+    const targets = this.selectedTrainTargets();
+
+    if (hint) {
+      hint.textContent = targets.length
+        ? this.t('hint.trainScopeN', { n: targets.length })
+        : this.t('hint.trainScope');
+      // Carries a count, so it must not be overwritten by a bare translation
+      // on the next applyI18n(); updateTrainCmdPreview() repaints it instead.
+      hint.removeAttribute('data-i18n');
     }
-    this.renderTrainingSkillsTree();
+    if (!el) return;
+    if (!targets.length) { el.textContent = '–'; return; }
+
+    const arch = String(this.trainTargets?.policy_architecture || 'act');
+    const steps = (document.getElementById('train-steps') as HTMLInputElement | null)?.value || '10000';
+    const batch = (document.getElementById('train-batch-size') as HTMLInputElement | null)?.value || '8';
+    el.textContent = targets.map(x =>
+      `lerobot-train --policy.type=${arch} --dataset.repo_id=${x.repo_id} --steps=${steps} --batch_size=${batch}`
+    ).join('\n');
   },
 
+  /** Selects/clears every trainable row of one task — the ACT baseline and all
+   * of its orchestration steps. Rows whose dataset was never recorded stay
+   * untouched: they are disabled because `start_training()` would refuse them,
+   * and a select-all that ticks them would only queue runs that die. */
   toggleTrainParentCheckbox(parent: string, checked: boolean): void {
-    const checkboxes = document.querySelectorAll(`.train-step-checkbox[data-parent="${parent}"]`);
-    checkboxes.forEach(cb => {
-      (cb as HTMLInputElement).checked = checked;
+    const task = (this.trainTargets?.tasks || []).find((t: any) => t.slug === parent);
+    if (!task) return;
+    [task.baseline, ...(task.steps || [])].filter(Boolean).forEach((target: any) => {
+      if (!target.dataset_ready) return;  // disabled: the trainer would refuse it
+      const cb = document.getElementById(`train-check-${target.slug}`) as HTMLInputElement | null;
+      if (cb) cb.checked = checked;
+      this.setTrainTargetChecked(target.slug, checked);
     });
   },
 
@@ -4789,17 +4906,27 @@ const App = {
     }
   },
 
-  updateTrainingStatus(text: string, color?: string): void {
+  /** Writes the training status line.
+   *
+   * `key` must be given whenever the message is a translation, so a language
+   * switch can repaint it — the element carries runtime values (a step number,
+   * a loss, an error), so it cannot be left to applyI18n() via a static
+   * data-i18n attribute: that would overwrite the values with a bare
+   * translation. Same remedy the orchestration status line uses. */
+  updateTrainingStatus(text: string, color?: string,
+                       key?: string, params?: Record<string, string | number>): void {
     const el = document.getElementById('training-status-indicator');
-    if (el) {
-      el.textContent = text;
-      el.style.color = color || 'var(--text-muted)';
-    }
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = color || 'var(--text-muted)';
+    this.trainStatusKey = key ? { key, params, color } : null;
   },
 
   updateTrainingProgress(step: number, loss: number, skill_slug?: string): void {
     const activeSkill = skill_slug || this.activeTrainingSkill || this.activeSkill;
-    this.updateTrainingStatus(`Trénink: Krok ${step} — Loss: ${loss.toFixed(5)}`, 'var(--yellow)');
+    this.updateTrainingStatus(
+      this.t('status.trainStepLoss', { step, loss: loss.toFixed(5) }), 'var(--yellow)',
+      'status.trainStepLoss', { step, loss: loss.toFixed(5) });
 
     const totalSteps = this._trainTotalSteps
       || parseInt((document.getElementById('train-steps') as HTMLInputElement | null)?.value || '10000', 10)
@@ -4807,13 +4934,14 @@ const App = {
     const percent = Math.min(100, Math.round((step / totalSteps) * 100));
     this.setProgressPercent(percent);
 
+    // The progress row exists exactly while the target is running or queued —
+    // it is rendered from that state, not toggled by a display style, so a
+    // re-render (language switch, refreshed readiness) cannot lose it.
     if (activeSkill) {
-      const wrapper = document.getElementById(`train-progress-wrapper-${activeSkill}`);
-      if (wrapper) wrapper.style.display = 'block';
       const fill = document.getElementById(`train-progress-fill-${activeSkill}`);
       if (fill) fill.style.width = `${percent}%`;
       const txt = document.getElementById(`train-progress-text-${activeSkill}`);
-      if (txt) txt.textContent = `Krok ${step}/${totalSteps}`;
+      if (txt) txt.textContent = this.t('val.stepOfTotal', { step, total: totalSteps });
       const lossEl = document.getElementById(`train-progress-loss-${activeSkill}`);
       if (lossEl) lossEl.textContent = `Loss: ${loss.toFixed(4)}`;
     }

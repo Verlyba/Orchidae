@@ -8,6 +8,192 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (12) — Učení: **ACT baseline se nedal natrénovat vůbec** —
+stránka nabízela jen pod-kroky, tedy půlku srovnání, kvůli kterému projekt je
+
+**Výchozí stav.** `bash scripts/setup-dev.sh` + `bash scripts/verify.sh` prošly
+celé (170 pytestů), priorita A tedy formálně prázdná. Podle fronty zbývaly
+poslední dvě stránky s prázdnou plochou (`setup/connect` a `uceni`), plus
+`uceni` mělo `clipped=1` na všech velikostech a roztažené `#train-extra-args`
+(884 px). Šel jsem na `uceni` — a ta stránka měla horší problém než layout.
+
+**Nález — `startWorkflowTraining()` neuměl odeslat úkol nejvyšší úrovně**
+
+Zadání projektu: obě větve musí trénovat ze **stejných** nasbíraných dat —
+celý dataset jako ACT baseline, rozdělené pod-datasety jako orchestrace.
+Backend to umí celé: `_on_training_started()` si pro úkol bez rodiče odvodí
+`local/<úkol>` a `outputs/training/<úkol>_<arch>`, pro pod-krok
+`local/<rodič>/<krok>`. Frontend ale ne:
+
+```js
+renderTrainingSkillsTree()  // vykreslí .train-step-checkbox POUZE pro pod-kroky
+startWorkflowTraining()     // sesbírá document.querySelectorAll('.train-step-checkbox:checked')
+```
+
+Rodičovské políčko `train-check-parent-<slug>` **nebylo cíl tréninku** — jen
+odškrtávalo děti. Takže ACT baseline, tedy kontrolní větev celého srovnání,
+**nešel z aplikace spustit**. Úkol bez pod-kroků navíc hlásil „Žádné kroky
+k učení" a nešel natrénovat vůbec, přestože je to naprosto legitimní ACT běh.
+
+**Negativní kontrola, proti běžícímu backendu** (fixture: úkol se dvěma
+pod-kroky + samostatný úkol). Zaškrtnuto **každé políčko na stránce**, včetně
+obou rodičovských, pak zavolán `startWorkflowTraining()`:
+
+| | odeslané `skills` |
+|---|---|
+| **před opravou** | `["probe_step_approach", "probe_step_grasp"]` |
+| **po opravě** | `["probe_task", "probe_step_approach"]` |
+
+`probe_task` je ten baseline. `probe_step_grasp` po opravě vypadl správně —
+jeho dataset na disku není a trénink by ho odmítl (viz níž).
+
+**Backend — jedno odvození místo tří kopií + preview, které nemůže lhát**
+
+`repo_id` je identita datasetu napříč aplikací (adresář, sidecar se značkami,
+pod-datasety, vstup tréninku), ale odvozovalo se **na třech místech zvlášť**:
+v `_on_training_started()`, v `_policy_path_for()` a ve smyčce autodetekce
+modelů v `open_project()`. Nově:
+
+- **`_dataset_repo_id_for(slug)`** — jediná definice; `_on_training_started()`
+  i preview volají ji, autodetekce modelů volá `_policy_path_for()`.
+- **`training_targets()` + `GET /api/training/targets`** — pro každý úkol
+  vrátí `baseline` (celý dataset) a `steps` (pod-datasety), u obojího
+  `repo_id`, `dataset_ready`, cestu ke checkpointu a `policy_ready`.
+  Klíčové je, čím to počítá — vším, co používá sám běh:
+
+| údaj | zdroj | proč právě ten |
+|---|---|---|
+| `repo_id` | `_dataset_repo_id_for()` | co dostane `start_training()` |
+| `dataset_ready` | `LeRobotBridge.dataset_exists()` | kontrola, která trénink **odmítne spustit** |
+| `policy_path` | `_policy_path_for()` | kam trenér píše a odkud čte daemon |
+| `policy_ready` | `LeRobotBridge.policy_exists()` | kontrola, na které stojí inference |
+
+`dataset_exists()` je nový **veřejný** tvar `_verify_dataset_exists()` —
+stejný důvod jako u `policy_exists()` v běhu (10): UI se musí ptát *před*
+během a musí dostat tutéž odpověď, jakou by dal most.
+
+**Hlavní změna — sloupec „Cíle tréninku"**
+
+- **Obě větve jsou řádky, obě zaškrtávatelné.** U každého úkolu skupina
+  `ACT BASELINE — celý dataset` (jeden řádek) a `ORCHESTRACE — pod-datasety`
+  (seřazené kroky). U každého řádku `repo_id`, štítek `Data OK` / `Bez dat`
+  a `Připraven` / `Chybí`, v `title` celá cesta ke checkpointu.
+- **Řádek bez nahraných dat je disabled**, ne jen zbarvený — `start_training()`
+  by ho odmítl a uživatel by to zjistil až z červené řádky v konzoli. Tooltip
+  říká, který `repo_id` chybí a co s tím (nahrát epizody / rozdělit nahrávku).
+  Rodičovské políčko „vybrat vše" takové řádky **přeskakuje**, aby nezakládalo
+  frontu běhů, které umřou.
+- **Čtyři počítadla** (úkolů / datasetů nahráno / natrénováno / architektura),
+  žlutě když je něco neúplné. Volnou výšku pohlcuje seznam cílů.
+- **Náhled příkazu**: zaškrtnuté řádky se pod konfigurací vypíšou jako
+  `lerobot-train --policy.type=… --dataset.repo_id=… --steps=… --batch_size=…`,
+  jeden řádek na běh. Stránka tím říká, co se opravdu spustí.
+- Konfigurační pole jsou v `repeat(auto-fit, minmax(215px, 1fr))`, jen řádka
+  CLI argumentů bere dva sloupce — recept z běhu (9).
+
+**Opravené chyby (nalezené při práci, ne plánované)**
+
+1. **`DIV.chart-container-docked` ořezával 4 px** na všech třech velikostech
+   (512>508 / 262>258 / 454>450) — položka ve frontě od (7). Příčina: `canvas`
+   je **inline** element, sedí na účaří a nechává pod sebou místo na dolní
+   dotahy písma. `display: block` na canvasu to ruší.
+2. **Překreslení seznamu maže zaškrtnutí uživatele.** Chyba, kterou jsem si
+   sám zavedl a našel až průchodem stavů: readiness se refetchuje po každém
+   `training_finished`, takže uprostřed fronty by uživateli zmizel zbytek
+   výběru. Výběr je nově ve stavu (`App.trainSelected`), ne v DOMu, a řádky se
+   z něj překreslí. Ověřeno, že přežije re-render i refetch.
+3. **Stavová řádka tréninku nepřežila přepnutí jazyka** — přesně vzor zapsaný
+   ve frontě (element nesoucí runtime hodnoty). Nově si pamatuje klíč + params
+   (`App.trainStatusKey`) a `rerenderDynamic()` ji z nich překreslí. Výchozí
+   text v HTML byl navíc natvrdo česky bez `data-i18n`.
+4. **Natvrdo psané řetězce** ze seznamu ve frontě: `updateTrainingProgress`
+   („Trénink: Krok … Loss: …", „Krok X/Y"), `startWorkflowTraining`
+   („Spouštění sekvenčního trénování pro…"), `training_error` („Chyba: …",
+   „Chyba"). Všechno přes `t()`, přibylo 25 klíčů (cs i en).
+5. **„Spustit Trénink" nemělo indikátor průběhu** — server spouští
+   `lerobot-train` (import torche, otevření datasetu). Po dobu requestu
+   disabled s popiskem „Spouštím…".
+6. **Mrtvý kód**: `toggleTrainSkillsFolder()` (rozbalování složek, jeho
+   tlačítko z výpisu zmizelo) a lookup `train-progress-wrapper-<slug>`
+   (řádek průběhu se nově vykresluje ze stavu, ne přepíná stylem).
+
+**Priorita B — co říkají zdrojáky LeRobotu (0.4.4 vs 0.6.1 vedle sebe)**
+
+- **Fronta se v jednom bodě mýlila a je opravená:** poznámka z (11) tvrdila, že
+  `--dataset.streaming_encoding` a `--dataset.encoder_threads` v 0.4.4
+  neexistují a sběr dat tam tedy nenastartuje. **Existují** —
+  `lerobot_record.py:194` a `:200` v 0.4.4. Není co opravovat.
+- `display_data` je v obou verzích; 0.6.1 k němu jen přidává `display_mode`
+  (`rerun` / `foxglove`). Posíláme jen `--display_data`, což platí v obou.
+- `lerobot-train`: `--steps`, `--batch_size`, `--save_freq`, `--job_name`,
+  `--policy.device`, `--wandb.enable`, `--output_dir` jsou v `TrainPipelineConfig`
+  obou verzí. Beze změny.
+- **Otevřené:** `lerobot-record` v 0.6.1 odmítá `repo_id`, jehož jméno začíná
+  `eval_` (`lerobot_record.py:433`). Naše jména jsou `local/<slug>` a
+  `local/<rodič>/<krok>`, takže `repo_name` po `split("/", 1)[-1]` je
+  `<slug>` nebo `<rodič>/<krok>` — riziko vzniká jen slugem začínajícím
+  `eval_`. Validaci slugů jsem v tomhle běhu neměnil, zůstává ve frontě.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **189 pytestů** (bylo 170),
+  compileall, i18n parita cs=en=950 bez duplicit, žádná duplicitní id,
+  9 panelů pod `#workspace-main`, flat design tokens, 106 `App.*` odkazů.
+- **Nové testy — `tests/test_training_targets.py` (19 testů)**: baseline je
+  vlastní cíl; pod-kroky pod rodičem, ne samostatně; `repo_id` pod-kroků má
+  jmenný prostor rodiče; pořadí z `project.json`, ne abecedně; `orchestrated`
+  = ≥ 2 kroky; úkol bez kroků je pořád trénovatelný; **`repo_id` i cesta se
+  rovnají `_dataset_repo_id_for()` / `_policy_path_for()`**; readiness pochází
+  z mostu; `parent_slug: ""` nedělá `local//slug`; dovednost chybějící ve
+  `skills_details`; prázdný projekt; žádný otevřený projekt. Plus dva testy,
+  které **sváží preview přímo se spouštěčem**: `_on_training_started()` dostane
+  přesně ten `dataset_repo_id` a `output_dir`, které stránka slíbila, a
+  trénink baseline čte celý dataset, ne slice pod-kroku.
+- **Negativní kontrola** viz tabulka výše — proti běžícímu backendu, přes
+  skutečný `click()` na políčko, ne přímý zápis do DOMu.
+- **Průchod stavy proti běžícímu backendu** (10 stavů): klid → smíšená
+  připravenost (nahrané `local/probe_task` a `local/probe_task/probe_step_approach`,
+  jeden checkpoint na disku → řádky `is-baseline` / `is-trained` / `is-blocked`,
+  počítadla `2 | 2/4 | 1/4 | DIFFUSION`) → vybrat vše (zaškrtne 2 ze 4,
+  disabled přeskočí) → **re-render i refetch výběr zachovají** → náhled příkazu
+  vypíše dva `lerobot-train` → odškrtnutí → **samotný baseline se odešle**
+  (`skills: ["probe_task"]`) → událost průběhu (`Krok 2500/10000`, bar 25 %) →
+  přepnutí jazyka → 860×700. **Trénovací proces v tomhle ověření neběžel** —
+  testován je stavový automat UI a kontrakt s endpointem, ne LeRobot.
+- **Anglický režim** (přes `setLang('en')`): v celém `page-uceni` nezůstal
+  jediný řádek s českou diakritikou kromě jména dovednosti z fixture
+  („Zamávat"), což jsou uživatelská data. Před opravou zůstávala i stavová
+  řádka.
+- **Hit-test** všech tří tlačítek v patičkách na **860×700** (pod globálním
+  zlomem 920 px): všechna dosažitelná, `ovfX = 0`.
+- **Obsazenost plochy**, stejný fixture, výchozí stav přeměřen přes
+  `git stash push -- web/`: `uceni` **35 / 18 / 21 % → 45 / 32 / 38 %**
+  (1600×900 / 1280×800 / 1024×760), **`clipped` 1 → 0** na všech třech
+  velikostech, **roztažená pole 1 → 0** (`#train-extra-args` 884 px zmizelo).
+  `datasety` a `modelrun` beze změny — žádná regrese.
+- **Konzole prohlížeče**: jediná chyba je import fontů z Googlu (kontejner bez
+  internetu, viz fronta). Žádná 404 ani traceback v logu serveru.
+
+**Zbývá vyzkoušet na fyzickém robotu / s reálným LeRobotem** (v cloudu nelze)
+
+- Že řádek označený `Data OK` opravdu projde `lerobot-train` — ověřená je
+  shoda s `dataset_exists()`, ne že LeRobot ten adresář načte. Fixture datasety
+  v cloudu jsou **prázdné adresáře**, takže kontrola existence projde, ale
+  skutečný trénink by na nich spadl na chybějících datech.
+- Že `Bez dat` opravdu znamená odmítnutí: `start_training()` to kontroluje,
+  ale proti běžícímu procesu ověřené to není.
+- Že checkpoint natrénovaného baseline (`outputs/training/<úkol>_<arch>`)
+  daemon přijme stejně jako per-krokové modely — cesty sedí ze zdrojáku,
+  načtení ověřené není.
+- Že „Spustit Trénink" ukazuje „Spouštím…" po celou dobu round tripu — server
+  v kontejneru odpoví řádově dřív, než by trvalo skutečné spuštění trenéra.
+- Že se stavová řádka a bar během reálného tréninku posouvají podle
+  `training_progress` z LeRobotu. Simulované byly jen události.
+- Vzhled mimo Chromium (mřížka počítadel, `.train-row` grid) na macOS/WebKitu
+  a ve Firefoxu.
+
+---
+
 ## 2026-08-02 (11) — LeRobot ≥ 0.6 přejmenovává dataset za zády aplikace
 (`stamp_repo_id`) — sběr dat by tím přišel o značky pod-úkolů
 
@@ -1314,8 +1500,10 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   navíc kontroluje párování značek a zanoření stránek — f494000 kvůli tomu
   sedmkrát po sobě prošel s nedostupnou Nápovědou a neviditelnou konzolí.
 - **Prázdná plocha v panelech.** Teleoperace hotová (4), Kalibrace (5),
-  Projekty (8), `datasety` (9), `modelrun` (10). Zbývají **`setup/connect`**
-  a **`uceni`**. Vyplnit rozvržením nebo grafickým prvkem, NE roztažením polí.
+  Projekty (8), `datasety` (9), `modelrun` (10), `uceni` (12). Zbývá už jen
+  **`setup/connect`** (17 / 20 / 22 %) a s ním tab **Modely**, který má pořád
+  sdílenou řádku `max-width: 640px` (viz položka výše).
+  Vyplnit rozvržením nebo grafickým prvkem, NE roztažením polí.
   Tohle je věc, kterou zadání označuje za hlavní problém.
   **POZOR na čísla ve frontě z běhů (7)–(8):** fixture tehdy zakládal projekt
   **bez dovedností**, takže se u `datasety`, `uceni` a `modelrun` měřil prázdný
@@ -1385,7 +1573,7 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 - Natvrdo česky psané řetězce v dynamicky generovaném HTML (mimo i18n):
   `dsRefreshList`, `advPopulateResumeSkills`, wizard `wizard-opt-found-*`.
   (Seznam epizod v `selectSkill` hotový od (9), `renderInferenceSubtasks`
-  a celý sloupec workeru od (10).)
+  a celý sloupec workeru od (10), celá stránka Učení od (12).)
   Také `calibrateArm()` („Spouštím (leader)…") a hlášky `log()` napříč
   `app.ts` — ty se do konzole píšou vždy česky.
 - **Vzor, na který si dát pozor:** element se statickým `data-i18n`, do kterého
@@ -1410,7 +1598,7 @@ kreslí; 1600×900 / 1280×800 / 1024×760:
 | `settings` | 28 / 34 / 34 % | po (6), + `#settings-scene-desc` 726 px |
 | `help` | 27 / 35 / 41 % | scrolluje, v pořádku |
 | `datasety` | 33 / 40 / 40 % | hotovo (9), tři sloupce |
-| `uceni` | 37 / 20 / 20 % | + jeden ořezaný prvek, viz níže |
+| `uceni` | ~~37 / 20 / 20 %~~ → **45 / 32 / 38 %** | hotovo (12), 0 ořezaných, 0 roztažených |
 
 **Čísla z běhů (7)–(8) v tabulce nejsou** — měřila se proti fixture bez
 dovedností, tedy proti prázdnému stavu, a byla u poloviny stránek řádově
@@ -1433,18 +1621,19 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
 **zabije i vlastní shell** — vzorec se shoduje s příkazovou řádkou toho pkillu.
 
 - **Roztažená pole přes celou šířku okna** — `scripts/measure-layout.sh` je hlásí
-  ve sloupci `wide` (práh 620 px). Zbývá: `uceni` `#train-extra-args` 884 px
-  a `settings` `#settings-scene-desc` 726 px. `datasety` hotové od (9),
-  `modelrun` od (10) (3 → 0). Přesně to, co zadání zakazuje.
+  ve sloupci `wide` (práh 620 px). Zbývá už jen `settings` `#settings-scene-desc`
+  726 px. `datasety` hotové od (9), `modelrun` od (10) (3 → 0), `uceni` od (12).
+  Přesně to, co zadání zakazuje.
   **Recept, který na `datasety` zabral:** pole do
   `grid-template-columns: repeat(auto-fit, minmax(215px, 1fr))` a jen dvě pole
   s opravdu dlouhou hodnotou (cesta, CLI argumenty) přes `span 2` — plus zkrátit
   sloupec, ve kterém formulář sedí. `max-width` na sekci **nepoužívat**, to je
   přesně to, co v (5) dělalo mrtvou plochu na Kalibraci.
-- **`uceni` má na všech třech velikostech `clipped=1`**:
-  `DIV.chart-container-docked` má `overflow: hidden` a `scrollHeight` o 4 px
-  větší než `clientHeight` (512>508 / 262>258 / 454>450). Malé, ale stejná
-  třída chyby jako ořezaná diagnostika z (6).
+- ~~**`uceni` má na všech třech velikostech `clipped=1`**~~ — hotovo (12).
+  Příčina nebyla ve výšce: `canvas` je **inline** element, sedí na účaří a
+  nechává pod sebou místo na dolní dotahy, takže box hlásil o 4 px víc obsahu,
+  než uměl ukázat. `display: block` na canvasu. **Past k zapamatování** — každý
+  `canvas`/`img` uvnitř `overflow: hidden` má tenhle problém.
 - **Pod globálním zlomem 920 px končí patičky panelů mimo první pohled** na
   `datasety` (2), `setup` (1), `uceni` (1) i `projects` (1). Stránka scrolluje
   a všechny jsou dosažitelné (ověřeno hit-testem), takže rozbité to není —
@@ -1467,18 +1656,21 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
   ne `lerobot_cheatsheet.md`.
 - **Rozdíly 0.4.4 → 0.6.1, které ještě NEJSOU prověřené proti našemu kódu**
   (nalezeno při (11), mimo rozsah té změny — nezapomenout):
-  - `lerobot-record` v 0.6.1 **odmítá `repo_id` začínající `eval_`** (ta jsou
-    rezervovaná pro `lerobot-rollout`). Zkontrolovat, že si appka takové jméno
-    nikdy nevygeneruje ze slugu dovednosti.
+  - `lerobot-record` v 0.6.1 **odmítá `repo_id` začínající `eval_`**
+    (`lerobot_record.py:433`; ta jména jsou rezervovaná pro `lerobot-rollout`).
+    Kontroluje se `repo_id.split("/", 1)[-1]`, u nás tedy `<slug>` nebo
+    `<rodič>/<krok>` — riziko vzniká **jen slugem dovednosti začínajícím
+    `eval_`**. Ověřeno v (12) jen čtením zdrojáku; validace slugů zatím
+    **není** a zůstává tady jako práce.
   - Přibyly příkazy `lerobot-rollout` a `lerobot-annotate`, skripty se jmenují
     `lerobot_*.py` (v 0.4.4 taky) — ale `predict_action` z `control_utils`
     v 0.6 zmizel, což `orchiday_inference.py` už řeší vlastní implementací.
   - `DatasetRecordConfig` má nová pole (`streaming_encoding`, `encoder_threads`,
     `rgb_encoder`/`depth_encoder`, `no_stamp`). **`--dataset.streaming_encoding`
-    a `--dataset.encoder_threads` posíláme natvrdo** — v 0.4.4 ta pole
-    neexistují a draccus neznámý klíč odmítne. Prověřit, jestli sběr dat na
-    0.4.x vůbec nastartuje; pokud ne, je to stejná třída problému jako (11)
-    a řeší se to stejně (schopnostní detekce, ne verze).
+    a `--dataset.encoder_threads` posíláme natvrdo** — ~~v 0.4.4 ta pole
+    neexistují~~. **Prověřeno v (12): existují** (`lerobot_record.py:194` a
+    `:200` v 0.4.4), takže tady není co opravovat. Poučení: tuhle položku psal
+    běh (11) z domněnky, ne ze zdrojáku — vždycky si to otevřít.
   - `RecordConfig` má `display_mode` (`rerun` / `foxglove`) a `display_ip` /
     `display_port` — appka umí jen implicitní rerun.
 - **Vzor z (11), který se vyplatí opakovat:** neutralizovat rozdíl verzí
@@ -1486,6 +1678,12 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
   než posílat nový přepínač na příkazové řádce (starší verze ho odmítne).
   A ke každé takové neutralizaci přidat **hlášení skutečného stavu zpátky do
   appky** — wrapper vidí pravdu, appka jen to, co si vyžádala.
+- **Odvození cest má být na JEDNOM místě.** Běh (12) našel `repo_id` /
+  `output_dir` odvozované ve třech kopiích (`_on_training_started()`,
+  `_policy_path_for()`, autodetekce modelů v `open_project()`) — sjednoceno do
+  `_dataset_repo_id_for()` + `_policy_path_for()`. Když do toho někdo sáhne,
+  `tests/test_training_targets.py::test_the_trainer_is_handed_exactly_what_the_preview_advertised`
+  to chytí. **Nezakládat čtvrtou kopii v `app.ts`.**
 - **`orchestration_plan_preview()` je od (10) jediné místo, kde UI zjišťuje,
   co běh udělá.** Když se změní `_policy_path_for()`, `_resolve_orchestration_plan()`
   nebo `_verify_policy_exists()`, změní se s nimi automaticky i stránka —

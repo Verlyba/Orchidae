@@ -241,23 +241,15 @@ class OrchidayController(QObject):
         # Test connection in background thread
         threading.Thread(target=self._test_lm_connection, daemon=True).start()
 
-        # Auto-detect existing trained models metadata on load
+        # Auto-detect existing trained models metadata on load. The checkpoint
+        # directory is resolved by _policy_path_for(), the same helper the
+        # trainer and the daemon use — a second hand-written copy of that path
+        # is how the app starts disagreeing with itself about what is trained.
         try:
-            skills = project_data.get("skills", [])
-            for skill_slug in skills:
-                parent_slug = ""
-                skills_details = project_data.get("skills_details", {})
-                if skill_slug in skills_details:
-                    parent_slug = skills_details[skill_slug].get("parent_slug", "")
-                
-                policy_type = project_data.get("policy_architecture", "diffusion")
-                policy_slug = f"{parent_slug}_{skill_slug}" if parent_slug else skill_slug
-                
-                custom_dir = project_data.get("dataset_storage_dir")
-                base_output = Path(custom_dir) if custom_dir else self._data_dir
-                output_dir = base_output / "outputs" / "training" / f"{policy_slug}_{policy_type}"
-                
-                if output_dir.exists() and "model_metadata" not in skills_details.get(skill_slug, {}):
+            skills_details = project_data.get("skills_details", {})
+            for skill_slug in project_data.get("skills", []):
+                if Path(self._policy_path_for(skill_slug)).exists() \
+                        and "model_metadata" not in skills_details.get(skill_slug, {}):
                     self._save_model_metadata(skill_slug, save_project=False)
             self.pm.save_project()
         except Exception as e:
@@ -582,23 +574,8 @@ class OrchidayController(QObject):
         use_wandb = train_cfg.get("use_wandb", False)
         extra_args_str = train_cfg.get("extra_args_str", "")
 
-        # Repo ID maps to local/{parent_slug}/{skill_slug} if parent_slug exists, else local/{skill_slug}
-        parent_slug = ""
-        skills_details = self.pm.current_project.get("skills_details", {})
-        if skill_slug in skills_details:
-            parent_slug = skills_details[skill_slug].get("parent_slug", "")
-
-        if parent_slug:
-            dataset_repo_id = f"local/{parent_slug}/{skill_slug}"
-            policy_slug = f"{parent_slug}_{skill_slug}"
-        else:
-            dataset_repo_id = f"local/{skill_slug}"
-            policy_slug = skill_slug
-
-        # Training outputs stored in active project's dataset storage dir if set, else in cross-platform data directory
-        custom_dir = self.pm.current_project.get("dataset_storage_dir")
-        base_output = Path(custom_dir) if custom_dir else self._data_dir
-        output_dir = str(base_output / "outputs" / "training" / f"{policy_slug}_{policy_type}")
+        dataset_repo_id = self._dataset_repo_id_for(skill_slug)
+        output_dir = self._policy_path_for(skill_slug)
 
         self.lerobot_bridge.start_training(
             policy_type=policy_type,
@@ -854,6 +831,85 @@ class OrchidayController(QObject):
                 # at every boundary. One step is the plain ACT baseline.
                 "orchestrated": len(steps) >= 2,
                 "steps": steps,
+            })
+
+        return {
+            "policy_architecture": project.get("policy_architecture", "diffusion"),
+            "tasks": tasks,
+        }
+
+    def _dataset_repo_id_for(self, skill_slug: str) -> str:
+        """Resolve the LeRobot `repo_id` a skill's demonstrations live under.
+
+        This is the identity of the dataset across the whole app (directory on
+        disk, step-mark sidecar, split sub-datasets, training input), so it has
+        exactly one definition:
+
+        - a **top-level task** owns the whole recorded episode → `local/<task>`.
+          That is the ACT baseline: one policy trained on everything.
+        - a **sub-step** owns a slice cut out of its parent by the splitter →
+          `local/<parent>/<step>`. Those are the orchestration policies.
+
+        Recording (`_on_recording_requested`) writes to the same names, which is
+        what makes both branches of the comparison come from one collection run.
+        """
+        parent_slug = ""
+        skills_details = (self.pm.current_project or {}).get("skills_details", {})
+        if skill_slug in skills_details:
+            parent_slug = skills_details[skill_slug].get("parent_slug", "") or ""
+        return f"local/{parent_slug}/{skill_slug}" if parent_slug else f"local/{skill_slug}"
+
+    def training_targets(self) -> dict[str, Any]:
+        """What `lerobot-train` would be started for, per top-level task.
+
+        The Learning page has to answer two questions before anything spawns —
+        *can this be trained at all* and *is it already trained* — and it must
+        get the same answers the trainer itself would give. So every value here
+        comes from the code that actually runs:
+
+        | value | source | why that one |
+        |---|---|---|
+        | dataset repo_id | `_dataset_repo_id_for()` | what `start_training()` is handed |
+        | dataset present  | `LeRobotBridge.dataset_exists()` | the check that REFUSES to start training |
+        | checkpoint path  | `_policy_path_for()` | where the trainer writes / the daemon reads |
+        | checkpoint present | `LeRobotBridge.policy_exists()` | the check inference gates on |
+
+        Both branches of the project's comparison are listed for every task:
+        `baseline` is the whole recorded dataset (plain ACT), `steps` are the
+        per-sub-task datasets produced by splitting that same recording.
+        """
+        project = self.pm.current_project or {}
+        skills = project.get("skills", [])
+        details = project.get("skills_details", {})
+
+        def target(slug: str) -> dict[str, Any]:
+            repo_id = self._dataset_repo_id_for(slug)
+            policy_path = self._policy_path_for(slug)
+            return {
+                "slug": slug,
+                "name": details.get(slug, {}).get("name") or slug,
+                "repo_id": repo_id,
+                "dataset_ready": self.lerobot_bridge.dataset_exists(repo_id),
+                "policy_path": policy_path,
+                "policy_ready": self.lerobot_bridge.policy_exists(policy_path),
+            }
+
+        tasks: list[dict[str, Any]] = []
+        for slug in skills:
+            if details.get(slug, {}).get("parent_slug"):
+                continue  # sub-steps are listed under their parent, never alone
+            # skills list order is the step order — the same order the splitter
+            # cuts in, so the rows line up with the sub-datasets on disk.
+            steps = [target(s) for s in skills if details.get(s, {}).get("parent_slug") == slug]
+            tasks.append({
+                "slug": slug,
+                "name": details.get(slug, {}).get("name") or slug,
+                "baseline": target(slug),
+                "steps": steps,
+                # Two or more sub-steps is what makes the recording splittable,
+                # i.e. what gives the orchestration branch anything to train.
+                # Same rule the dataset splitter and the run preview use.
+                "orchestrated": len(steps) >= 2,
             })
 
         return {

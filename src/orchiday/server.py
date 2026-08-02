@@ -1465,6 +1465,23 @@ async def get_training_status():
     return {"active_skill": None, "queue": []}
 
 
+@app.get("/api/training/targets")
+async def get_training_targets():
+    """Both trainable branches of every task: ACT baseline and per-step policies.
+
+    Read-only, and resolved through the code the trainer itself runs, so the
+    page can say which runs would actually start. With no project open the
+    answer is an empty task list rather than a 404 — that is the normal state
+    right after the app starts, and a 404 there is just console noise.
+    """
+    if not pm.current_project:
+        return {"policy_architecture": "", "tasks": []}
+    ctrl = _get_controller()
+    if ctrl is None:
+        return {"policy_architecture": "", "tasks": []}
+    return ctrl.training_targets()
+
+
 # ── Settings ─────────────────────────────────────────────────────────────
 
 @app.post("/api/settings")

@@ -7,8 +7,8 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.63.0">
-  <link rel="stylesheet" href="/static/styles.css?v=3.63.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.64.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.64.0">
 </head>
 <body>
 
@@ -1185,11 +1185,42 @@
               </div>
               <div class="setup-block-content">
                 <div class="merge-cols merge-cols-3">
+                  <!-- Both branches of the project's comparison are trainable
+                       from here, because both come out of the SAME recording:
+                       the whole dataset (ACT baseline) and the sub-datasets cut
+                       from it by the splitter (orchestration). Readiness comes
+                       from GET /api/training/targets, which resolves through the
+                       trainer's own helpers — a row marked untrainable really
+                       would be refused at spawn time. -->
                   <section class="merge-col">
-                    <h4 class="merge-col-title" data-i18n="blk.learn.skills">Seznam Dovedností a Kroků</h4>
-              
-                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;" id="train-skills-checklist-container">
+                    <h4 class="merge-col-title" data-i18n="blk.learn.targets">Cíle tréninku</h4>
+
+                    <div class="train-stats">
+                      <div class="train-stat">
+                        <span class="train-stat-val" id="train-stat-tasks">–</span>
+                        <span class="train-stat-lbl" data-i18n="stat.tasks">Úkolů</span>
+                      </div>
+                      <div class="train-stat">
+                        <span class="train-stat-val" id="train-stat-datasets">–</span>
+                        <span class="train-stat-lbl" data-i18n="stat.datasetsRec">Datasetů nahráno</span>
+                      </div>
+                      <div class="train-stat">
+                        <span class="train-stat-val" id="train-stat-ckpts">–</span>
+                        <span class="train-stat-lbl" data-i18n="stat.ckptsTrained">Natrénováno</span>
+                      </div>
+                      <div class="train-stat">
+                        <span class="train-stat-val" id="train-stat-arch">–</span>
+                        <span class="train-stat-lbl" data-i18n="stat.arch">Architektura</span>
+                      </div>
+                    </div>
+
+                    <div class="train-targets" id="train-skills-checklist-container">
                       <!-- Dynamically filled by renderTrainingSkillsTree() -->
+                    </div>
+
+                    <div class="block-actions">
+                      <span class="block-actions-hint" data-i18n="hint.trainTargets">Zaškrtnuté cíle se natrénují postupně, každý jako samostatný běh lerobot-train.</span>
+                      <button class="btn btn-xs" id="btn-train-reload" onclick="App.loadTrainingTargets()" data-i18n="btn.reload">Načíst znovu</button>
                     </div>
                   </section>
                   <section class="merge-col">
@@ -1232,7 +1263,12 @@
                         </div>
                       </div>
 
-                      <div class="form-row" style="margin:0; gap:16px;">
+                      <!-- Same recipe the recording config uses: an auto-fit
+                           grid so the fields keep a sane width instead of one
+                           of them stretching across the whole window, and only
+                           the genuinely long value (the CLI argument line)
+                           spans two tracks. -->
+                      <div class="rec-config-grid">
                         <div class="form-group">
                           <div class="label-with-tooltip">
                             <label for="train-steps" data-i18n="lbl.trainSteps">Tréninkové kroky (steps)</label>
@@ -1240,7 +1276,7 @@
                           </div>
                           <input type="number" id="train-steps" value="10000" min="100" step="100" style="font-size:12px; font-family:var(--font-mono);">
                         </div>
-                        <div class="form-group" style="width: 90px;">
+                        <div class="form-group">
                           <div class="label-with-tooltip">
                             <label for="train-batch-size">Batch size</label>
                             <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainBatchSize">ⓘ</span>
@@ -1258,27 +1294,32 @@
                             <option value="cpu">Pouze CPU</option>
                           </select>
                         </div>
-                      </div>
-
-                      <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div style="display:flex; align-items:center; gap:6px;">
-                          <input type="checkbox" id="train-wandb" style="width:14px; height:14px;">
-                          <label for="train-wandb" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;" data-i18n="lbl.logWandb">LOGOVAT WANDB</label>
-                          <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainWandb">ⓘ</span>
+                        <div class="form-group rec-cfg-wide">
+                          <div class="label-with-tooltip">
+                            <label for="train-extra-args" data-i18n="lbl.extraArgsTrain">Vlastní LeRobot CLI argumenty (Trénování)</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainExtraArgs">ⓘ</span>
+                          </div>
+                          <input type="text" id="train-extra-args" placeholder="např. --policy.n_obs_steps=8 --optimizer.lr=1e-4" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.trainExtra">
+                        </div>
+                        <div class="rec-cfg-flags">
+                          <div style="display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="train-wandb" style="width:14px; height:14px;">
+                            <label for="train-wandb" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;" data-i18n="lbl.logWandb">LOGOVAT WANDB</label>
+                            <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainWandb">ⓘ</span>
+                          </div>
                         </div>
                       </div>
 
-                      <div class="form-group">
-                        <div class="label-with-tooltip">
-                          <label data-i18n="lbl.extraArgsTrain">Vlastní LeRobot CLI argumenty (Trénování)</label>
-                          <span class="info-tooltip-trigger" data-i18n-tooltip="tip.trainExtraArgs">ⓘ</span>
-                        </div>
-                        <input type="text" id="train-extra-args" placeholder="např. --policy.n_obs_steps=8 --optimizer.lr=1e-4" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.trainExtra">
+                      <!-- What the checked rows will really turn into, spelled
+                           out as the command line that gets spawned. -->
+                      <div class="train-cmd-preview">
+                        <span class="train-cmd-label" data-i18n="lbl.trainCmdPreview">Spustí se</span>
+                        <code id="train-cmd-preview-text">–</code>
                       </div>
                     </div>
 
                     <div class="block-actions">
-                      <span class="block-actions-hint" data-i18n="hint.trainScope">Spustí lerobot-train pro dovednosti zaškrtnuté vlevo, každou jako samostatný běh.</span>
+                      <span class="block-actions-hint" id="train-scope-hint" data-i18n="hint.trainScope">Spustí lerobot-train pro cíle zaškrtnuté vlevo, každý jako samostatný běh.</span>
                       <button class="btn btn-xs btn-primary" id="btn-start-training" onclick="App.startWorkflowTraining()" data-i18n="btn.startTraining">Spustit Trénink</button>
                       <button class="btn btn-xs btn-danger" id="btn-stop-training" onclick="App.stopWorkflowTraining()" disabled title="Žádný trénink neběží" data-i18n="btn.stop">Zastavit</button>
                     </div>
@@ -1296,9 +1337,7 @@
                       <div class="chart-container-docked" style="flex:1; min-height: 200px;">
                         <canvas id="loss-chart" style="width:100%; height:100%;"></canvas>
                       </div>
-                      <div class="latch-status-indicator" id="training-status-indicator">
-                        Ready. Zaškrtněte dovednosti a klikněte na 'Spustit Trénink'.
-                      </div>
+                      <div class="latch-status-indicator" id="training-status-indicator" data-i18n="status.trainReady">Připraveno. Vyberte cíle vlevo a spusťte trénink.</div>
                     </div>
                   </section>
                 </div>
@@ -2993,7 +3032,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.63.0" defer></script>
-  <script src="/static/app.js?v=3.63.0" defer></script>
+  <script src="/static/i18n.js?v=3.64.0" defer></script>
+  <script src="/static/app.js?v=3.64.0" defer></script>
 </body>
 </html>

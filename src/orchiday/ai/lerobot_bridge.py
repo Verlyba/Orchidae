@@ -525,6 +525,16 @@ except Exception as e:
                 return True
         return False
 
+    def dataset_exists(self, dataset_name: str) -> bool:
+        """Public form of the dataset check `start_training()` gates on.
+
+        The Learning page must be able to ask "was this recorded yet?" *before*
+        offering to train it, and it has to get the same answer the bridge would
+        give — otherwise the page offers a run that dies on the validation error
+        the moment it is clicked.
+        """
+        return self._verify_dataset_exists(dataset_name)
+
     def policy_exists(self, policy_path: str) -> bool:
         """Public form of the checkpoint check `start_inference()` gates on.
 

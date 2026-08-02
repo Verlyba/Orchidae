@@ -2329,6 +2329,14 @@ input[readonly] {
     overflow: hidden;
 }
 
+/* A canvas is an inline element, so it sits on the text baseline and leaves
+   room for descenders underneath — the box then reports ~4px more content than
+   it can show and clips it (measured as clipped=1 on every window size of the
+   Learning page). Making it a block removes the phantom line box. */
+.chart-container-docked canvas {
+    display: block;
+}
+
 .chart-header {
     display: flex;
     justify-content: space-between;
@@ -6568,4 +6576,230 @@ body { min-width: 320px; }
 
 .mr-subtask.is-done {
     border-color: var(--green);
+}
+
+/* ── Učení: cíle tréninku ────────────────────────────────────────────────
+   The page has to make the project's central comparison selectable, so both
+   branches are rows here: the ACT baseline (the whole recorded dataset) and
+   the orchestration steps (the sub-datasets cut from that same recording).
+   Readiness is not decoration — a row whose dataset is missing is a run
+   `start_training()` would refuse, so it is disabled instead of failing later. */
+.train-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.train-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 7px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-dark);
+    min-width: 0;
+}
+
+.train-stat-val {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.train-stat-val.is-warn { color: var(--yellow); }
+
+.train-stat-lbl {
+    font-size: 8.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* The target list is the element that earns the spare height in this column —
+   everything above it is fixed-size, so the column fills without any control
+   being stretched out of shape. */
+.train-targets {
+    flex: 1 1 auto;
+    min-height: 90px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.train-task {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-muted);
+    background: var(--bg-inset);
+    padding: 7px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.train-task.is-orchestrated { border-left-color: var(--green); }
+
+.train-task-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.train-task-name {
+    flex: 1 1 auto;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-white);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.train-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.train-group-title {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-dark);
+    padding-bottom: 3px;
+}
+
+.train-row {
+    display: grid;
+    grid-template-columns: 14px auto 1fr auto;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-dark);
+    border-left: 2px solid var(--border-light);
+    background: var(--bg-sidebar);
+    font-size: 11px;
+    color: var(--text-main);
+}
+
+.train-row.is-baseline { border-left-color: var(--cyan); }
+.train-row.is-trained { border-left-color: var(--green); }
+
+/* Nothing was recorded under this repo_id, so training cannot start at all.
+   Saying so here beats letting the click fail on a console error line. */
+.train-row.is-blocked {
+    color: var(--text-muted);
+    border-style: dashed;
+}
+
+.train-row-idx {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-muted);
+    min-width: 10px;
+}
+
+.train-row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.train-row-name {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.train-row-repo {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.train-row-flags {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.train-flag {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    padding: 1px 4px;
+    border: 1px solid currentColor;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.train-flag.ready { color: var(--green); }
+.train-flag.missing { color: var(--yellow); }
+
+/* Per-target progress, shown only while that target is queued or running. */
+.train-row-progress {
+    grid-column: 2 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.train-row-progress .progress-bar-container {
+    height: 5px;
+}
+
+.train-row-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--text-muted);
+}
+
+.train-empty {
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    padding: 8px;
+}
+
+/* The command line the checked rows really turn into. */
+.train-cmd-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-top: 1px solid var(--border-dark);
+    padding-top: 8px;
+    flex: 0 0 auto;
+}
+
+.train-cmd-label {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.train-cmd-preview code {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-dark);
+    padding: 5px 6px;
+    overflow-wrap: anywhere;
 }
