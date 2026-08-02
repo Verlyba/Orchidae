@@ -62,6 +62,11 @@
        Dim only — a blurred backdrop smears the live camera feeds underneath
        and is the kind of decoration this UI deliberately does without. */
     --overlay-bg: rgba(0, 0, 0, 0.6);
+    /* Card surfaces. At rest a card has no fill at all — it sits on the
+       window like everything else. Tone appears only to answer a
+       question: is the pointer on this one, is this the chosen one. */
+    --surface: transparent;
+    --surface-hover: rgba(255, 255, 255, 0.05);
 }
 
 /* --- Base & Scrollbars --- */
@@ -730,7 +735,6 @@ body {
     font-weight: 800;
     margin-bottom: 10px;
     color: var(--text-white);
-    border-bottom: 1px solid var(--border-dark);
     padding-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -964,9 +968,7 @@ input[readonly] {
     letter-spacing: 0.7px;
     text-transform: uppercase;
     color: var(--text-muted);
-    margin: 0 0 2px;
-    padding-bottom: 5px;
-    border-bottom: 1px solid var(--border-dark);
+    margin: 0 0 8px;
 }
 
 /* A column keeps the body it had as a standalone panel, including the
@@ -1052,9 +1054,8 @@ input[readonly] {
 }
 
 .project-row {
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border);
+    background: var(--surface);
+    border-left: 3px solid transparent;
     padding: 9px 12px;
     cursor: pointer;
     display: flex;
@@ -1065,8 +1066,7 @@ input[readonly] {
 }
 
 .project-row:hover {
-    background: var(--bg-card-hover);
-    border-color: var(--border-light);
+    background: var(--surface-hover);
 }
 
 .project-row.selected {
@@ -1182,7 +1182,6 @@ input[readonly] {
 }
 
 .pd-ident {
-    border-bottom: 1px solid var(--border-dark);
     padding-bottom: 8px;
 }
 
@@ -1210,7 +1209,6 @@ input[readonly] {
 }
 
 .pd-stat {
-    border: 1px solid var(--border);
     background: var(--bg-inset);
     padding: 7px 9px;
     display: flex;
@@ -1281,7 +1279,6 @@ input[readonly] {
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--text-light);
-    border-bottom: 1px solid var(--border-dark);
     padding-bottom: 4px;
     margin: 0;
 }
@@ -1396,7 +1393,6 @@ input[readonly] {
     letter-spacing: 0.5px;
     text-transform: uppercase;
     padding: 1px 5px;
-    border: 1px solid currentColor;
 }
 
 .pd-task-mode.ok {
@@ -1453,47 +1449,38 @@ input[readonly] {
 .robot-badge.so100 {
     background: rgba(78, 201, 176, 0.1);
     color: #4ec9b0;
-    border: 1px solid rgba(78, 201, 176, 0.2);
 }
 .robot-badge.soarm101 {
     background: rgba(156, 220, 254, 0.1);
     color: #9cdcfe;
-    border: 1px solid rgba(156, 220, 254, 0.2);
 }
 .robot-badge.koch {
     background: rgba(206, 145, 120, 0.1);
     color: #ce9178;
-    border: 1px solid rgba(206, 145, 120, 0.2);
 }
 .robot-badge.aloha {
     background: rgba(220, 220, 170, 0.1);
     color: #dcdcaa;
-    border: 1px solid rgba(220, 220, 170, 0.2);
 }
 .robot-badge.moss {
     background: rgba(197, 134, 192, 0.1);
     color: #c586c0;
-    border: 1px solid rgba(197, 134, 192, 0.2);
 }
 .robot-badge.stretch {
     background: rgba(86, 156, 214, 0.1);
     color: #569cd6;
-    border: 1px solid rgba(86, 156, 214, 0.2);
 }
 .robot-badge.lekiwi {
     background: rgba(181, 206, 168, 0.1);
     color: #b5cea8;
-    border: 1px solid rgba(181, 206, 168, 0.2);
 }
 .robot-badge.custom {
     background: rgba(212, 212, 212, 0.1);
     color: #d4d4d4;
-    border: 1px solid rgba(212, 212, 212, 0.2);
 }
 .robot-badge.none {
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-muted);
-    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .empty-state {
@@ -1532,7 +1519,6 @@ input[readonly] {
 
 .robot-slider-container {
     background: var(--bg-inset);
-    border: 1px solid var(--border);
     padding: 4px;
     margin-bottom: 10px;
     display: flex;
@@ -1718,7 +1704,6 @@ input[readonly] {
     font-weight: 800;
     color: var(--text-light);
     background: oklch(0.22 0.012 250);
-    border-bottom: 1px solid var(--border-dark);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1823,7 +1808,6 @@ input[readonly] {
     flex-wrap: wrap;
     gap: 6px 18px;
     align-items: center;
-    border-top: 1px solid var(--border-dark);
     padding-top: 8px;
 }
 
@@ -1928,7 +1912,6 @@ input[readonly] {
     flex-direction: column;
     gap: 8px;
     background: var(--bg-inset);
-    border: 1px solid var(--border);
     padding: 10px;
     flex: 0 0 auto;
 }
@@ -1940,7 +1923,6 @@ input[readonly] {
     flex-wrap: wrap;
     align-items: baseline;
     gap: 4px 8px;
-    border-bottom: 1px solid var(--border-dark);
     padding-bottom: 8px;
 }
 
@@ -1957,8 +1939,6 @@ input[readonly] {
     font-size: 10.5px;
     line-height: 1.5;
     color: var(--text-muted);
-    border: 1px dashed var(--border);
-    padding: 8px;
 }
 
 /* ── Recorded episodes ────────────────────────────────────────────── */
@@ -2014,8 +1994,6 @@ input[readonly] {
     font-size: 10.5px;
     line-height: 1.5;
     color: var(--text-muted);
-    border: 1px dashed var(--border);
-    padding: 8px;
     text-align: center;
 }
 
@@ -2143,21 +2121,14 @@ input[readonly] {
 }
 
 .brain-card {
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border);
     padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     min-height: 0;
     flex-shrink: 0;
-    transition: border-color 0.3s ease;
     position: relative;
     overflow: hidden;
-}
-
-.brain-card:hover {
-    /* border-color hover removed */
 }
 
 /* Gradient top stripe for brain cards */
@@ -2184,7 +2155,6 @@ input[readonly] {
     font-weight: 700;
     color: var(--text-white);
     padding-bottom: 6px;
-    border-bottom: 1px solid var(--border-dark);
     text-transform: uppercase;
     letter-spacing: 0.8px;
     margin-bottom: 2px;
@@ -2220,7 +2190,6 @@ input[readonly] {
 
 .pipeline-steps-container {
     background: var(--bg-inset);
-    border: 1px solid var(--border-dark);
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -2287,7 +2256,6 @@ input[readonly] {
     align-items: center;
     gap: 8px;
     padding: 7px 10px;
-    border: 1px solid var(--border);
     transition: var(--transition);
     margin-top: 4px;
     flex-shrink: 0;
@@ -2317,7 +2285,6 @@ input[readonly] {
     color: var(--text-muted);
     background: var(--bg-inset);
     padding: 6px 10px;
-    border: 1px solid var(--border-dark);
 }
 
 /* Loss Telemetry Block */
@@ -3181,9 +3148,6 @@ input[type="number"]::-webkit-outer-spin-button {
     align-items: center;
     justify-content: center;
     min-height: 180px;
-    background: rgba(255, 255, 255, 0.015);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
 }
@@ -3205,12 +3169,6 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .wizard-type-card.type-step::before {
     background: var(--yellow);
-}
-
-.wizard-type-card:hover {
-    background: rgba(255, 255, 255, 0.03);
-    /* border-color hover removed */
-    /* transform removed */
 }
 
 .wizard-type-card.active.type-main {
@@ -3542,8 +3500,6 @@ textarea:focus-visible {
     gap: 8px;
     min-height: 0;
     padding: 12px;
-    border: 1px solid var(--border-dark);
-    background: rgba(0, 0, 0, 0.12);
 }
 
 .tool-card > h3 {
@@ -3580,42 +3536,56 @@ textarea:focus-visible {
     gap: 8px;
 }
 
-.ds-stat {
+    /* ═══════════════════════════════════════════════════════════════════
+   READOUTS — a number and what it counts
+   Datasety, Učení, Orchestrace and Teleoperace had each grown their own
+   version of this: four rules, four paddings, four borders, one idea.
+   They share one now, which is the only way the pages can look alike.
+
+   No box. A readout is two lines of text, and boxing every one of them
+   puts a dozen outlines on screen to separate what spacing already
+   separates. The window around them is the outline that means something.
+   ═══════════════════════════════════════════════════════════════════ */
+.ds-stat,
+.train-stat,
+.orch-stat,
+.teleop-stat {
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    gap: 6px;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--border);
-    padding: 12px 14px;
-    min-height: 64px;
-    transition: var(--transition-fast);
+    gap: 3px;
+    min-width: 0;
+    overflow: hidden;
 }
 
-.ds-stat:hover {
-    border-color: var(--border-hover);
-}
-
-.ds-stat-label {
-    font-size: 10px;
+.ds-stat-label,
+.train-stat-lbl,
+.orch-stat-label,
+.teleop-stat-label {
+    font-size: 8.5px;
     font-weight: 700;
-    text-transform: uppercase;
     letter-spacing: 0.5px;
+    text-transform: uppercase;
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.ds-stat-value {
+.ds-stat-value,
+.train-stat-val,
+.orch-stat-value,
+.teleop-stat-value {
     font-family: var(--font-mono);
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
-    color: var(--cyan);
+    color: var(--text-white);
+    line-height: 1.15;
 }
 
 .ds-op-row {
     display: flex;
     gap: 10px;
     align-items: flex-end;
-    border-bottom: 1px dashed var(--border-dark);
     padding-bottom: 10px;
 }
 
@@ -3631,18 +3601,10 @@ textarea:focus-visible {
     justify-content: center;
     gap: 4px;
     min-height: 64px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border);
     padding: 10px 12px;
     cursor: pointer;
-    transition: var(--transition-fast);
 }
 
-.adv-mode-card:hover,
-.adv-mode-card:focus-visible {
-    border-color: var(--border-hover);
-    background: rgba(255, 255, 255, 0.04);
-}
 
 .adv-mode-card strong {
     font-size: 11.5px;
@@ -3766,27 +3728,61 @@ body.resizing * {
     align-content: start;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   CARD SURFACES
+   Policy pickers, advanced modes, CLI tools, cameras, brains, project
+   types and diagnostic rows are the same object: a small block of
+   related controls, sometimes selectable. Between them they had seven
+   backgrounds and four border colours.
+
+   At rest a card is a tint, not an outline. Five outlined cards read as
+   five boxes competing for attention; the same five as tints read as one
+   list — and the selected card is then the only thing in the group with
+   a border, which is what selection should look like. The resting border
+   is transparent rather than absent so selecting cannot shift layout.
+   ═══════════════════════════════════════════════════════════════════ */
+.cfg-card,
+.tool-card,
+.camera-card,
+.policy-pick-card,
+.adv-mode-card,
+.wizard-type-card,
+.diag-row,
+.brain-card,
+.mr-card {
+    background: var(--surface);
+    border: 1px solid transparent;
+    box-sizing: border-box;
+    transition: var(--transition-fast);
+}
+
+.cfg-card:hover,
+.tool-card:hover,
+.camera-card:hover,
+.policy-pick-card:hover,
+.adv-mode-card:hover,
+.adv-mode-card:focus-visible,
+.wizard-type-card:hover,
+.brain-card:hover {
+    background: var(--surface-hover);
+}
+
+/* Selected: the one card in the group that carries an outline. */
+.policy-pick-card.active,
+.adv-mode-card.active,
+.cfg-card.active {
+    background: var(--accent-light);
+    border-color: var(--accent);
+}
+
 .policy-pick-card {
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 4px;
     padding: 11px 13px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border);
     cursor: pointer;
-    transition: var(--transition-fast);
     min-height: 58px;
-}
-
-.policy-pick-card:hover {
-    border-color: var(--border-hover);
-    background: var(--bg-card-hover);
-}
-
-.policy-pick-card.active {
-    border-color: var(--accent);
-    background: var(--accent-light);
 }
 
 .policy-pick-card strong {
@@ -3834,7 +3830,6 @@ body.resizing * {
     gap: 8px;
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid var(--border-dark);
 }
 
 .block-actions > .btn {
@@ -3862,7 +3857,6 @@ body.resizing * {
 .datacollection-block > .block-actions {
     margin-top: 0;
     padding: 10px;
-    border-top: 1px solid var(--border-dark);
 }
 
 /* Narrow panels: let the footer stack instead of overflowing horizontally. */
@@ -3884,15 +3878,7 @@ body.resizing * {
     display: flex;
     gap: 10px;
     align-items: flex-start;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border);
     padding: 10px;
-    transition: var(--transition-fast);
-}
-
-.cfg-card:hover {
-    border-color: var(--border-hover);
-    background: var(--bg-card-hover);
 }
 
 .cfg-card-icon {
@@ -4008,7 +3994,6 @@ body.resizing * {
     gap: 6px;
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid var(--border-dark);
 }
 
 .rec-live-controls {
@@ -4164,7 +4149,6 @@ body.resizing * {
     gap: 12px;
     padding: 12px;
     background: var(--bg-inset);
-    border: 1px solid var(--border);
     min-height: 0;
     overflow-y: auto;
 }
@@ -4248,7 +4232,6 @@ body.resizing * {
     gap: 6px;
     margin-top: auto;
     padding-top: 8px;
-    border-top: 1px solid var(--border-dark);
 }
 
 .cal-arm-actions .btn {
@@ -4275,7 +4258,6 @@ body.resizing * {
 .cal-ranges-note {
     margin-top: auto;
     padding-top: 8px;
-    border-top: 1px solid var(--border-dark);
 }
 
 /* Rows keep a fixed height so a five-row table never turns into five slabs
@@ -4367,7 +4349,6 @@ body.resizing * {
     display: block;
     padding: 4px 6px;
     background: rgba(0, 0, 0, 0.28);
-    border-left: 2px solid var(--border-light);
     font-family: var(--font-mono);
     font-size: 9.5px;
     line-height: 1.4;
@@ -4594,8 +4575,6 @@ body.resizing * {
     gap: 14px;
     min-height: 64px;
     background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border-light);
     padding: 12px 16px;
     transition: var(--transition-fast);
 }
@@ -4763,17 +4742,6 @@ body { min-width: 320px; }
     border: 1px solid var(--border);
 }
 
-.cfg-card,
-.tool-card,
-.camera-card,
-.policy-pick-card,
-.adv-mode-card,
-.diag-row,
-.ds-stat,
-.brain-card {
-    border: 1px solid var(--border);
-    box-sizing: border-box;
-}
 
 /* --- Buttons: consistent box model and alignment.
    Sizing itself lives with the button system above; this only adds the
@@ -5597,7 +5565,6 @@ body { min-width: 320px; }
     gap: 12px;
     padding: 12px;
     background: var(--bg-inset);
-    border: 1px solid var(--border);
     min-height: 0;
     overflow-y: auto;
 }
@@ -5614,7 +5581,6 @@ body { min-width: 320px; }
     gap: 8px;
     padding: 10px;
     background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border);
 }
 
 .teleop-sub-title {
@@ -5636,7 +5602,6 @@ body { min-width: 320px; }
     gap: 8px;
     margin-bottom: 0;
     padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-dark);
     flex: 0 0 auto;
 }
 
@@ -5668,8 +5633,6 @@ body { min-width: 320px; }
     gap: 2px 8px;
     padding: 6px 8px;
     background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border-light);
     font-size: 11px;
 }
 
@@ -5791,34 +5754,6 @@ body { min-width: 320px; }
     gap: 6px;
 }
 
-.teleop-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 5px 7px;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--border);
-    overflow: hidden;
-}
-
-.teleop-stat-label {
-    font-size: 8.5px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.teleop-stat-value {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-light);
-}
-
 .teleop-stat-value.is-cyan {
     color: var(--cyan);
 }
@@ -5832,7 +5767,6 @@ body { min-width: 320px; }
     flex-direction: column;
     gap: 6px;
     padding-top: 8px;
-    border-top: 1px solid var(--border-dark);
 }
 
 .teleop-joints-caption {
@@ -5863,7 +5797,6 @@ body { min-width: 320px; }
     text-align: center;
     font-family: var(--font-mono);
     background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--border);
     transition: border-color 0.2s, background 0.2s;
 }
 
@@ -5935,7 +5868,6 @@ body { min-width: 320px; }
     overflow-y: auto;
     padding: 10px;
     background: var(--bg-inset);
-    border: 1px solid var(--border);
 }
 
 /* A flex item shrinks below its content by default. On a scrolling flex
@@ -6115,7 +6047,6 @@ body { min-width: 320px; }
 .modelrun-block > .block-actions {
     margin-top: 0;
     padding: 10px;
-    border-top: 1px solid var(--border-dark);
 }
 
 .mr-section {
@@ -6157,31 +6088,6 @@ body { min-width: 320px; }
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 6px;
-}
-
-.orch-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 5px 7px;
-    background: var(--bg-inset);
-    border: 1px solid var(--border-dark);
-}
-
-.orch-stat-label {
-    font-size: 8.5px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--text-muted);
-    overflow-wrap: anywhere;
-}
-
-.orch-stat-value {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-white);
 }
 
 .orch-stat-value.is-warn {
@@ -6303,7 +6209,6 @@ body { min-width: 320px; }
     font-size: 10.5px;
     line-height: 1.4;
     color: var(--text-muted);
-    border: 1px dashed var(--border);
     text-align: center;
 }
 
@@ -6559,7 +6464,6 @@ body { min-width: 320px; }
     letter-spacing: 0.4px;
     text-transform: uppercase;
     padding: 2px 6px;
-    border: 1px solid currentColor;
     color: var(--text-muted);
     white-space: nowrap;
 }
@@ -6591,33 +6495,7 @@ body { min-width: 320px; }
     flex: 0 0 auto;
 }
 
-.train-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 5px 7px;
-    background: var(--bg-inset);
-    border: 1px solid var(--border-dark);
-    min-width: 0;
-}
-
-.train-stat-val {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-white);
-}
-
 .train-stat-val.is-warn { color: var(--yellow); }
-
-.train-stat-lbl {
-    font-size: 8.5px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--text-muted);
-    overflow-wrap: anywhere;
-}
 
 /* The target list is the element that earns the spare height in this column —
    everything above it is fixed-size, so the column fills without any control
@@ -6671,7 +6549,6 @@ body { min-width: 320px; }
     letter-spacing: 0.6px;
     text-transform: uppercase;
     color: var(--text-muted);
-    border-bottom: 1px solid var(--border-dark);
     padding-bottom: 3px;
 }
 
@@ -6771,8 +6648,6 @@ body { min-width: 320px; }
     font-size: 10.5px;
     line-height: 1.5;
     color: var(--text-muted);
-    border: 1px dashed var(--border);
-    padding: 8px;
 }
 
 /* The command line the checked rows really turn into. */
@@ -6780,7 +6655,6 @@ body { min-width: 320px; }
     display: flex;
     flex-direction: column;
     gap: 3px;
-    border-top: 1px solid var(--border-dark);
     padding-top: 8px;
     flex: 0 0 auto;
 }

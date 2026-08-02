@@ -7,8 +7,8 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.64.0">
-  <link rel="stylesheet" href="/static/styles.css?v=3.64.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.60.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.60.0">
 </head>
 <body>
 
@@ -144,7 +144,6 @@
                 <span class="mono" id="project-list-root">—</span>
               </div>
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.projectList">Kliknutím vyberete projekt, detail se ukáže vpravo. Otevírá se tlačítkem v pravém panelu.</span>
                 <button class="btn btn-xs btn-secondary" data-i18n="btn.importBundle" onclick="App.importProjectBundle()" data-i18n-title="tip.importBundle" title="Importovat .orchiday balíček (projekt + datasety + modely)">Importovat balíček</button>
                 <button class="btn btn-xs btn-secondary" data-i18n="btn.runWizard" onclick="App.startSetupWizard()" data-i18n-title="tip.runWizard" title="Otevře průvodce: nový projekt, instalace LeRobotu, připojení ramen a kamer">Spustit průvodce setupem</button>
                 <button class="btn btn-xs btn-primary" data-i18n="btn.newProject" onclick="App.showNewProjectModal()" data-i18n-title="tip.newProject" title="Vytvoří nový projekt a přepne na něj">+ Nový Projekt</button>
@@ -193,7 +192,6 @@
             <div class="setup-block" style="display: flex; flex-direction: column;">
               <div class="block-head-row">
                 <h3 style="margin:0;"><span data-i18n="blk.connect.title"></span></h3>
-                <span class="block-head-sub" data-i18n="blk.connect.sub"></span>
               </div>
               <div class="setup-block-content">
                 <div class="merge-cols">
@@ -275,7 +273,6 @@
                     </div>
 
                     <div class="block-actions">
-                      <span class="block-actions-hint" data-i18n="hint.setupGoCalibrate">Až budou porty vybrané, pokračuj na kartu "2. Kalibrace" nahoře.</span>
                       <button class="btn btn-xs btn-cyan-dashed" onclick="App.openAutoDetectPortsModal()" data-i18n="btn.portWizard" data-i18n-title="tip.portWizard" title="Otevře průvodce: odpoj rameno, znovu připoj a port se přiřadí sám">Průvodce detekcí portů</button>
                       <button class="btn btn-xs btn-primary btn-save-hw-config" onclick="App.saveModelConfig()" data-i18n="btn.saveHw" data-i18n-title="tip.saveHw" title="Uloží typ robota, porty ramen a nastavení modelů do projektu">Uložit nastavení hardwaru</button>
                     </div>
@@ -341,7 +338,6 @@
               <div class="setup-block" style="display: flex; flex-direction: column;">
                 <div class="block-head-row">
                   <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path><circle cx="10" cy="10" r="2"></circle></svg> <span data-i18n="blk.calibrate.title">Kalibrace ramen</span></h3>
-                  <span class="block-head-sub" data-i18n="blk.calibrate.sub">lerobot-calibrate — jedno rameno na jeden běh</span>
                 </div>
                 <div class="setup-block-content cal-grid">
 
@@ -440,22 +436,18 @@
                         <li>
                           <span class="cal-proc-head" data-i18n="cal.step1.title">Existující soubor — jen když už je</span>
                           <code class="cal-proc-prompt">Press ENTER to use provided calibration file associated with the id &lt;id&gt;, or type 'c' and press ENTER to run calibration:</code>
-                          <span class="cal-proc-desc" data-i18n-html="cal.step1.desc">Tenhle dotaz LeRobot položí pouze tehdy, když pro dané <code>id</code> už kalibrační soubor existuje. „Potvrdit (Enter)“ ho použije beze změny, „Kalibrovat znovu (c)“ vynutí nové měření.</span>
                         </li>
                         <li>
                           <span class="cal-proc-head" data-i18n="cal.step2.title">Střed rozsahu</span>
                           <code class="cal-proc-prompt">Move &lt;device&gt; to the middle of its range of motion and press ENTER....</code>
-                          <span class="cal-proc-desc" data-i18n-html="cal.step2.desc">Po potvrzení zavolá LeRobot <code>set_half_turn_homings()</code> a zapíše homing offsety. Rameno v tu chvíli musí být opravdu ve středu, jinak jsou offsety posunuté.</span>
                         </li>
                         <li>
                           <span class="cal-proc-head" data-i18n="cal.step3.title">Záznam rozsahů kloubů</span>
                           <code class="cal-proc-prompt">Move all joints except 'wrist_roll' sequentially through their entire ranges of motion. Recording positions. Press ENTER to stop...</code>
-                          <span class="cal-proc-desc" data-i18n-html="cal.step3.desc">Tabulka níže se plní živě z běžícího procesu. <code>wrist_roll</code> se nezaznamenává — LeRobot mu pevně nastaví 0–4095.</span>
                         </li>
                         <li>
                           <span class="cal-proc-head" data-i18n="cal.step4.title">Uložení</span>
                           <code class="cal-proc-prompt">Calibration saved to &lt;cache&gt;/robots|teleoperators/&lt;typ&gt;/&lt;id&gt;.json</code>
-                          <span class="cal-proc-desc" data-i18n-html="cal.step4.desc">Orchiday soubor po dokončení zazálohuje do projektu, aby přežil čištění cache LeRobotu.</span>
                         </li>
                       </ol>
                     </div>
@@ -585,7 +577,6 @@
                 </div>
 
                 <div class="block-actions">
-                  <span class="block-actions-hint" data-i18n="hint.saveModelsScope">Uloží adresy a názvy LLM/VLM modelů, prompt CEO a interval smyčky do projektu — společně s typem robota a porty z karty „1. Connect".</span>
                   <button class="btn btn-xs btn-primary btn-save-hw-config" onclick="App.saveModelConfig()" data-i18n="btn.saveHw" data-i18n-title="tip.saveHw" title="Uloží typ robota, porty ramen a nastavení modelů do projektu">Uložit nastavení hardwaru</button>
                 </div>
               </div>
@@ -782,7 +773,6 @@
             <!-- Footer Action Bar -->
             <div class="block-actions" style="margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border-dark); display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
               <span id="tele-running-badge" class="running-badge" style="display:none;" role="status">● TELEOP AKTIVNÍ</span>
-              <span class="block-actions-hint" style="margin-right: auto;" data-i18n="hint.teleopScope">Spustí lerobot-teleoperate s porty a kalibrací z karty Setup.</span>
               <button class="btn btn-xs btn-primary" id="btn-start-teleop" disabled onclick="App.startTeleop()" data-i18n="btn.startTeleop">Spustit Teleop</button>
               <button class="btn btn-xs btn-danger" id="btn-stop-teleop" onclick="App.stopTeleop()" disabled title="Teleoperace neběží" data-i18n="btn.stopTeleop">Zastavit Teleop</button>
             </div>
@@ -960,7 +950,6 @@
             </div><!-- /.datacollection-block-body -->
 
             <div class="block-actions">
-              <span class="block-actions-hint" data-i18n="hint.recordScope">Spustí lerobot-record pro vybranou dovednost. Během nahrávání musí zůstat aktivní toto okno, jinak klávesové zkratky nedorazí do procesu.</span>
               <button class="btn btn-xs btn-primary" id="btn-start-record" onclick="App.startWorkflowRecord()">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="10"></circle></svg> <span data-i18n="btn.startRecording">Spustit nahrávání</span>
               </button>
@@ -1021,7 +1010,6 @@
               </div>
 
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.markScope">Značky se ukládají vedle datasetu průběžně během nahrávání. Rozřezání na pod-datasety pro orchestraci se spouští na kartě Správa datasetů.</span>
                 <button class="btn btn-xs btn-secondary" id="btn-rec-open-manage" onclick="App.switchDatasetyTab('manage')" data-i18n="btn.openDatasetManage" data-i18n-title="tip.openDatasetManage" title="Přepne na kartu Správa datasetů">Přejít na správu datasetů</button>
               </div>
             </div><!-- /.datacollection-block (marking) -->
@@ -1034,7 +1022,6 @@
               <div class="setup-block" style="display: flex; flex-direction: column;">
                 <div class="block-head-row">
                   <h3 style="margin:0;"><span data-i18n="blk.manage.title"></span></h3>
-                  <span class="block-head-sub" data-i18n="blk.manage.sub"></span>
                 </div>
                 <div class="setup-block-content">
                   <div class="merge-cols">
@@ -1085,7 +1072,6 @@
                       </div>
 
                       <div class="block-actions">
-                        <span class="block-actions-hint" data-i18n="hint.dsActionsScope">Akce se vztahují k datasetu vybranému výše.</span>
                         <button class="btn btn-xs btn-secondary" data-i18n="btn.refreshList" onclick="App.dsRefreshList()" data-i18n-title="tip.refreshList" title="Znovu načte seznam datasetů a jejich stav na disku">Obnovit seznam</button>
                         <button class="btn btn-xs btn-secondary" data-i18n="btn.importModel" onclick="App.importSkillModel()" data-i18n-title="tip.importModel" title="Importovat natrénovaný model (checkpoint) z jiného zařízení">Importovat model</button>
                         <button class="btn btn-xs btn-secondary" id="ds-btn-export-model" onclick="App.exportSkillModel(App.dsSelectedSkill())" disabled data-i18n="btn.exportModel" data-i18n-title="tip.exportModel" title="Exportovat natrénovaný model vybrané dovednosti">Exportovat model</button>
@@ -1181,7 +1167,6 @@
             <div class="setup-block" style="display: flex; flex-direction: column;">
               <div class="block-head-row">
                 <h3 style="margin:0;"><span data-i18n="blk.train.title"></span></h3>
-                <span class="block-head-sub" data-i18n="blk.train.sub"></span>
               </div>
               <div class="setup-block-content">
                 <div class="merge-cols merge-cols-3">
@@ -1219,7 +1204,6 @@
                     </div>
 
                     <div class="block-actions">
-                      <span class="block-actions-hint" data-i18n="hint.trainTargets">Zaškrtnuté cíle se natrénují postupně, každý jako samostatný běh lerobot-train.</span>
                       <button class="btn btn-xs" id="btn-train-reload" onclick="App.loadTrainingTargets()" data-i18n="btn.reload">Načíst znovu</button>
                     </div>
                   </section>
@@ -1352,7 +1336,6 @@
               <div class="setup-block" style="display: flex; flex-direction: column;">
                 <div class="block-head-row">
                   <h3 style="margin:0;"><span data-i18n="blk.adv.title"></span></h3>
-                  <span class="block-head-sub" data-i18n="blk.adv.sub"></span>
                 </div>
                 <div class="setup-block-content">
                   <div class="merge-cols">
@@ -1500,7 +1483,6 @@
                 </div>
               </div>
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.orchPreviewScope">Kroky i cesty ke checkpointům počítá backend stejným kódem, kterým je pak spouští. Chybějící checkpoint znamená, že se běh na tom kroku zastaví.</span>
                 <button class="btn btn-xs btn-secondary" id="btn-orch-preview-refresh" onclick="App.loadOrchPreview()" data-i18n-title="tip.reloadPlanPreview" title="Znovu načte plán a přepočítá, které checkpointy existují na disku" data-i18n="btn.reload">Načíst znovu</button>
               </div>
             </div>
@@ -1561,7 +1543,6 @@
 
               </div>
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.orchRunScope">„Spustit plán" pošle instrukci CEO plánovači. Ten ji rozloží na pod-úkoly a daemon si ke každému sám přepne jeho checkpoint — cestu z pravého sloupce k tomu nepoužije.</span>
               </div>
             </div>
 
@@ -1660,7 +1641,6 @@
 
               </div>
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.deployScope">Nasadí zadaný checkpoint jako trvalý inferenční daemon nad prvním ramenem projektu. Orchestrace tuhle cestu nepoužívá — ta si checkpoint každého kroku dohledá sama.</span>
                 <button class="btn btn-xs btn-primary" id="btn-deploy-policy" onclick="App.startWorkflowInference()" data-i18n="btn.deployPolicy">Nasadit Policy</button>
                 <button class="btn btn-xs btn-danger" id="btn-stop-inference" onclick="App.stopWorkflowInference()" disabled data-i18n="btn.stop">Zastavit</button>
               </div>
@@ -1689,7 +1669,6 @@
           <div class="setup-block settings-block">
             <div class="block-head-row">
               <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> <span data-i18n="settings.title">Cesty, prostředí a diagnostika</span></h3>
-              <span class="block-head-sub" data-i18n="settings.subtitle">Cesty se ukládají do konfigurace aplikace, popis scény do aktivního projektu.</span>
             </div>
 
             <div class="settings-unified-grid">
@@ -1705,7 +1684,6 @@
                   <div class="cfg-card-body lang-row">
                     <div class="lang-info">
                       <div class="cfg-card-title" data-i18n="settings.language.title">Jazyk aplikace / Application language</div>
-                      <div class="cfg-card-desc" data-i18n="settings.language.desc">Přepne se okamžitě, bez restartu. Ukládá se do konfigurace aplikace.</div>
                     </div>
                     <div class="lang-toggle" role="group" aria-label="Language">
                       <button type="button" data-lang="cs" onclick="App.setLang('cs')">Čeština</button>
@@ -1720,7 +1698,6 @@
                   </div>
                   <div class="cfg-card-body">
                     <div class="cfg-card-title"><span data-i18n="lbl.sceneDesc">Popis scény</span> <span class="required-mark">*</span></div>
-                    <div class="cfg-card-desc" data-i18n="hint.sceneDesc">Popište fyzické uspořádání pracoviště: kde jsou kamery, co je na stole, jaké je pozadí a osvětlení. Tento popis dostane jak CEO plánovač, tak VLM inspektor jako trvalý kontext ke každému promptu.</div>
                     <textarea id="settings-scene-desc" rows="2" class="cfg-card-textarea" placeholder="např. Robotické rameno SO-101 je upevněno na hraně dřevěného stolu. Kamera 'overhead_cam' snímá stůl shora, kamera 'wrist_cam' je na zápěstí robota. Na stole je bílá miska vlevo a modrá krabice vpravo." data-i18n-ph="ph.sceneDesc"></textarea>
                   </div>
                 </div>
@@ -1734,7 +1711,6 @@
                   </div>
                   <div class="cfg-card-body">
                     <div class="cfg-card-title" data-i18n="settings.python.title">Python Executable</div>
-                    <div class="cfg-card-desc" data-i18n="settings.python.desc">Interpreter prostředí, ve kterém je nainstalován LeRobot a PyTorch.</div>
                     <div class="cfg-card-input">
                       <input type="text" id="settings-python-path" value="" placeholder="Cesta k python.exe / bin/python" data-i18n-ph="settings.python.ph">
                       <button class="btn btn-xs btn-secondary" onclick="App.browseFile('settings-python-path', 'dlg.pickPython')" data-i18n="btn.browse" data-i18n-title="tip.browseFile" title="Otevře systémový dialog pro výběr souboru">Procházet</button>
@@ -1748,7 +1724,6 @@
                   </div>
                   <div class="cfg-card-body">
                     <div class="cfg-card-title" data-i18n="settings.lerobotDir.title">Repozitář LeRobot</div>
-                    <div class="cfg-card-desc" data-i18n="settings.lerobotDir.desc">Složka s naklonovaným LeRobotem — zdroj CLI skriptů a konfigurací.</div>
                     <div class="cfg-card-input">
                       <input type="text" id="settings-lerobot-dir-global" value="" placeholder="Cesta k repozitáři lerobot" data-i18n-ph="settings.lerobotDir.ph">
                       <button class="btn btn-xs btn-secondary" onclick="App.browseDirectory('settings-lerobot-dir-global', 'dlg.pickLerobotDir')" data-i18n="btn.browse" data-i18n-title="tip.browseDir" title="Otevře systémový dialog pro výběr složky">Procházet</button>
@@ -1762,7 +1737,6 @@
                   </div>
                   <div class="cfg-card-body">
                     <div class="cfg-card-title" data-i18n="settings.storage.title">Úložiště datasetů a modelů</div>
-                    <div class="cfg-card-desc" data-i18n="settings.storage.desc">Kam se ukládají nahrané demonstrace a checkpointy (HF_HOME). Prázdné = výchozí HuggingFace cache.</div>
                     <div class="cfg-card-input">
                       <input type="text" id="settings-dataset-storage-dir" value="" placeholder="Výchozí HuggingFace Cache cesta…" data-i18n-ph="settings.storage.ph" onchange="App.syncDatasetStorageDir('settings-dataset-storage-dir')">
                       <button class="btn btn-xs btn-secondary" onclick="App.browseDirectory('settings-dataset-storage-dir', 'dlg.pickStorageDir')" data-i18n="btn.browse" data-i18n-title="tip.browseDir" title="Otevře systémový dialog pro výběr složky">Procházet</button>
@@ -1871,7 +1845,6 @@
             </div>
 
             <div class="block-actions">
-              <span class="block-actions-hint" data-i18n="hint.saveSettingsScope">Uložení zapíše hodnoty z levého panelu. Instalace doplní LeRobot a jeho závislosti do conda prostředí — může trvat několik minut.</span>
               <div class="block-actions-buttons">
                 <button class="btn btn-xs btn-cyan-dashed btn-install-lerobot" onclick="App.installLerobotFromSettings()" data-i18n="btn.installLerobot" data-i18n-title="tip.installLerobot" title="Nainstaluje LeRobot a jeho závislosti do conda prostředí">Instalovat / opravit prostředí LeRobot</button>
                 <button class="btn btn-xs btn-primary btn-save-settings" data-i18n="settings.save" onclick="App.saveGlobalSettings()" data-i18n-title="tip.saveSettings" title="Zapíše popis scény, cestu k Pythonu, k repozitáři LeRobot a k úložišti datasetů">Uložit Globální Nastavení</button>
@@ -1885,7 +1858,6 @@
           <div class="setup-block" style="display: flex; flex-direction: column;">
             <div class="block-head-row">
               <h3 style="margin:0;"><span data-i18n="blk.tools.title">Nástroje LeRobot CLI</span></h3>
-              <span class="block-head-sub" data-i18n="page.hwtools.subtitle"></span>
             </div>
             <div class="setup-block-content">
               <div class="tools-grid">
@@ -3032,7 +3004,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.64.0" defer></script>
-  <script src="/static/app.js?v=3.64.0" defer></script>
+  <script src="/static/i18n.js?v=3.60.0" defer></script>
+  <script src="/static/app.js?v=3.60.0" defer></script>
 </body>
 </html>

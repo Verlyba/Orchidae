@@ -24,6 +24,15 @@ if QCoreApplication.instance() is None:
 from orchiday.core.controller import OrchidayController
 
 
+def _ckpt(posix_path: str) -> str:
+    """The same path as the controller renders it on this platform.
+
+    `_policy_path_for()` builds the directory with pathlib and returns native
+    separators, so spelling the expected value with "/" only passes on POSIX.
+    """
+    return str(Path(posix_path))
+
+
 class _FakePM:
     def __init__(self, project):
         self.current_project = project
@@ -158,7 +167,7 @@ def test_readiness_comes_from_the_bridge_checks_that_gate_the_run():
     `policy_ready` the one inference gates on — not a guess made here."""
     bridge = _FakeBridge(
         datasets={"local/tidy_table", "local/tidy_table/grab_cube"},
-        policies={"/data/outputs/training/tidy_table_grab_cube_act"},
+        policies={_ckpt("/data/outputs/training/tidy_table_grab_cube_act")},
     )
     ctrl = _make_controller(PROJECT, bridge)
     result = ctrl.training_targets()
@@ -173,7 +182,7 @@ def test_readiness_comes_from_the_bridge_checks_that_gate_the_run():
 
     # It really asked the bridge about the repo_ids and paths it reported.
     assert "local/tidy_table/move_to_box" in bridge.asked_datasets
-    assert "/data/outputs/training/tidy_table_move_to_box_act" in bridge.asked_policies
+    assert _ckpt("/data/outputs/training/tidy_table_move_to_box_act") in bridge.asked_policies
 
 
 def test_checkpoint_dir_is_named_parent_step_arch():
@@ -181,8 +190,8 @@ def test_checkpoint_dir_is_named_parent_step_arch():
     ctrl = _make_controller(PROJECT)
     task = _task(ctrl.training_targets(), "tidy_table")
 
-    assert task["baseline"]["policy_path"] == "/data/outputs/training/tidy_table_act"
-    assert task["steps"][0]["policy_path"] == "/data/outputs/training/tidy_table_grab_cube_act"
+    assert task["baseline"]["policy_path"] == _ckpt("/data/outputs/training/tidy_table_act")
+    assert task["steps"][0]["policy_path"] == _ckpt("/data/outputs/training/tidy_table_grab_cube_act")
 
 
 def test_custom_dataset_storage_dir_moves_the_checkpoints():
@@ -190,7 +199,7 @@ def test_custom_dataset_storage_dir_moves_the_checkpoints():
     ctrl = _make_controller(project)
 
     assert _task(ctrl.training_targets(), "solo_wave")["baseline"]["policy_path"] \
-        == "/mnt/big/outputs/training/solo_wave_act"
+        == _ckpt("/mnt/big/outputs/training/solo_wave_act")
 
 
 # ── Degenerate inputs ───────────────────────────────────────────────────────
