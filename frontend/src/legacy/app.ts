@@ -72,9 +72,9 @@ interface WSMessage {
   data: any;
 }
 
-declare const I18N: Record<string, Record<string, string>>;
+import { I18N } from './i18n';
 
-const App = {
+export const App = {
   ws: null as WebSocket | null,
   project: null as Project | null,
   // UI language ('cs' default; falls back to Czech for any untranslated key)
@@ -7727,8 +7727,11 @@ const App = {
   },
 };
 
-// Bind to window to allow HTML inline event handlers to execute successfully!
+// The React tree imports App directly, so nothing depends on this global any
+// more. It stays because it is the only way to poke at live app state from the
+// browser console while debugging a real robot session, which people do.
 (window as any).App = App;
 
-// ── Boot ───────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => App.init());
+// Booting is NOT done here. App.init() reads and writes DOM nodes that React
+// owns, so it has to run after the tree is mounted — see src/main.tsx.
+

@@ -8,6 +8,126 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (19) — Zadání F: **frontend přepsán na React + Vite + Tailwind**
+(pixel za pixel stejný výsledek, doloženo)
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (už na špičce),
+`setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý (292 pytestů) —
+žádná priorita A ve frontě. Zadání tohoto běhu (bod F) předchozí priority
+výslovně ruší: převést frontend na React + Vite + Tailwind.
+
+### Co se změnilo
+
+Ručně psaný `web/index.html` (3 082 řádků) je pryč; místo něj je projekt
+`frontend/` (Vite 8 + React 19 + TypeScript + Tailwind 4), který se buildí do
+`web/`. Server se **nemusel měnit vůbec** — `base: '/static/'` ve
+`vite.config.ts` odpovídá tomu, jak `server.py` už dnes `web/` servíruje.
+
+| bylo | je |
+|---|---|
+| `web/index.html` | `frontend/src/App.tsx` + 25 komponent (`pages/`, `modals/`, `shell/`, `wizard/`) |
+| `web/app.ts` (skript v globálním scope) | `frontend/src/legacy/app.ts` (ES modul, `export const App`) |
+| `web/i18n.js` (`window.I18N`) | `frontend/src/legacy/i18n.ts` (typovaný modul) |
+| `web/styles.css` | `frontend/src/styles/app.css` (beze změny obsahu) |
+| `web/app.js` (commitnutý `tsc` výstup) | `web/assets/index-<hash>.js` (commitnutý Vite build) |
+| ruční `?v=X.Y.Z` u assetů | hash v názvu souboru — starý cache nemůže přežít |
+
+**Rozdělení HTML na komponenty jsem nedělal ručně.** Napsal jsem jednorázový
+převodník nad `parse5` (běžel v scratchpadu, není součástí repa), který mapuje
+atributy (`class`→`className`, SVG `stroke-width`→`strokeWidth`, …), `style=""`
+na objekt, 187 inline handlerů (`onclick="App.x()"` → `onClick={() => App.x()}`)
+a komentáře. Když na něco neuměl odpovědět, **spadl** místo aby to tiše zahodil
+— díky tomu vypadly najevo tři věci, které by se jinak ztratily:
+
+1. `<option selected>` React ignoruje — patří jako `defaultValue` na `<select>`
+   (2 výskyty: architektura policy na Učení a počet kamer v docku).
+2. `!important` v inline stylu React **tiše zahodí** (přiřazuje přes CSSOM).
+   Řeší `src/util/importantStyle.ts`: ref, který zavolá
+   `setProperty(prop, val, 'important')`. 2 výskyty (placeholder boxy kamer).
+3. `document.getElementById('x').value` v handleru je platný JS, ale ne TS —
+   převodník doplní přetypování. HTML se nikdy netypovalo, `.tsx` ano.
+
+**Chyba, kterou odhalilo až srovnání DOMu (a která by se jinak našla až na
+robotu).** První verze `main.tsx` volala `App.init()` v `requestAnimationFrame`
+hned po `root.render()`. React 19 ale renderuje **konkurentně** — `render()` se
+vrátí dřív, než je strom v DOMu, a rAF ho může předběhnout. Selhání není pád,
+je **částečné a tiché**: `init()` část prvků najde a část ne. Konkrétně
+`bindResizers()` nenašel `#docked-cameras-area`, takže dok kamer zůstal
+neinicializovaný, a v konzoli nebyla jediná chyba. Opraveno na `useEffect`
+v komponentě `Boot` — jediný hook, který má garantováno, že běží až po commitu.
+
+**Tailwind je zapojený jako nadstavba, ne jako nový design.** Bez preflightu
+(importují se jen `theme.css` a `utilities.css`), a s tématem, kde je každý
+namespace vymazaný přes `initial` a znovu naplněný z proměnných appky. Takže
+`rounded-xl`, `shadow-md` ani `blur-sm` **neexistují** — zaoblení má tři kroky
+(`--radius-sm|md|lg`) a `rounded-md` v `className` i `var(--radius-md)` v CSS
+jsou tatáž škála. Vzhled majitele se nezměnil o pixel (viz níže).
+
+### `scripts/verify.sh` — přepsaný, ne oslabený
+
+Kontroly, které četly `web/index.html`, čtou `frontend/src/**/*.tsx`. Dvě se
+změnily podstatně:
+
+- **Vyváženost tagů** (krok 7 dřív) je zbytečná — nevyvážený JSX build shodí.
+  Zůstala kontrola, že všech 8 stránek a dok jsou přímé děti `#workspace-main`
+  (jinak dědí `display:none` a nejdou zobrazit), plus nově že kořen každé
+  stránky je opravdu `<div id="page-…" className="editor-area…">`.
+- **`app.js` up to date** (krok 2 dřív, přes mtime) nahrazena **hashem obsahu**
+  zdrojů uloženým ve `web/build-manifest.json`. Mtime tuhle otázku zodpovědět
+  neumí: git časy nezachovává, takže po čerstvém klonu jsou všechny soubory
+  stejně staré a kontrola je náhoda. Hash odpoví kdekoliv a v jakémkoliv pořadí.
+
+Kontrola duplicitních `id` je teď **potřebnější**, ne méně: 25 souborů místo
+jednoho znamená, že nic nebrání dvěma komponentám sáhnout po stejném `id`.
+Prochází napříč všemi soubory (447 unikátních id).
+
+### Ověřeno v cloudu
+
+- `bash scripts/verify.sh` **prochází celé** (292 pytestů; jeden test cesty
+  k `web/app.ts` přesměrován na `frontend/src/legacy/app.ts`).
+- **Živý DOM staré a nové verze je identický.** Spustil jsem oba backendy
+  vedle sebe (starý z `git worktree` na HEAD, nový z pracovní kopie) a
+  porovnal normalizovaný strom všech 8 stránek, 12 modalů, wizardu a doku —
+  **2 400+ uzlů, tag, atributy, inline styl i text se shodují.** Normalizuje
+  se jen dvojí: inline `onclick=` (React poslouchá přes delegaci, atribut
+  v DOMu prostě není) a serializace `style` (`el.style.cssText` místo
+  atributu, takže `flex:0` a `flex: 0 1 0%` jsou správně totéž). **Právě
+  tenhle test našel všechny čtyři chyby popsané výše** — postupně jich ubývalo
+  z 22 rozdílných sekcí na 0.
+- **Screenshoty všech 8 stránek jsou bajt po bajtu identické** (1600×900,
+  stejný fixture projekt). Tailwind vrstva tedy skutečně nic nepřekreslila.
+- `bash scripts/measure-layout.sh` — čísla v rámci šumu shodná s baseline
+  (`ovfX=0`, `clipped=0` všude; jediné `wide` je `TEXTAREA#settings-scene-desc`
+  691px, které bylo i před migrací).
+- `?v=` bumpy už nejsou potřeba a v repu nezůstaly — nahradil je hash
+  v názvu assetu.
+
+**Poznámka k `web/`:** je to teď **generovaný adresář**. Commituje se
+schválně, ze stejného důvodu, z jakého se dřív commitoval `web/app.js`:
+uživatel s Pythonem a bez Node musí appku po klonu spustit. Kdo sahá do
+`frontend/`, musí spustit `cd frontend && npm run build` a `web/` commitnout
+s sebou — jinak `verify.sh` neprojde. Popsáno v novém `docs/FRONTEND.md`.
+
+**Na fyzickém robotu zbývá vyzkoušet:** změna je čistě frontendová a logická
+vrstva je bajt za bajt tatáž (`app.ts` se změnil jen o export, import a
+odstranění `DOMContentLoaded`), takže se nečeká žádný rozdíl v chování
+hardwaru. Vyzkoušet nicméně stojí celý běh na skutečném stroji: kalibrace
+(ENTER vs `c`), teleoperace, sběr dat včetně kláves pro hranice pod-úkolů, a
+zvlášť **dok kamer** — to je jediné místo, kde tenhle běh našel reálnou
+regresi (pořadí inicializace) a kde živý stream nejde v cloudu ověřit.
+
+**Otevřeno pro příště:**
+1. Převádět stránky na skutečný React stav, po jedné (`legacy/app.ts` zatím
+   ovládá DOM imperativně). Pořadí podle výnosu: Projekty (nejmenší,
+   list+detail), pak Datasety (nejvíc dynamického `innerHTML`).
+2. Až bude logika ve stavu, zapnout `<StrictMode>` — dnes by spustil
+   `init()` dvakrát.
+3. Bundle je jeden 739 kB chunk. Až přibude React kód, rozdělit
+   (`manualChunks`) — teď by to jen přidalo requesty.
+4. Pořád platí otázka na majitele z běhu (18): jak appku spouští (port 4173).
+
+---
+
 ## 2026-08-02 (18) — Živé hlášení majitele: **první projekt se nedal založit**
 (chybný slug z Rychlého setupu) + matoucí chyba průzkumníku
 

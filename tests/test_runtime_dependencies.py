@@ -135,11 +135,12 @@ def test_event_bridge_is_wired_by_the_asgi_lifespan():
 
 
 def test_server_declares_the_websocket_route_the_frontend_connects_to():
-    """web/app.ts connects to `/ws`; the server must expose exactly that path."""
+    """The frontend connects to `/ws`; the server must expose exactly that path."""
     server_src = (ROOT / "src" / "orchiday" / "server.py").read_text(encoding="utf-8")
     assert '@app.websocket("/ws")' in server_src
 
-    app_ts = (ROOT / "web" / "app.ts").read_text(encoding="utf-8")
+    # The logic layer moved to frontend/src/legacy/app.ts in the React port.
+    app_ts = (ROOT / "frontend" / "src" / "legacy" / "app.ts").read_text(encoding="utf-8")
     assert re.search(r"new WebSocket\(`\$\{proto\}://\$\{host\}/ws`\)", app_ts), (
         "app.ts no longer connects to /ws — keep this test and the server route in sync"
     )

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Flat and square on purpose: same rules as the rest of the UI (sharp
+       corners, bordered, muted fill, no gradient or glow). Three stacked bars
+       read as the sub-task boundaries the app is built around. -->
+  <rect x="0" y="0" width="32" height="32" fill="#2b3038"/>
+  <rect x="2.5" y="2.5" width="27" height="27" fill="none" stroke="#4d5560" stroke-width="1"/>
+  <rect x="7" y="8" width="18" height="4" fill="#5ad8d0"/>
+  <rect x="7" y="14" width="12" height="4" fill="#8d949e"/>
+  <rect x="7" y="20" width="18" height="4" fill="#8d949e"/>
+</svg>

@@ -7,7 +7,7 @@
  *   data-i18n-title="key"     -> title attribute
  * Czech is the fallback language, so any untranslated element keeps Czech text.
  */
-window.I18N = {
+export const I18N: Record<string, Record<string, string>> = {
   cs: {
     // ── Title bar ──────────────────────────────────────────────
     "title.noProject": "Žádný vybraný projekt",
@@ -2136,3 +2136,7 @@ window.I18N = {
     "lbl.connected": "Connected",
   },
 };
+
+// Kept on window for the same reason as App: it is what makes a translation
+// answerable from the browser console during a live session.
+(window as any).I18N = I18N;

@@ -1,0 +1,28 @@
+{
+  "name": "orchiday-frontend",
+  "private": true,
+  "version": "4.0.0",
+  "type": "module",
+  "description": "Orchiday OS frontend — React + Vite + Tailwind. Builds into ../web, which is what the FastAPI backend serves.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/write-build-manifest.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "manifest": "node scripts/write-build-manifest.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0"
+  }
+}

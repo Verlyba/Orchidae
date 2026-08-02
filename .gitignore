@@ -42,6 +42,8 @@ env.bak/
 venv.bak/
 
 # Node / JS
+# NB: web/ is NOT ignored. It is the committed Vite build output — see
+# docs/FRONTEND.md for why, and scripts/verify.sh for the staleness check.
 node_modules/
 **/node_modules/
 npm-debug.log*

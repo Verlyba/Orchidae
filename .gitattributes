@@ -16,7 +16,9 @@
 
 # Web assets are read by the browser, keep them LF for stable diffs.
 *.ts    text eol=lf
+*.tsx   text eol=lf
 *.js    text eol=lf
+*.mjs   text eol=lf
 *.css   text eol=lf
 *.html  text eol=lf
 *.md    text eol=lf
@@ -29,3 +31,10 @@
 *.ico   binary
 *.pdf   binary
 *.safetensors binary
+
+# web/ is the Vite build output (see docs/FRONTEND.md). It is committed so a
+# clone without Node still runs, but it is generated — collapse it in diffs
+# instead of reviewing a minified bundle line by line.
+web/assets/**   linguist-generated=true
+web/index.html  linguist-generated=true
+web/build-manifest.json linguist-generated=true

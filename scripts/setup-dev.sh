@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Orchiday — development environment bootstrap.
 #
-# Prepares everything needed to BUILD and VERIFY the app (TypeScript compile,
-# pytest, i18n/HTML checks). It deliberately does NOT install LeRobot, torch or
+# Prepares everything needed to BUILD and VERIFY the app (frontend toolchain,
+# pytest, i18n and component checks). It deliberately does NOT install LeRobot, torch or
 # robot drivers: those live in a separate Python environment that the app points
 # at through its `python_path` setting, and they are only reachable on a machine
 # with the actual hardware attached.
@@ -68,14 +68,21 @@ if ! pip_install -e ".[dev]"; then
   pip_install ".[dev]" || warn "dependency install failed"
 fi
 
-# ── Node / TypeScript ─────────────────────────────────────────────────────
+# ── Node / frontend (Vite + React + Tailwind) ─────────────────────────────
+# Only needed to CHANGE the frontend. The built bundle in web/ is committed,
+# so running Orchiday itself never requires Node.
 if command -v npm >/dev/null 2>&1; then
   echo "==> Node: $(node --version 2>&1)"
-  # Warm the npx cache so the first compile is not a silent multi-second stall.
-  npx -y -p typescript tsc --version >/dev/null 2>&1 \
-    || warn "npx could not fetch TypeScript (frontend build will be skipped)"
+  echo "==> Installing frontend dependencies (frontend/)"
+  if [ -f frontend/package-lock.json ]; then
+    ( cd frontend && npm ci ) >/dev/null 2>&1 || ( cd frontend && npm install ) >/dev/null 2>&1 \
+      || warn "npm install failed in frontend/ (frontend cannot be rebuilt here)"
+  else
+    ( cd frontend && npm install ) >/dev/null 2>&1 \
+      || warn "npm install failed in frontend/ (frontend cannot be rebuilt here)"
+  fi
 else
-  warn "npm not found — web/app.ts cannot be rebuilt in this environment"
+  warn "npm not found — the frontend cannot be rebuilt in this environment"
 fi
 
 # ── Report what actually works ────────────────────────────────────────────
@@ -100,7 +107,12 @@ fi
 "$PY" -c "import cv2" >/dev/null 2>&1 \
   && echo "    opencv       OK" || echo "    opencv       MISSING (camera code paths only)"
 command -v npm >/dev/null 2>&1 \
-  && echo "    npm          OK" || echo "    npm          MISSING (no TypeScript build)"
+  && echo "    npm          OK" || echo "    npm          MISSING (frontend cannot be rebuilt)"
+if [ -d frontend/node_modules ]; then
+  echo "    frontend     OK (cd frontend && npm run build)"
+else
+  echo "    frontend     NOT INSTALLED (web/ bundle still works; rebuilds are not possible)"
+fi
 
 echo ""
 if [ "$WARN" -eq 0 ]; then

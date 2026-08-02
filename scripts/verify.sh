@@ -5,6 +5,11 @@
 # check an automated (cloud) session can rely on. Hardware behaviour
 # (calibration, teleop, recording against a real arm) cannot be verified here
 # and must never be claimed as verified by a session that only ran this.
+#
+# The frontend is a Vite + React + Tailwind project in frontend/, built into
+# web/ (which the FastAPI backend serves and which is COMMITTED so a clone
+# without Node still runs). Checks that used to read web/index.html therefore
+# read frontend/src/**/*.tsx now — same guarantees, new location.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,19 +33,57 @@ fi
 # told there is no display, otherwise it aborts trying to reach one.
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 
-# ── 1. TypeScript compiles (web/app.ts -> web/app.js) ─────────────────────
-step "TypeScript build"
-if command -v npm >/dev/null 2>&1; then
-  ( cd web && npx -y -p typescript tsc ) || fail "tsc reported errors"
+HAVE_NODE=0
+command -v node >/dev/null 2>&1 && HAVE_NODE=1
+HAVE_FRONTEND_DEPS=0
+[ -d frontend/node_modules ] && HAVE_FRONTEND_DEPS=1
+
+# ── 1. The frontend typechecks ────────────────────────────────────────────
+step "frontend typecheck (tsc --noEmit)"
+if [ "$HAVE_FRONTEND_DEPS" -eq 1 ] && command -v npm >/dev/null 2>&1; then
+  ( cd frontend && npm run --silent typecheck ) || fail "tsc reported errors"
 else
-  echo "skipped (npm unavailable)"
+  echo "skipped (run scripts/setup-dev.sh to install frontend/node_modules)"
 fi
 
-# ── 2. Compiled JS is in sync with the source ─────────────────────────────
-# app.js is committed, so a forgotten rebuild ships stale behaviour to users.
-step "app.js up to date with app.ts"
-if [ web/app.ts -nt web/app.js ]; then
-  fail "web/app.js is older than web/app.ts — run tsc and commit the result"
+# ── 2. The committed bundle matches the sources it was built from ─────────
+# web/ is a build artifact that is committed on purpose, so someone with
+# Python but no Node can run the app straight after cloning. That only holds
+# if it is actually rebuilt when frontend/src changes. Timestamps cannot tell
+# us: git does not restore mtimes, so on a fresh clone every file is the same
+# age. The build writes a content hash of its inputs; this recomputes it.
+step "web/ bundle is up to date with frontend/src"
+if [ "$HAVE_NODE" -eq 1 ]; then
+  node -e '
+    import fs from "node:fs";
+    import path from "node:path";
+    const manifestPath = "web/build-manifest.json";
+    if (!fs.existsSync(manifestPath)) {
+      console.log("web/build-manifest.json is missing — run: cd frontend && npm run build");
+      process.exit(1);
+    }
+    const { hashSources } = await import("./frontend/scripts/write-build-manifest.mjs");
+    const { hash, count } = hashSources("frontend");
+    const stored = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (stored.sourceHash !== hash) {
+      console.log("frontend sources changed since the last build");
+      console.log(`  committed: ${stored.sourceHash.slice(0, 16)}… (${stored.sourceFiles} files)`);
+      console.log(`  current:   ${hash.slice(0, 16)}… (${count} files)`);
+      console.log("  fix: cd frontend && npm run build   (and commit web/)");
+      process.exit(1);
+    }
+    // The bundle the built index.html points at has to actually be there.
+    const html = fs.readFileSync("web/index.html", "utf8");
+    const refs = [...html.matchAll(/(?:src|href)="\/static\/([^"]+)"/g)].map(m => m[1]);
+    const missing = refs.filter(r => !fs.existsSync(path.join("web", r)));
+    if (missing.length) {
+      console.log("web/index.html references files that are not in web/:", missing);
+      process.exit(1);
+    }
+    console.log(`bundle matches ${count} source files; ${refs.length} asset references resolve`);
+  ' --input-type=module || fail "web/ is stale or incomplete"
+else
+  echo "skipped (node unavailable)"
 fi
 
 # ── 3. Python test suite ──────────────────────────────────────────────────
@@ -51,20 +94,31 @@ PYTHONPATH=src "$PY" -m pytest tests/ -q || fail "pytest failures"
 step "python compileall"
 "$PY" -m compileall -q src/orchiday >/dev/null || fail "python syntax errors"
 
-# ── 5. i18n: cs/en key parity + no key used in HTML but missing ───────────
+# ── 5. i18n: cs/en key parity + no key used in the UI but missing ─────────
 step "i18n parity and coverage"
-if command -v node >/dev/null 2>&1; then
+if [ "$HAVE_NODE" -eq 1 ]; then
   node -e '
     const fs = require("fs");
+    const src = fs.readFileSync("frontend/src/legacy/i18n.ts", "utf8");
+    // The dictionary is a plain object literal with a TS annotation bolted on
+    // the front; strip the annotation and it is evaluable as-is.
     global.window = {};
-    eval(fs.readFileSync("web/i18n.js", "utf8"));
+    eval(src.replace(/export const I18N[^=]*=/, "window.I18N =")
+            .replace(/\(window as any\)\.I18N = I18N;/, ""));
     const cs = new Set(Object.keys(window.I18N.cs));
     const en = new Set(Object.keys(window.I18N.en));
     const onlyCs = [...cs].filter(k => !en.has(k));
     const onlyEn = [...en].filter(k => !cs.has(k));
-    const html = fs.readFileSync("web/index.html", "utf8");
+
+    const tsx = [];
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = `${d}/${e.name}`;
+      if (e.isDirectory()) walk(p); else if (p.endsWith(".tsx")) tsx.push(p);
+    } };
+    walk("frontend/src");
+    const markup = tsx.map(f => fs.readFileSync(f, "utf8")).join("\n");
     const used = new Set(
-      [...html.matchAll(/data-i18n(?:-ph|-title|-tooltip|-html)?="([^"]+)"/g)].map(m => m[1])
+      [...markup.matchAll(/data-i18n(?:-ph|-title|-tooltip|-html)?="([^"]+)"/g)].map(m => m[1])
     );
     const missing = [...used].filter(k => !cs.has(k));
 
@@ -72,12 +126,11 @@ if command -v node >/dev/null 2>&1; then
     // last definition silently wins. So Object.keys() can never reveal it,
     // and a key added in one place quietly changes a label somewhere else
     // on the other side of the file. Scan the source text instead.
-    const src = fs.readFileSync("web/i18n.js", "utf8");
     const csAt = src.indexOf("cs: {"), enAt = src.indexOf("en: {");
     const dupes = [];
-    for (const [lang, body] of [["cs", src.slice(csAt, enAt)], ["en", src.slice(enAt)]]) {
+    for (const [lang, bodyText] of [["cs", src.slice(csAt, enAt)], ["en", src.slice(enAt)]]) {
       const seen = new Set();
-      for (const m of body.matchAll(/^\s*"([^"]+)":/gm)) {
+      for (const m of bodyText.matchAll(/^\s*"([^"]+)":/gm)) {
         if (seen.has(m[1])) dupes.push(`${lang}:${m[1]}`);
         seen.add(m[1]);
       }
@@ -86,105 +139,84 @@ if command -v node >/dev/null 2>&1; then
     let bad = false;
     if (onlyCs.length) { console.log("cs-only keys:", onlyCs); bad = true; }
     if (onlyEn.length) { console.log("en-only keys:", onlyEn); bad = true; }
-    if (missing.length) { console.log("used in HTML but undefined:", missing); bad = true; }
+    if (missing.length) { console.log("used in markup but undefined:", missing); bad = true; }
     if (dupes.length) { console.log("duplicate keys (later one silently wins):", dupes); bad = true; }
-    console.log(`cs=${cs.size} en=${en.size} usedInHtml=${used.size}`);
+    console.log(`cs=${cs.size} en=${en.size} usedInMarkup=${used.size} across ${tsx.length} components`);
     process.exit(bad ? 1 : 0);
   ' || fail "i18n problems"
 else
   echo "skipped (node unavailable)"
 fi
 
-# ── 6. No duplicate element ids in index.html ─────────────────────────────
+# ── 6. No duplicate element ids across the whole component tree ───────────
 # getElementById silently returns the first match, so a duplicate id makes
 # half the UI wire itself to the wrong element (this has bitten us before).
+# Splitting one index.html into 25 components makes this MORE likely, not
+# less: nothing stops two files from claiming the same id.
 step "duplicate element ids"
-DUPES=$(grep -oE 'id="[a-zA-Z0-9_-]+"' web/index.html | sort | uniq -d || true)
-if [ -n "$DUPES" ]; then
-  echo "$DUPES"
-  fail "duplicate ids in web/index.html"
-fi
-
-# ── 7. index.html tag balance + top-level page structure ──────────────────
-# A single missing </div> does not break the HTML parser — it silently nests
-# everything that follows *inside* the previous element. That has now landed
-# twice: once the "manage" dataset panel ended up inside "collect", and once
-# #page-settings swallowed both #page-help and #bottom-dock-container, which
-# made the Help page unreachable and hid the console dock on every other page.
-# Neither showed up in any other check here.
-step "index.html structure"
-if command -v node >/dev/null 2>&1; then
+if [ "$HAVE_NODE" -eq 1 ]; then
   node -e '
     const fs = require("fs");
-    // Comments are stripped first: they legitimately contain "</div>" when
-    // they annotate which element a closing tag belongs to.
-    const html = fs.readFileSync("web/index.html", "utf8").replace(/<!--[\s\S]*?-->/g, "");
-    const VOID = new Set(["area","base","br","col","embed","hr","img","input","link",
-      "meta","param","source","track","wbr","path","circle","rect","line","polyline",
-      "polygon","ellipse","use","stop"]);
-    const lineOf = i => html.slice(0, i).split("\n").length;
-    const stack = [];
-    let bad = false;
-    for (const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g)) {
-      const [, close, rawTag, attrs] = m;
-      const tag = rawTag.toLowerCase();
-      if (VOID.has(tag) || attrs.trimEnd().endsWith("/")) continue;
-      const line = lineOf(m.index);
-      if (!close) {
-        const id = (attrs.match(/id="([^"]+)"/) || [])[1] || null;
-        stack.push({ tag, id, line });
-      } else {
-        const top = stack[stack.length - 1];
-        if (!top) { console.log(`line ${line}: stray </${tag}>`); bad = true; break; }
-        if (top.tag !== tag) {
-          console.log(`line ${line}: </${tag}> closes <${top.tag}${top.id ? "#" + top.id : ""}> opened on line ${top.line}`);
-          console.log("  -> a closing tag is missing above this point");
-          bad = true; break;
-        }
-        stack.pop();
+    const files = [];
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = `${d}/${e.name}`;
+      if (e.isDirectory()) walk(p); else if (p.endsWith(".tsx")) files.push(p);
+    } };
+    walk("frontend/src");
+    const seen = new Map();
+    const dupes = [];
+    for (const f of files) {
+      for (const m of fs.readFileSync(f, "utf8").matchAll(/\bid="([a-zA-Z0-9_-]+)"/g)) {
+        if (seen.has(m[1])) dupes.push(`${m[1]}  (${seen.get(m[1])} and ${f})`);
+        else seen.set(m[1], f);
       }
     }
-    if (!bad && stack.length) {
-      console.log("never closed:", stack.map(e => `<${e.tag}${e.id ? "#" + e.id : ""}> line ${e.line}`).join(", "));
-      bad = true;
-    }
-    process.exit(bad ? 1 : 0);
-  ' || fail "web/index.html has unbalanced tags"
+    if (dupes.length) { console.log(dupes.join("\n")); process.exit(1); }
+    console.log(`${seen.size} unique element ids across ${files.length} components`);
+  ' || fail "duplicate ids in the component tree"
+else
+  echo "skipped (node unavailable)"
+fi
 
-  # Every page and the console dock must be a DIRECT child of #workspace-main.
-  # If one nests inside another, the inner one inherits `display: none` from
-  # .editor-area and can never be shown, whatever the nav does.
+# ── 7. Top-level page structure ───────────────────────────────────────────
+# Every page and the console dock must be rendered as a DIRECT child of
+# #workspace-main. If one nests inside another, the inner one inherits
+# `display: none` from .editor-area and can never be shown, whatever the nav
+# does — that has landed twice before. Unbalanced markup no longer needs its
+# own check: JSX that does not nest correctly fails the build outright.
+step "page structure"
+if [ "$HAVE_NODE" -eq 1 ]; then
   node -e '
     const fs = require("fs");
-    const html = fs.readFileSync("web/index.html", "utf8").replace(/<!--[\s\S]*?-->/g, "");
-    const VOID = new Set(["area","base","br","col","embed","hr","img","input","link",
-      "meta","param","source","track","wbr","path","circle","rect","line","polyline",
-      "polygon","ellipse","use","stop"]);
-    const WANT = /^(page-[a-z]+|bottom-dock-container)$/;
-    const stack = [];
-    const found = [];
-    for (const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g)) {
-      const [, close, rawTag, attrs] = m;
-      const tag = rawTag.toLowerCase();
-      if (VOID.has(tag) || attrs.trimEnd().endsWith("/")) continue;
-      if (!close) {
-        const id = (attrs.match(/id="([^"]+)"/) || [])[1] || null;
-        if (id && WANT.test(id)) {
-          const parent = stack[stack.length - 1];
-          found.push({ id, parent: parent ? (parent.id || parent.tag) : "(root)" });
-        }
-        stack.push({ tag, id });
-      } else if (stack.length && stack[stack.length - 1].tag === tag) {
-        stack.pop();
-      } else break; // unbalanced — the check above already reported it
+    const app = fs.readFileSync("frontend/src/App.tsx", "utf8");
+    const open = app.indexOf("id=\"workspace-main\"");
+    const close = app.indexOf("</main>", open);
+    if (open < 0 || close < 0) { console.log("#workspace-main not found in App.tsx"); process.exit(1); }
+    const inside = app.slice(open, close);
+
+    const pages = fs.readdirSync("frontend/src/pages").filter(f => f.endsWith(".tsx"))
+      .map(f => f.replace(/\.tsx$/, ""));
+    const wanted = [...pages, "BottomDock"];
+    let bad = false;
+    for (const c of wanted) {
+      const all = [...app.matchAll(new RegExp(`<${c}\\s*/>`, "g"))];
+      if (all.length !== 1) { console.log(`<${c} /> is rendered ${all.length} times, expected 1`); bad = true; continue; }
+      if (!new RegExp(`<${c}\\s*/>`).test(inside)) {
+        console.log(`<${c} /> is not inside #workspace-main`); bad = true;
+      }
     }
-    const stray = found.filter(f => f.parent !== "workspace-main");
-    if (stray.length) {
-      stray.forEach(f => console.log(`#${f.id} is nested inside #${f.parent}, not #workspace-main`));
-      process.exit(1);
+    // Each page component must still BE a .editor-area pane at its root.
+    for (const p of pages) {
+      const body = fs.readFileSync(`frontend/src/pages/${p}.tsx`, "utf8");
+      const root = body.slice(body.indexOf("return ("));
+      if (!/^\s*return \(\s*\n\s*<div id="page-[a-z]+" className="editor-area/.test(root)) {
+        console.log(`${p}.tsx does not start with a <div id="page-…" className="editor-area…"> root`);
+        bad = true;
+      }
     }
-    console.log(`checked ${found.length} top-level panes under #workspace-main`);
-  ' || fail "a page or the console dock is nested in the wrong parent"
+    if (bad) process.exit(1);
+    console.log(`checked ${wanted.length} top-level panes under #workspace-main`);
+  ' || fail "a page or the console dock is rendered in the wrong place"
 else
   echo "skipped (node unavailable)"
 fi
@@ -195,7 +227,7 @@ fi
 # each panel's author happened to type. Decoration crept back in every time a
 # new panel was hand-styled (98 border-radius declarations, a blurred overlay
 # backdrop and several glows had accumulated), so it is checked instead of
-# remembered. Inline style="" attributes count too — that is where most of it
+# remembered. Inline style={{}} objects count too — that is where most of it
 # came from, and an inline radius also silently outranks the stylesheet.
 #
 # Radius used to be banned outright. It no longer is: the design carries a
@@ -203,16 +235,27 @@ fi
 # written as a literal length, because that is a fourth step nobody decided on
 # — exactly how 4/6/8/10px ended up mixed across pages. Blur, shadow and glow
 # stay banned; the buttons say so themselves with `filter: none !important`.
+#
+# Tailwind is a second way in, so it is checked too. The theme in
+# styles/tailwind.css already deletes the shadow/blur namespaces and pins the
+# radius scale, which means `shadow-lg` or `rounded-[7px]` generate nothing at
+# all — a class that silently does nothing is worth catching in review.
 step "flat design tokens"
-if command -v node >/dev/null 2>&1; then
+if [ "$HAVE_NODE" -eq 1 ]; then
   node -e '
     const fs = require("fs");
-    const FILES = ["web/styles.css", "web/index.html", "web/app.ts"];
     const RADIUS_TOKENS = ["--radius-sm", "--radius-md", "--radius-lg"];
+
+    const files = ["frontend/src/styles/app.css", "frontend/src/styles/tailwind.css"];
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = `${d}/${e.name}`;
+      if (e.isDirectory()) walk(p); else if (p.endsWith(".tsx") || p.endsWith(".ts")) files.push(p);
+    } };
+    walk("frontend/src");
 
     // The scale has to exist, or every var(--radius-*) below resolves to
     // nothing and the check passes while the corners quietly go square.
-    const css = fs.readFileSync("web/styles.css", "utf8");
+    const css = fs.readFileSync("frontend/src/styles/app.css", "utf8");
     const undefined_ = RADIUS_TOKENS.filter(t => !new RegExp(`^\\s*${t}\\s*:`, "m").test(css));
     if (undefined_.length) {
       console.log("radius tokens used but not defined in :root:", undefined_.join(", "));
@@ -225,56 +268,75 @@ if command -v node >/dev/null 2>&1; then
     // `!important` is stripped before the value is judged: `none !important`
     // is still none, and rejecting it made the gate fail on a rule whose whole
     // job was to force the effect off.
-    const strip = v => v.trim().replace(/\s*!important$/i, "").trim();
+    const strip = v => v.trim().replace(/\s*!important$/i, "").trim().replace(/^["\x27]|["\x27]$/g, "");
     const RULES = [
-      // Matches border-radius and the per-corner longhands, prefixed or not.
+      // Matches border-radius and the per-corner longhands, prefixed or not,
+      // in CSS (`border-radius: 4px`) and in JSX style objects (`borderRadius: "4px"`).
       [/border(?:-(?:top|bottom)-(?:left|right))?-radius\s*:\s*([^;"\x27}`\n]+)/gi,
+       v => allowedRadius.test(strip(v)),
+       "radius outside the scale (use 0 or var(--radius-sm|md|lg))"],
+      [/border(?:Top|Bottom)(?:Left|Right)?Radius\s*:\s*("[^"]*"|\x27[^\x27]*\x27)/g,
        v => allowedRadius.test(strip(v)),
        "radius outside the scale (use 0 or var(--radius-sm|md|lg))"],
       [/(?:^|[^-\w])(?:-webkit-)?backdrop-filter\s*:\s*([^;"\x27}`\n]+)/gi,
        v => /^none$/i.test(strip(v)), "backdrop-filter (no blur)"],
       [/(?:box|text)-shadow\s*:\s*([^;"\x27}`\n]+)/gi,
        v => /^none$/i.test(strip(v)), "shadow / glow"],
+      [/(?:boxShadow|textShadow)\s*:\s*("[^"]*"|\x27[^\x27]*\x27)/g,
+       v => /^none$/i.test(strip(v)), "shadow / glow"],
       // The leading guard keeps this from re-reporting `backdrop-filter`.
       [/(?:^|[^-\w])filter\s*:\s*([^;"\x27}`\n]*blur\([^)]*\))/gi, () => false, "blur() filter"],
+      // Tailwind utilities that the theme deletes: writing one is a no-op.
+      [/className="([^"]*)"/g,
+       v => !/(?:^|\s)(?:shadow|drop-shadow|blur|backdrop-blur)(?:-[\w[\]./-]+)?(?=\s|$)/.test(v)
+         && !/(?:^|\s)rounded(?:-[a-z]+)?-\[/.test(v),
+       "Tailwind class for an effect the theme removed (shadow/blur) or an off-scale radius"],
     ];
     let bad = false;
-    for (const file of FILES) {
+    for (const file of files) {
       const text = fs.readFileSync(file, "utf8");
       for (const [re, ok, what] of RULES) {
         for (const m of text.matchAll(re)) {
           if (ok(m[1])) continue;
           const line = text.slice(0, m.index).split("\n").length;
-          console.log(`${file}:${line}: ${what} -> ${m[0].trim()}`);
+          console.log(`${file}:${line}: ${what} -> ${m[0].trim().slice(0, 120)}`);
           bad = true;
         }
       }
     }
     if (bad) process.exit(1);
-    console.log(`radii come from ${RADIUS_TOKENS.join(" / ")}; no blur, shadow or glow in web/`);
+    console.log(`radii come from ${RADIUS_TOKENS.join(" / ")}; no blur, shadow or glow in ${files.length} files`);
   ' || fail "styling outside the design tokens (see above) — one radius scale, no blur/shadow/glow"
 else
   echo "skipped (node unavailable)"
 fi
 
-# ── 9. Every App.<fn>() referenced from HTML actually exists ──────────────
-# An onclick pointing at a missing method fails silently at runtime.
-step "HTML -> App method references"
-if command -v node >/dev/null 2>&1; then
+# ── 9. Every App.<fn>() called from a component actually exists ───────────
+# The inline onclick="App.foo()" handlers became onClick={() => App.foo()}.
+# TypeScript would catch a typo, but only when the frontend deps are
+# installed — this check works from a bare clone too.
+step "component -> App method references"
+if [ "$HAVE_NODE" -eq 1 ]; then
   node -e '
     const fs = require("fs");
-    const html = fs.readFileSync("web/index.html", "utf8");
-    const ts = fs.readFileSync("web/app.ts", "utf8");
+    const files = [];
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = `${d}/${e.name}`;
+      if (e.isDirectory()) walk(p); else if (p.endsWith(".tsx")) files.push(p);
+    } };
+    walk("frontend/src");
+    const markup = files.map(f => fs.readFileSync(f, "utf8")).join("\n");
+    const ts = fs.readFileSync("frontend/src/legacy/app.ts", "utf8");
     const called = new Set(
-      [...html.matchAll(/App\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)].map(m => m[1])
+      [...markup.matchAll(/\bApp\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g)].map(m => m[1])
     );
     const defined = new Set(
       [...ts.matchAll(/^\s{2}(?:async\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/gm)].map(m => m[1])
     );
     const missing = [...called].filter(fn => !defined.has(fn));
-    if (missing.length) { console.log("referenced in HTML, not defined in app.ts:", missing); process.exit(1); }
+    if (missing.length) { console.log("called from a component, not defined in app.ts:", missing); process.exit(1); }
     console.log(`checked ${called.size} App.* references`);
-  ' || fail "HTML references a missing App method"
+  ' || fail "a component calls a missing App method"
 else
   echo "skipped (node unavailable)"
 fi

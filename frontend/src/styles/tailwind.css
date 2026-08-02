@@ -1,0 +1,94 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Tailwind layer — utilities only, wired to Orchiday's own design tokens.
+   ═══════════════════════════════════════════════════════════════════════
+
+   Two deliberate constraints:
+
+   1. NO PREFLIGHT. Tailwind's reset would rewrite the baseline that app.css
+      was authored against (buttons, headings, lists, form controls) and the
+      whole app would shift under the owner's design. So the layers are
+      imported one by one and `preflight.css` is left out. app.css keeps its
+      own reset — it already has one.
+
+   2. THE THEME IS NOT TAILWIND'S. Every namespace below is cleared with
+      `initial` and then re-populated from the app's variables, so a utility
+      class cannot introduce a colour, a corner radius or a shadow that the
+      design does not have. `--radius-*: initial` is what makes `rounded-xl`
+      and friends simply not exist; `--shadow-*`/`--blur-*` do the same for
+      the flat look that scripts/verify.sh enforces in hand-written CSS.
+
+   The `--radius-sm|md|lg` values here mirror app.css:80-82 on purpose: the
+   same three names drive both `var(--radius-md)` in the stylesheet and
+   `rounded-md` in a className. app.css is imported after this file, so its
+   :root stays the single source of truth for their values. */
+
+@layer theme, base, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Class names live in .tsx files next to this one. */
+@source '../**/*.{ts,tsx}';
+
+@theme {
+  /* ── Corners: exactly three steps, nothing else ─────────────────── */
+  --radius-*: initial;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  /* ── Flat by design: no shadow, no glow, no blur ────────────────── */
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --text-shadow-*: initial;
+  --blur-*: initial;
+
+  /* ── Colours: the app's palette, under the app's names ──────────── */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-inherit: inherit;
+
+  --color-editor: var(--bg-editor);
+  --color-sidebar: var(--bg-sidebar);
+  --color-activity: var(--bg-activity);
+  --color-terminal: var(--bg-terminal);
+  --color-inset: var(--bg-inset);
+  --color-card-hover: var(--bg-card-hover);
+
+  --color-main: var(--text-main);
+  --color-muted: var(--text-muted);
+  --color-light: var(--text-light);
+  --color-white: var(--text-white);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-light: var(--accent-light);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-yellow: var(--yellow);
+  --color-purple: var(--purple);
+
+  --color-border: var(--border);
+  --color-border-dark: var(--border-dark);
+  --color-border-light: var(--border-light);
+  --color-border-hover: var(--border-hover);
+
+  /* ── Type: the two families the app actually loads ──────────────── */
+  /* Written out rather than referenced: these keys land in :root under the
+     same names app.css uses, so `--font-sans: var(--font-sans)` would be a
+     self-reference and resolve to nothing. app.css is imported after this
+     file and re-declares both, so it still owns the values. */
+  --font-*: initial;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+
+/* React mounts here. `display: contents` keeps the wrapper out of the layout
+   entirely, so #main-container and the overlays stay direct flex children of
+   <body> — which is what app.css's :root chain and every `height: 100vh`
+   below it assume. */
+#root {
+  display: contents;
+}
