@@ -1989,20 +1989,29 @@ class SetupFinishConfig(BaseModel):
 
 @app.post("/api/setup/finish")
 async def setup_finish(body: SetupFinishConfig):
-    import re
     if not body.scene_description.strip():
         return JSONResponse(
             {"ok": False, "error": "scene_description is required — describe the physical workspace."},
             status_code=422)
-    # 1. Generate slug from project name
-    slug = re.sub(r'[^a-z0-9_]', '', body.project_name.lower().replace(" ", "_").replace("-", "_"))
-    if not slug:
-        slug = "project"
-    
-    # Check if project directory already exists, if so, append suffix
+    # 1. Turn the project name into a valid identifier through the ONE shared
+    #    definition (core/slugs.py). This endpoint used to run its own regex
+    #    here (strip everything outside [a-z0-9_], no diacritics handling) —
+    #    that silently mangled names ("Úklid stolu" -> "klid_stolu", losing
+    #    the U) and could still hand create_project() a slug validate_slug()
+    #    rejects (e.g. " Škoda" -> "_koda", a leading "_"), which surfaced to
+    #    the wizard's very first project as an opaque "invalid slug
+    #    (start_char)" and no way to create anything. suggest_slug() already
+    #    transliterates diacritics and fixes up exactly those cases.
+    slug = suggest_slug(body.project_name)
+
+    # Check if project directory already exists, if so, append suffix.
+    # Guarded on a non-empty slug: `Path(dir) / ""` is `Path(dir)` itself,
+    # which always exists, so an empty slug would "collide" on the very
+    # first check and turn into "_1" — trading the clean EMPTY error below
+    # for an equally-invalid leading-underscore one.
     original_slug = slug
     counter = 1
-    while (pm._config.projects_dir / slug).exists():
+    while slug and (pm._config.projects_dir / slug).exists():
         slug = f"{original_slug}_{counter}"
         counter += 1
 
@@ -2088,6 +2097,13 @@ async def setup_finish(body: SetupFinishConfig):
         event_bus.project_opened.emit(pm.current_project)
         
         return {"ok": True, "project": pm.current_project}
+    except InvalidSlug as e:
+        # suggest_slug() already fixes up the cases it can, but a name that
+        # is empty after transliteration, a reserved Windows device name, or
+        # over the length cap still needs a real response instead of a raw
+        # 500 — same shape /api/projects uses, so the wizard can render it
+        # through i18n instead of showing "invalid slug: start_char".
+        return JSONResponse(_slug_error_response(e), status_code=422)
     except Exception as e:
         log.exception("Setup finish error: %s", e)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)

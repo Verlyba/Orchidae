@@ -1446,7 +1446,22 @@ const App = {
         if (body)
             opts.body = JSON.stringify(body);
         const r = await fetch(`http://${host}/api${path}`, opts);
-        return r.json();
+        // An HTTP-level error (any status) that still carries a JSON body — the
+        // normal shape for every endpoint's own {"ok": false, "error": ...} — is
+        // NOT thrown here; callers already read res.ok / res.error from the
+        // parsed body, exactly as they do for a 200. What genuinely means "this
+        // request never reached the Orchiday API" is a body that is not JSON at
+        // all: a bare host or wrong port answers with its own plain-text 404
+        // ("Not found"), and r.json() would previously throw a raw
+        // "SyntaxError: Unexpected token" that every caller's catch block then
+        // stringified verbatim into an alert — technically true, useless to read.
+        const text = await r.text();
+        try {
+            return text ? JSON.parse(text) : {};
+        }
+        catch {
+            throw new Error(`Orchiday server na ${host} neodpověděl platným JSONem (HTTP ${r.status}: ${text.slice(0, 120)}). Běží backend (orchiday / uvicorn) na tomto portu?`);
+        }
     },
     // ── Projects Controller ─────────────────────────────────────────────
     async loadProjects() {
@@ -7604,7 +7619,12 @@ const App = {
                 this.log('SUCCESS', 'Setup wizard dokončen! Projekt ' + name + ' byl vytvořen.');
             }
             else {
-                alert('Chyba při dokončení setupu: ' + (res.error || 'neznámá chyba'));
+                // A rejected identifier arrives as a reason CODE (see createProject()) —
+                // render it through i18n instead of the raw "invalid slug: ..." string.
+                const msg = res.error_code
+                    ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug: name, ...(res.error_params || {}) })
+                    : (res.error || this.t('alert.unknownError'));
+                alert('Chyba při dokončení setupu: ' + msg);
             }
         }
         catch (err) {

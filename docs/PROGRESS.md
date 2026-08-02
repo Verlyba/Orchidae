@@ -8,6 +8,97 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (18) — Živé hlášení majitele: **první projekt se nedal založit**
+(chybný slug z Rychlého setupu) + matoucí chyba průzkumníku
+
+Majitel během běhu (17) narazil živě na appku a poslal screenshot +
+hlášku: `SyntaxError: Unexpected token 'N', "Not found "... is not valid
+JSON` při otevírání průzkumníku ve wizardu, a „také nejde vytvořit žádný
+nový projekt pokud žádný ještě nemám".
+
+**Bug #2 (potvrzeno, opraveno) — `/api/setup/finish` měl VLASTNÍ, druhou
+kopii odvození slugu.** Běh (14) zavedl `suggest_slug()` v `core/slugs.py`
+jako JEDINOU definici (viz jeho docstring — přesně tenhle bug tam byl
+zdokumentovaný jako motivace), ale endpoint Rychlého setupu na to
+nenavázal a dál běžel starou naivní verzí (`re.sub(r'[^a-z0-9_]', '',
+name.lower()...)`), která diakritiku nepřepisuje, jen maže. Ověřeno přímo
+přes `curl` proti běžícímu backendu:
+
+- `"Úklid stolu"` → starý kód dal `"klid_stolu"` (tiše ztratil „U") —
+  **tichá korupce identifikátoru**, ne pád.
+- `" Škoda"` (vedoucí mezera) → starý kód dal `"_koda"` (vedoucí
+  podtržítko) → `validate_slug()` uvnitř `create_project()` vyhodil
+  `InvalidSlug`, který **nic nechytal** → nezachycená 500 → **frontend
+  ukázal `alert('Chyba při dokončení setupu: invalid slug (start_char)')`
+  a projekt se nezaložil.** Přesně tohle majitel nahlásil — a je to zvlášť
+  zákeřné pro úplně prvního uživatele, protože Rychlý setup je JEDINÁ
+  cesta k prvnímu projektu na čerstvé instalaci.
+
+Oprava: `slug = suggest_slug(body.project_name)` místo vlastního regexu,
+plus `except InvalidSlug` vracející `_slug_error_response()` (stejný tvar
+jako `/api/projects`, `error_code` + `error_params` pro i18n) místo
+holého `str(e)` v `500`. Při opravě vyplynula **druhá, související chyba**:
+smyčka na unikátnost adresáře (`while (dir / slug).exists(): slug =
+f"{original}_{counter}"`) bere `Path(dir) / ""` jako `Path(dir)` samotný
+— ten VŽDY existuje, takže prázdný slug (jméno jako „!!!") **okamžitě
+"koliduje"** a smyčka ho přepíše na `"_1"`, což je zase neplatné (vedoucí
+podtržítko) místo čistého `EMPTY`. Opraveno strážením `while slug and
+...` — psáno proti novému testu, který to nejdřív odhalil failem.
+Frontend (`wizardFinish()` v `app.ts`) teď renderuje `error_code` přes
+stejný `slug.err.*` i18n mechanismus jako `createProject()`, místo syrové
+anglicko-kódové věty v alertu.
+
+Nový regresní test `tests/test_setup_finish_*` ve `test_slugs.py` (3
+testy, TestClient přes `/api/setup/finish`) — 44/44 v souboru, 292/292
+celkem.
+
+**Bug #1 (diagnostikováno, NE potvrzeno jako chyba appky) — port
+`localhost:4173` na screenshotu.** Skutečný backend appky (`orchiday`
+příkaz / `uvicorn orchiday.server:app`) poslouchá na **8000**, ne 4173.
+Přímo přes `curl` proti mému sandboxovému backendu `/api/utils/
+browse_directory` vždy vrátí platný JSON (`{"ok":true,"path":...}`) — i
+neexistující cesta vrátí FastAPI JSON `{"detail":"Not Found"}`, nikdy
+prostý text. Chybová hláška `"Not found"` (velké N, bez JSON obálky) proto
+**nemohla přijít z Orchiday backendu** — něco jiného na portu 4173
+odpovědělo na `/api/utils/browse_directory` místo něj (statický server,
+špatně nastavené proxy, spuštěný jen `web/` bez backendu…). Bez přístupu k
+majitelovu stroji nejde diagnózu dotáhnout dál — **potřebuju vědět, jak
+appku spustil** (přímo `orchiday`, nebo něco jiného na 4173?).
+
+Bez ohledu na příčinu je ale nečitelná chybová hláška sama o sobě špatná
+UX, takže jsem to opravil obecně: `App.api()` v `app.ts` teď čte tělo
+odpovědi jako text a `JSON.parse()` ho sama, takže když to selže, vyhodí
+srozumitelnou zprávu (`"Orchiday server na <host> neodpověděl platným
+JSONem (HTTP <status>: <text>). Běží backend (orchiday / uvicorn) na
+tomto portu?"`) místo prohlížečovy syrové `SyntaxError`. **Bezpečné beze
+změny chování**: obě situace, které teď hodí Error (síťová chyba fetch(),
+tělo není JSON), už dnes hodí výjimku i beze mě — jen s nečitelnou
+zprávou — takže žádné volací místo, které dřív *nepadalo*, nezačne padat
+nově. Ověřeno v Playwrightu s `page.route()` mockujícím přesně hlášenou
+odpověď (`404 text/plain "Not found"`) — nová zpráva je čitelná.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` **prochází celé** (292 pytestů, +3 nové).
+- Reprodukce/oprava obou repro případů ověřena přímo přes `curl` proti
+  běžícímu backendu (viz čísla výše) i přes nový pytest.
+- `web/index.html` `?v=` `styles.css` už na `3.80.0` z běhu (17); `app.js`
+  teď taky `3.80.0` (byl pozadu na `3.79.0` po TS rebuildu).
+- `bash scripts/measure-layout.sh` na `projects`/`setup`/`teleoperation` —
+  beze změny (`ovfX=0`, `clipped=0`, `wide=0`), čistě logická oprava.
+
+**Otevřeno pro příště:** Potvrdit u majitele, jak appku spouští (port
+4173) — pokud je to legitimní způsob nasazení (packaging krok, který
+servíruje `web/` odděleně od backendu), architektura `App.api()`
+(`http://${location.host}/api...`, jedno origin pro obojí) je špatný
+předpoklad a je potřeba buď konfigurovatelnou API base URL, nebo
+zdokumentovaný jediný způsob spuštění. Pokud šlo jen o omylem spuštěný
+`vite preview` v `design_test/` (nesouvisející lovable.dev mockup v repu),
+nejde o bug appky — ale stálo by za to `design_test/` v `README`/`docs`
+jasně označit jako pouze designový odkaz, ne spustitelnou část appky.
+
+---
+
 ## 2026-08-02 (17) — Priorita A: **neviditelný vodorovný scroll** schovával
 reálný obsah na skoro každém panelu, který skroluje svisle
 

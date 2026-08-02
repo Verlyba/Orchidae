@@ -253,3 +253,59 @@ def test_controller_repo_id_resolution_delegates_to_the_module_function(monkeypa
     ctrl.pm = _PM()
     assert ctrl._dataset_repo_id_for("approach") == "local/pick_place/approach"
     assert seen == [("pick_place", "approach")]
+
+
+# ── The Quick Setup wizard must derive its slug the same way, not a second
+#    copy ─────────────────────────────────────────────────────────────────
+#
+# /api/setup/finish used to run its own inline regex instead of calling
+# suggest_slug(): strip everything outside [a-z0-9_], no diacritic handling.
+# That silently mangled ordinary Czech names ("Úklid stolu" lost its leading
+# "U" -> "klid_stolu") and could still hand create_project() a slug
+# validate_slug() rejects (" Škoda" -> "_koda", a leading "_"), which came
+# back as a raw 500 and no way to create a project at all — worst on a fresh
+# install, where the wizard IS the only way to create the first one.
+
+@pytest.fixture
+def setup_finish_client(tmp_path, monkeypatch):
+    """A TestClient wired to a scratch projects_dir, current_project reset after."""
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    import orchiday.server as server
+
+    monkeypatch.setattr(type(server.pm._config), "projects_dir",
+                        property(lambda self: tmp_path), raising=False)
+    opened = server.pm.current_project
+    try:
+        with fastapi_testclient.TestClient(server.app) as client:
+            yield client
+    finally:
+        server.pm.current_project = opened
+
+
+def _finish_payload(name: str) -> dict:
+    return {
+        "project_name": name, "robot_type": "so101_follower",
+        "lerobot_option": "connect", "scene_description": "a table",
+    }
+
+
+def test_setup_finish_derives_the_slug_through_suggest_slug(setup_finish_client):
+    res = setup_finish_client.post("/api/setup/finish", json=_finish_payload("Úklid stolu"))
+    assert res.status_code == 200, res.text
+    assert res.json()["project"]["slug"] == suggest_slug("Úklid stolu") == "uklid_stolu"
+
+
+def test_setup_finish_no_longer_500s_on_a_name_the_old_regex_broke(setup_finish_client):
+    # " Škoda" -> old regex: lower + space->"_" + strip diacritics = "_koda",
+    # a leading "_" that create_project() raised InvalidSlug on, uncaught.
+    res = setup_finish_client.post("/api/setup/finish", json=_finish_payload(" Škoda"))
+    assert res.status_code == 200, res.text
+    assert res.json()["project"]["slug"] == "skoda"
+
+
+def test_setup_finish_reports_an_unusable_name_as_a_translatable_code(setup_finish_client):
+    res = setup_finish_client.post("/api/setup/finish", json=_finish_payload("!!!"))
+    assert res.status_code == 422
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error_code"] == slugs.EMPTY
