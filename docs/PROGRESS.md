@@ -8,6 +8,94 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (15) — `verify.sh` na mainu **neprocházel**: brána zakazovala
+zaoblení, které do designu ručně přidal majitel projektu
+
+**Výchozí stav — priorita A, hned na začátku.** `setup-dev.sh` proběhl,
+`bash scripts/verify.sh` **spadl** na kroku „flat design tokens“ (13 nálezů).
+Všechno ostatní prošlo (289 pytestů, i18n cs=en=1024, 9 panelů, 107 `App.*`).
+Padalo to na mainu, ne na mé změně — příčinou byly dva ruční commity majitele
+(`15b282e`, `bad35f9`, autor `green`), které přidaly designový systém
+s akcentem `#ff9b30` a zaoblenými rohy. Ty commity zjevně neprošly bránou;
+fronta na tohle upozorňuje už od (6): **před commitem na main pustit verify.sh**.
+
+**Rozhodnutí — přizpůsobit bránu, ne přepsat majitelův design**
+
+Byly dvě možnosti: (a) zaoblení vymazat a vrátit plochý vzhled, (b) bránu
+srovnat se skutečným záměrem. Zvoleno (b), ze tří důvodů:
+
+1. Zadání říká „**s respektem k tomu aktuálnímu, ten neměnit, pouze vylepšit
+   nebo opravit rozložení**“. Aktuální stav mainu = majitelův design.
+2. Zákaz zaoblení si zavedl **automatický běh (7)** sám pro sebe. Majitel ho
+   ručním commitem přebil — novější a lidský záměr má přednost.
+3. Majitel v tomtéž commitu napsal na tlačítka `filter: none !important;
+   `backdrop-filter: none !important` — tedy **sám potvrdil, že rozostření
+   a záře nechce**. Záměr je „měkké rohy ano, blur/stín/glow ne“, a přesně to
+   teď brána kontroluje.
+
+**Druhá, samostatná chyba: brána měla falešný nález.** Pravidlo pro
+`backdrop-filter` povolovalo hodnotu `none`, ale regex `^none$` neseděl na
+`none !important`. Brána tedy shodila build kvůli řádku, jehož jediným úkolem
+bylo efekt **vypnout**. Hodnota se teď před posouzením zbavuje `!important`
+(platí i pro `box-shadow` / `text-shadow`).
+
+**Změny**
+
+- **`web/styles.css` — škála poloměrů v `:root`** (`--radius-sm: 4px`,
+  `--radius-md: 6px`, `--radius-lg: 10px`), přiřazená podle toho, **co prvek
+  je**, ne jak vypadá: `sm` ovládací prvky (tlačítka), `md` pole a vsazené
+  řádky (`input`/`select`/`textarea`, `.project-row`, `.pd-*`, `.conn-type-*`),
+  `lg` okenní plochy (`.setup-block`, `.connect-col`/`.merge-col`).
+  Všech 10 natvrdo psaných hodnot převedeno na tokeny. Míchalo se 4/6/8/10 px
+  — jediná skutečná změna vzhledu je `.conn-type-list` 8 px → 6 px, aby škála
+  měla tři stupně a ne čtyři.
+- **Reset `*, *::before, *::after { border-radius: 0 }` zůstává.** Není to už
+  „ploché rohy jako pravidlo“, ale normalizace: WebKit na macOS zaobluje
+  `input`/`button`/`select` sám od sebe, Chromium a Firefox ne. Zaoblení je
+  tedy **opt-in** a rozhodují o něm jen pravidla se škálou.
+- **`web/index.html` — zrušen inline `style=""` na `#cal-now-text`.**
+  Ten atribut přerazil vlastní třídu `.cal-step-instruction-big`: znovu
+  deklaroval `font-size`, `background`, `margin`, `border-radius` a **zrušil**
+  `border-left`, takže třída popisovala box, který se nikdy nevykreslil.
+  Skutečný vzhled (24 px, na střed, vsazené pozadí) je teď **v té třídě**,
+  na jednom místě. Přidáno `max-width: none` — element nese i `.phase-now-text`
+  s limitem 62ch pro prózu, což u jedné vycentrované věty dělalo úzký sloupec.
+- **`scripts/verify.sh` krok 8 přepsán** z „žádné zaoblení“ na „zaoblení
+  **jen ze škály**“: povoleno `0` nebo `var(--radius-sm|md|lg)`, cokoli
+  psaného jako délka je nález. Navíc kontroluje, že ty tři tokeny v `:root`
+  **opravdu existují** — bez toho by se daly smazat, `var()` by se rozpadlo
+  na nic a brána by mlčela. Regex nově chytá i rohové longhandy
+  (`border-top-left-radius`) a prefixované varianty.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` **prochází celé** (289 pytestů, i18n cs=en=1024
+  bez duplicit, 0 duplicitních id, 9 panelů, 107 `App.*` odkazů).
+- **Negativní test brány — povinný, jinak je zelená brána bezcenná.** Šest
+  sond, každá zvlášť vložená a zase odebraná: literál `border-radius: 7px`,
+  longhand `border-top-left-radius: 12px`, **inline** `style="border-radius:
+  9px"` v HTML, skutečný `box-shadow: 0 0 12px`, `backdrop-filter: blur(6px)`
+  a **smazaný token `--radius-md` při zachovaném `var(--radius-md)`**.
+  Všech 6 správně shodí verify. Kontrolní sonda s povolenými tvary
+  (`var(--radius-lg)`, `box-shadow: none !important`, `border-bottom-right-radius: 0`)
+  **neshodí nic**.
+- **Vykresleno v headless Chromiu** (ne jen přečteno): `#cal-now-text` má po
+  změně `fontSize 24px`, `textAlign center`, `borderRadius 6px`,
+  `inlineStyle: null`, `scrollHeight - clientHeight = 0` (nic neořezává)
+  a plní šířku panelu 1238 px. Screenshot živé kalibrace odpovídá.
+- **`scripts/measure-layout.sh` před i po změně** — čísla **identická**
+  (setup 17/19/16 %, projects 20/21/21 %, uceni 27/30/45 %), takže tahle
+  změna je layoutově neutrální. 0 přetečení, 0 roztažených polí kromě známého
+  `#settings-scene-desc`.
+
+**Na fyzickém robotu zbývá vyzkoušet** (v cloudu nelze, netvrdím opak):
+nic z této změny se netýká hardwaru — je čistě vzhledová a nástrojová.
+Jediné, co stojí za pohled okem při příští kalibraci na skutečném rameni:
+jestli je vycentrovaná instrukce ve 24 px čitelná od stolu s robotem tak,
+jak byla zamýšlená, protože to je celý smysl toho prvku.
+
+---
+
 ## 2026-08-02 (14) — Identifikátor dovednosti se nekontroloval: „Eval test“
 LeRobot 0.6 odmítne nahrát, „Con“ nejde vytvořit na Windows a stejné jméno
 dvakrát **tiše přepsalo** existující dovednost
@@ -1802,6 +1890,41 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 ## Otevřené věci (fronta pro další běhy)
 
 **Frontend**
+- **NEJSILNĚJŠÍ POLOŽKA PO (15): ruční přestavba UI majitelem (`15b282e`,
+  `bad35f9`) srazila obsazenost plochy zhruba na polovinu.** Přeměřeno v (15)
+  proti stejnému fixture jako dřív, tedy srovnatelně:
+
+  | stránka | zapsáno po (13) | naměřeno v (15) |
+  |---|---|---|
+  | `setup` | 31 / 35 / 43 % | **17 / 19 / 16 %** |
+  | `projects` | 26 / 33 / 43 % | **20 / 21 / 21 %** |
+  | `modelrun` | 24 / 33 / 37 % | 22 / 31 / 33 % |
+  | `datasety` | 33 / 40 / 40 % | 30 / 33 / 32 % |
+  | `uceni` | 45 / 32 / 38 % | 27 / 30 / 45 % |
+
+  Nejvíc to sebral `setup` a `projects` — tedy přesně práce, kterou běhy (8)
+  a (13) na vyplnění prázdné plochy odvedly. Příčinu neurčovat od stolu:
+  ty commity přidaly `padding: 28px 32px !important` na `.setup-block`
+  a `28px 28px 24px !important` na `.connect-col`/`.merge-col`, což je první
+  podezřelý (vnitřní odsazení plochu nezaplní, jen odsune obsah), ale
+  **změřit to, ne hádat**. `bash scripts/measure-layout.sh --pages setup`.
+  **Tohle je věc, kterou zadání označuje za hlavní problém** — a je to
+  největší jednotlivá regrese, jakou deník zatím zaznamenal.
+  Pozor: majitelův vzhled se **nemá vracet zpátky**, má se opravit rozvržení
+  uvnitř něj (zadání: „pouze vylepšit nebo opravit rozložení“).
+- ~~`verify.sh` padal na zaoblených rozích~~ — vyřešeno 2026-08-02 (15).
+  Brána teď povoluje `0` nebo `var(--radius-sm|md|lg)`. **Nová hodnota
+  poloměru patří do `:root`, ne do pravidla** — o to jde. Blur, stín a záře
+  zůstávají zakázané a majitel to sám potvrdil (`filter: none !important`
+  na `.btn`).
+- **Inline `style=""` v `index.html` je 322×.** V (15) jeden takový atribut
+  prokazatelně přerážel vlastní třídu prvku (`#cal-now-text`) — třída
+  popisovala box, který se nikdy nevykreslil. Je to tichá past a je jich tam
+  přes tři sta; stojí za samostatný běh, který je systematicky přesune do
+  `styles.css`. Začít u těch, které kolidují s třídou, kterou prvek nese.
+- **`setup` @ 1024×760: `SECTION.merge-col` ořezává obsah** (255 > 205 px,
+  `overflow: hidden`). Naměřeno v (15), existuje to i před mou změnou.
+  Recept z (13): každý předek scrollportu potřebuje `min-height: 0`.
 - ~~Tlačítka akcí sedí v `page-header-row`~~ — hotovo 2026-08-01 (2), vzor
   `.block-actions`.
 - ~~Teleoperace: `.setup-block` se ořezává při nízkém okně~~ — hotovo

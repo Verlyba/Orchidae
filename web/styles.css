@@ -67,6 +67,19 @@
        question: is the pointer on this one, is this the chosen one. */
     --surface: transparent;
     --surface-hover: rgba(255, 255, 255, 0.05);
+
+    /* Corner radius scale — the ONLY radii allowed anywhere in web/.
+       Three steps, assigned by what the element is, not by how it looks:
+         sm  controls the pointer acts on directly (buttons, chips)
+         md  fields and inset rows (input/select/textarea, list rows, sub-panels)
+         lg  window-level surfaces (.setup-block, layout columns)
+       A radius written as a literal length is a fourth step nobody decided on;
+       that is how 4/6/8/10px ended up mixed across pages. scripts/verify.sh
+       rejects any border-radius that is not 0 or one of these tokens, so a new
+       value has to be added here — i.e. chosen for the whole app at once. */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 10px;
 }
 
 /* --- Base & Scrollbars --- */
@@ -76,13 +89,13 @@
     padding: 0;
 }
 
-/* Sharp corners are a constraint of this UI, not a default that happens to
-   hold. Pinning them once here also overrides the rounding browsers apply to
-   form controls on their own — WebKit on macOS rounds inputs, buttons and
-   selects, Chromium and Firefox do not — so a control looks the same on all
-   three platforms. Author styles beat the UA stylesheet regardless of the
-   zero specificity of `*`, and scripts/verify.sh keeps any non-zero
-   border-radius from being reintroduced elsewhere. */
+/* Radius is opt-in, never inherited from the browser. Pinning zero once here
+   overrides the rounding browsers apply to form controls on their own — WebKit
+   on macOS rounds inputs, buttons and selects, Chromium and Firefox do not —
+   so a control looks the same on all three platforms and only the rules below
+   decide its corners. Author styles beat the UA stylesheet regardless of the
+   zero specificity of `*`, and every rule that opts in does so through the
+   --radius-* scale above (enforced by scripts/verify.sh). */
 *, *::before, *::after {
     border-radius: 0;
 }
@@ -678,7 +691,7 @@ body {
     background: var(--bg-sidebar);
     padding: 28px 32px !important;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     margin-bottom: 16px;
     display: flex;
     flex-direction: column;
@@ -768,7 +781,7 @@ input, select, textarea {
     border: 1px solid var(--border);
     color: var(--text-light);
     padding: 9px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 13.5px;
     outline: none;
     transition: var(--transition);
@@ -810,7 +823,7 @@ input[readonly] {
     line-height: 1.4;
     user-select: none;
     white-space: nowrap;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     filter: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -958,7 +971,7 @@ input[readonly] {
 .merge-col {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     padding: 28px 28px 24px 28px !important;
     display: flex;
     flex-direction: column;
@@ -1075,7 +1088,7 @@ input[readonly] {
 .project-row {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 12px 14px;
     margin-bottom: 6px;
     cursor: pointer;
@@ -1206,7 +1219,7 @@ input[readonly] {
 .pd-ident {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 14px 16px;
     margin-bottom: 12px;
 }
@@ -1234,7 +1247,7 @@ input[readonly] {
 .pd-stat {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 10px 14px;
     display: flex;
     flex-direction: column;
@@ -1271,7 +1284,7 @@ input[readonly] {
 .pd-sect {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 14px 16px;
     margin-bottom: 12px;
     display: flex;
@@ -1560,7 +1573,7 @@ input[readonly] {
     border: 1px solid var(--border-dark);
     background: rgba(0, 0, 0, 0.2);
     padding: 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow-y: auto;
     min-height: 0;
     flex: 1 1 auto;
@@ -1570,7 +1583,7 @@ input[readonly] {
 .conn-type-row {
     border: 1px solid var(--border-dark);
     border-left: 3px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 10px 14px;
     cursor: pointer;
     display: flex;
@@ -7206,15 +7219,26 @@ body { min-width: 320px; }
     margin-top: 4px;
 }
 
-/* ── Large Calibration Step Instruction ── */
+/* ── Large Calibration Step Instruction ──
+   The one line telling the operator what to do with the arm right now, read
+   from across the bench with both hands on the robot — hence the size. It is
+   styled here and nowhere else: it used to carry an inline style="" that
+   re-declared font-size, background, margin, radius and cancelled the border,
+   so the rule below described a box that never actually rendered. The
+   !important flags outrank .phase-now-text, which the element also carries. */
 .cal-step-instruction-big {
-    font-size: 18px !important;
+    font-size: 24px !important;
     font-weight: 700 !important;
     line-height: 1.4 !important;
     color: var(--text-white) !important;
+    text-align: center;
     background: var(--bg-inset);
-    border-left: 3px solid var(--accent);
-    padding: 12px 14px;
-    margin: 12px 0;
+    border: 1px solid var(--border-dark);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    margin: 20px 0;
+    /* .phase-now-text caps at 62ch for prose; this is one short imperative
+       centred in the panel, so it spans the panel instead of sitting left. */
+    max-width: none;
 }
 

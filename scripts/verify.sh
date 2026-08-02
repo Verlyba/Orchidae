@@ -189,25 +189,52 @@ else
   echo "skipped (node unavailable)"
 fi
 
-# ── 8. Flat technical look: no rounded corners, blur, shadows or glow ─────
-# The design language is a deliberate constraint, not a taste: sharp corners,
-# visible borders, muted fills. Decoration crept back in every time a new panel
-# was hand-styled (98 border-radius declarations, a blurred overlay backdrop and
-# several glows had accumulated), so it is checked instead of remembered.
-# Inline style="" attributes count too — that is where most of it came from.
+# ── 8. Flat technical look: one radius scale, no blur, shadows or glow ────
+# The design language is a deliberate constraint, not a taste: muted fills,
+# visible borders, and corners that come from ONE scale instead of whatever
+# each panel's author happened to type. Decoration crept back in every time a
+# new panel was hand-styled (98 border-radius declarations, a blurred overlay
+# backdrop and several glows had accumulated), so it is checked instead of
+# remembered. Inline style="" attributes count too — that is where most of it
+# came from, and an inline radius also silently outranks the stylesheet.
+#
+# Radius used to be banned outright. It no longer is: the design carries a
+# three-step scale (--radius-sm/md/lg in :root). What is banned is a radius
+# written as a literal length, because that is a fourth step nobody decided on
+# — exactly how 4/6/8/10px ended up mixed across pages. Blur, shadow and glow
+# stay banned; the buttons say so themselves with `filter: none !important`.
 step "flat design tokens"
 if command -v node >/dev/null 2>&1; then
   node -e '
     const fs = require("fs");
     const FILES = ["web/styles.css", "web/index.html", "web/app.ts"];
+    const RADIUS_TOKENS = ["--radius-sm", "--radius-md", "--radius-lg"];
+
+    // The scale has to exist, or every var(--radius-*) below resolves to
+    // nothing and the check passes while the corners quietly go square.
+    const css = fs.readFileSync("web/styles.css", "utf8");
+    const undefined_ = RADIUS_TOKENS.filter(t => !new RegExp(`^\\s*${t}\\s*:`, "m").test(css));
+    if (undefined_.length) {
+      console.log("radius tokens used but not defined in :root:", undefined_.join(", "));
+      process.exit(1);
+    }
+    const allowedRadius = new RegExp(
+      `^(?:0(?:px|%)?|var\\(\\s*(?:${RADIUS_TOKENS.join("|")})\\s*\\))$`);
+
     // Property name -> what is allowed. Anything else is a finding.
+    // `!important` is stripped before the value is judged: `none !important`
+    // is still none, and rejecting it made the gate fail on a rule whose whole
+    // job was to force the effect off.
+    const strip = v => v.trim().replace(/\s*!important$/i, "").trim();
     const RULES = [
-      [/border-radius\s*:\s*([^;"\x27}`\n]+)/gi, v => /^0(?:px|%)?$/.test(v.trim()),
-       "rounded corner (sharp corners only)"],
-      [/(?:^|[^-\w])(?:-webkit-)?backdrop-filter\s*:\s*([^;"\x27}`\n]+)/gi, v => /^none$/i.test(v.trim()),
-       "backdrop-filter (no blur)"],
-      [/(?:box|text)-shadow\s*:\s*([^;"\x27}`\n]+)/gi, v => /^none$/i.test(v.trim()),
-       "shadow / glow"],
+      // Matches border-radius and the per-corner longhands, prefixed or not.
+      [/border(?:-(?:top|bottom)-(?:left|right))?-radius\s*:\s*([^;"\x27}`\n]+)/gi,
+       v => allowedRadius.test(strip(v)),
+       "radius outside the scale (use 0 or var(--radius-sm|md|lg))"],
+      [/(?:^|[^-\w])(?:-webkit-)?backdrop-filter\s*:\s*([^;"\x27}`\n]+)/gi,
+       v => /^none$/i.test(strip(v)), "backdrop-filter (no blur)"],
+      [/(?:box|text)-shadow\s*:\s*([^;"\x27}`\n]+)/gi,
+       v => /^none$/i.test(strip(v)), "shadow / glow"],
       // The leading guard keeps this from re-reporting `backdrop-filter`.
       [/(?:^|[^-\w])filter\s*:\s*([^;"\x27}`\n]*blur\([^)]*\))/gi, () => false, "blur() filter"],
     ];
@@ -224,8 +251,8 @@ if command -v node >/dev/null 2>&1; then
       }
     }
     if (bad) process.exit(1);
-    console.log("no rounded corners, blur, shadows or glow in web/");
-  ' || fail "decorative styling found (see above) — the UI is deliberately flat"
+    console.log(`radii come from ${RADIUS_TOKENS.join(" / ")}; no blur, shadow or glow in web/`);
+  ' || fail "styling outside the design tokens (see above) — one radius scale, no blur/shadow/glow"
 else
   echo "skipped (node unavailable)"
 fi
