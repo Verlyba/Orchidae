@@ -858,13 +858,27 @@ const App = {
             return v;
         };
         for (const side of ['leader', 'follower']) {
-            const card = document.getElementById(`cal-arm-${side}`);
-            if (!card)
-                continue;
             const arm = cfg?.[side];
             const calibrated = arm?.source === 'calibration' && !!arm.filename;
-            card.classList.toggle('is-calibrated', !!calibrated);
-            card.classList.toggle('is-default', !!arm && !calibrated);
+            const btnSetup = document.getElementById(`cal-btn-setup-${side}`);
+            const details = document.getElementById(`cal-details-${side}`);
+            const deviceEl = document.getElementById(`cal-device-${side}`);
+            const stateEl = document.getElementById(`cal-state-${side}`);
+            if (btnSetup && details) {
+                if (calibrated) {
+                    btnSetup.style.display = 'none';
+                    details.style.display = 'flex';
+                    if (deviceEl)
+                        deviceEl.textContent = arm?.device_type || '-';
+                    if (stateEl)
+                        stateEl.textContent = this.t('cal.stateCalibrated');
+                }
+                else {
+                    btnSetup.style.display = 'flex';
+                    details.style.display = 'none';
+                }
+            }
+            const jointNames = Object.keys(arm?.joints || {});
             const set = (id, text, isDefault = false) => {
                 const el = document.getElementById(id);
                 if (!el)
@@ -872,21 +886,7 @@ const App = {
                 el.textContent = text;
                 el.classList.toggle('is-default', isDefault);
             };
-            const stateKey = !arm ? 'cal.stateUnknown' : calibrated ? 'cal.stateCalibrated' : 'cal.stateDefault';
-            const stateEl = document.getElementById(`cal-state-${side}`);
-            if (stateEl) {
-                stateEl.textContent = this.t(stateKey);
-                stateEl.setAttribute('data-i18n', stateKey);
-            }
-            const jointNames = Object.keys(arm?.joints || {});
             set(`cal-device-${side}`, arm?.device_type || '-');
-            // The id is what LeRobot names the calibration file after
-            // (<cache>/<category>/<type>/<id>.json), so it comes from the same
-            // field calibrateArm() passes as --robot.id / --teleop.id.
-            const activeRobot = (this.project?.robots || [])[0];
-            set(`cal-id-${side}`, document.getElementById(`tele-${side}-id`)?.value
-                || (side === 'leader' ? activeRobot?.leader_id : activeRobot?.follower_id) || '-');
-            set(`cal-port-${side}`, portOf(side) || '-');
             set(`cal-file-${side}`, calibrated ? arm.filename : arm ? this.t('cal.fileDefault') : '-', !!arm && !calibrated);
             set(`cal-joints-${side}`, jointNames.length ? String(jointNames.length) : '-');
             const portHint = document.getElementById(`cal-tab-${side}-port`);
@@ -1328,6 +1328,9 @@ const App = {
             const sysinfo = await this.api('GET', '/settings/sysinfo');
             if (sysinfo) {
                 // Pre-fill paths
+                const projDirInput = document.getElementById('settings-projects-dir');
+                if (projDirInput)
+                    projDirInput.value = sysinfo.projects_dir || '';
                 const pyPathInput = document.getElementById('settings-python-path');
                 if (pyPathInput)
                     pyPathInput.value = sysinfo.python_path || '';
@@ -1511,17 +1514,18 @@ const App = {
         const el = document.getElementById('project-list');
         if (el) {
             const plusCard = `
-        <div class="project-card project-card-new" onclick="App.openNewProjectChoiceModal()" tabindex="0" role="button" aria-label="Vytvořit nový projekt">
-          <div class="project-card-plus-icon">+</div>
-          <div style="font-weight:700; color:var(--cyan); font-size:13px;">${this.esc(this.t('lbl.newProjectCard'))}</div>
-          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${this.esc(this.t('lbl.newProjectCardSub'))}</div>
+        <div class="project-row project-row-new" onclick="App.openNewProjectChoiceModal()" tabindex="0" role="button" aria-label="Vytvořit nový projekt" style="justify-content: center; align-items: center; border: 1px dashed var(--border-light); background: transparent; padding: 12px; margin-top: 10px; margin-bottom: 4px;">
+          <div style="font-weight:700; color:var(--text-light); font-size:14px; display: flex; align-items: center; gap: 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            ${this.esc(this.t('lbl.newProjectCard'))}
+          </div>
         </div>`;
             if (!all.length) {
-                el.innerHTML = plusCard + `
+                el.innerHTML = `
           <div class="empty-state">
             <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
             <div class="empty-state-text">${this.esc(this.t('hint.noProjects'))}</div>
-          </div>`;
+          </div>` + plusCard;
             }
             else {
                 const rows = all.map(p => {
@@ -1543,15 +1547,11 @@ const App = {
                 ${isOpen ? `<span class="project-row-flag">${this.esc(this.t('val.projectOpen'))}</span>` : ''}
               </div>
               <div class="project-row-meta">
-                <span class="mono">${this.esc(p.slug || '—')}</span>
                 <span class="robot-badge ${rt.cls}">${this.esc(rt.label)}</span>
-                <span>${tasks.length} ${this.esc(this.t('val.tasksShort'))}</span>
-                <span>${steps} ${this.esc(this.t('val.stepsShort'))}</span>
-                ${p.created_at ? `<span>${this.esc(new Date(p.created_at).toLocaleDateString())}</span>` : ''}
               </div>
             </div>`;
                 }).join('');
-                el.innerHTML = plusCard + rows;
+                el.innerHTML = rows + plusCard;
             }
         }
         const countEl = document.getElementById('project-list-count');
@@ -2313,25 +2313,43 @@ const App = {
         const followerPort = document.getElementById('tele-follower-port')?.value || '';
         const leaderType = document.getElementById('tele-leader-type')?.value || 'so100_leader';
         const followerType = document.getElementById('tele-follower-type')?.value || 'so100_follower';
-        const leaderCard = document.getElementById('connect-card-leader');
-        const leaderBadge = document.getElementById('conn-badge-leader');
+        // Leader
+        const btnLeader = document.getElementById('conn-btn-setup-leader');
+        const detailsLeader = document.getElementById('conn-details-leader');
         const leaderPortText = document.getElementById('conn-port-leader-name');
         const leaderTypeText = document.getElementById('conn-type-leader-name');
-        if (leaderCard && leaderBadge && leaderPortText && leaderTypeText) {
-            leaderCard.classList.toggle('is-connected', !!leaderPort);
-            leaderBadge.textContent = leaderPort ? this.t('lbl.connected') : this.t('lbl.portNotSet');
-            leaderPortText.textContent = leaderPort || this.t('lbl.portNotSet');
-            leaderTypeText.textContent = leaderType;
+        if (btnLeader && detailsLeader) {
+            if (leaderPort) {
+                btnLeader.style.display = 'none';
+                detailsLeader.style.display = 'flex';
+                if (leaderPortText)
+                    leaderPortText.textContent = leaderPort;
+                if (leaderTypeText)
+                    leaderTypeText.textContent = leaderType;
+            }
+            else {
+                btnLeader.style.display = 'flex';
+                detailsLeader.style.display = 'none';
+            }
         }
-        const followerCard = document.getElementById('connect-card-follower');
-        const followerBadge = document.getElementById('conn-badge-follower');
+        // Follower
+        const btnFollower = document.getElementById('conn-btn-setup-follower');
+        const detailsFollower = document.getElementById('conn-details-follower');
         const followerPortText = document.getElementById('conn-port-follower-name');
         const followerTypeText = document.getElementById('conn-type-follower-name');
-        if (followerCard && followerBadge && followerPortText && followerTypeText) {
-            followerCard.classList.toggle('is-connected', !!followerPort);
-            followerBadge.textContent = followerPort ? this.t('lbl.connected') : this.t('lbl.portNotSet');
-            followerPortText.textContent = followerPort || this.t('lbl.portNotSet');
-            followerTypeText.textContent = followerType;
+        if (btnFollower && detailsFollower) {
+            if (followerPort) {
+                btnFollower.style.display = 'none';
+                detailsFollower.style.display = 'flex';
+                if (followerPortText)
+                    followerPortText.textContent = followerPort;
+                if (followerTypeText)
+                    followerTypeText.textContent = followerType;
+            }
+            else {
+                btnFollower.style.display = 'flex';
+                detailsFollower.style.display = 'none';
+            }
         }
     },
     // ── Hardware Page Auto-detection & Cameras ───────────────────────
@@ -2464,6 +2482,28 @@ const App = {
         placeholder.style.display = 'none';
         this.setCamPreviewState('cam.previewLive');
     },
+    hwOnSelectConfiguredCamera(camId) {
+        const cam = (this.project?.cameras || []).find((c) => c.id === camId);
+        if (!cam)
+            return;
+        const portSelect = document.getElementById('hw-camera-port-select');
+        const roleSelect = document.getElementById('hw-camera-role-select');
+        if (portSelect && cam.source !== undefined) {
+            const sourceStr = String(cam.source);
+            let opt = portSelect.querySelector(`option[value="${sourceStr}"]`);
+            if (!opt) {
+                opt = document.createElement('option');
+                opt.value = sourceStr;
+                opt.textContent = sourceStr;
+                portSelect.insertBefore(opt, portSelect.lastElementChild);
+            }
+            portSelect.value = sourceStr;
+        }
+        if (roleSelect && cam.role) {
+            roleSelect.value = cam.role;
+        }
+        this.hwOnCameraPortChange();
+    },
     /** One writer for the preview's state badge, so the label cannot disagree
      * with whether an image is actually being streamed. */
     setCamPreviewState(key) {
@@ -2592,7 +2632,7 @@ const App = {
             alert(msg);
             return;
         }
-        const btn = document.getElementById(`btn-calibrate-${role}`);
+        const btn = (document.getElementById(`cal-btn-setup-${role}`) || document.getElementById(`btn-calibrate-${role}`));
         const oldText = btn ? btn.innerHTML : '';
         if (btn) {
             btn.disabled = true;
@@ -2622,6 +2662,12 @@ const App = {
     // recording each joint's range of motion: NAME | MIN | POS | MAX) ────────
     showCalibrationLivePanel(robotId) {
         this.calibratingRobotId = robotId;
+        const defView = document.getElementById('cal-default-view');
+        const actView = document.getElementById('cal-active-view');
+        if (defView)
+            defView.style.display = 'none';
+        if (actView)
+            actView.style.display = 'flex';
         const panel = document.getElementById('calibration-live-panel');
         const label = document.getElementById('calibration-live-robot');
         const tbody = document.getElementById('calibration-live-tbody');
@@ -2730,6 +2776,12 @@ const App = {
     },
     hideCalibrationLivePanel() {
         this.calibratingRobotId = null;
+        const defView = document.getElementById('cal-default-view');
+        const actView = document.getElementById('cal-active-view');
+        if (defView)
+            defView.style.display = 'flex';
+        if (actView)
+            actView.style.display = 'none';
         const panel = document.getElementById('calibration-live-panel');
         const ranges = document.getElementById('cal-ranges');
         const col = document.querySelector('.cal-col-run');
@@ -2942,47 +2994,19 @@ const App = {
     },
     renderCalibrationFilesList(files) {
         const el = document.getElementById('cal-files-list');
-        if (!el)
-            return;
+        const inlineEl = document.getElementById('cal-files-inline-list');
         if (!files.length) {
-            el.innerHTML = `<div class="modal-empty-note">${this.t('cal.noFiles')}</div>`;
+            const emptyHtml = `<div class="modal-empty-note">${this.t('cal.noFiles')}</div>`;
+            if (el)
+                el.innerHTML = emptyHtml;
+            if (inlineEl)
+                inlineEl.innerHTML = emptyHtml;
             return;
         }
         const catLabel = (c) => c === 'robots' ? 'Follower' : 'Leader';
-        // Pinned first, then newest — the two orders that matter when picking a
-        // calibration to re-apply.
         const sorted = [...files].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0)
             || (b.last_modified || '').localeCompare(a.last_modified || ''));
-        const rows = sorted.map(f => {
-            const isActive = !!(f.active_for && f.active_for.length);
-            const date = f.last_modified ? new Date(f.last_modified).toLocaleString() : '—';
-            return `
-      <tr class="${isActive ? 'is-active' : ''}" data-filename="${this.esc(f.name)}">
-        <td class="cal-col-pin">
-          <label class="cal-file-pin" title="${this.t('cal.favorite')}">
-            <input type="checkbox" ${f.favorite ? 'checked' : ''}
-                   onchange="App.toggleCalibrationFavorite('${this.esc(f.name)}', this.checked)">PIN
-          </label>
-        </td>
-        <td>
-          <input type="text" class="cal-file-name-input" value="${this.esc(f.display_name)}"
-                 onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)">
-          ${isActive ? `<span class="cal-file-active-badge">${this.t('cal.active')}</span>` : ''}
-        </td>
-        <td class="cal-col-target">${catLabel(f.category)} · ${this.esc(f.device_type)}</td>
-        <td class="cal-col-date">${date}</td>
-        <td class="cal-col-actions">
-          <div class="cal-file-actions">
-            <button class="btn btn-xs btn-primary" ${isActive ? 'disabled' : ''}
-                    title="${this.t('cal.activate')}"
-                    onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')">${this.t('cal.activate')}</button>
-            <button class="btn btn-xs btn-danger btn-icon" title="${this.t('btn.delete')}"
-                    onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">✕</button>
-          </div>
-        </td>
-      </tr>`;
-        }).join('');
-        el.innerHTML = `
+        const tableHtml = `
       <table class="cal-file-table">
         <thead>
           <tr>
@@ -2993,8 +3017,42 @@ const App = {
             <th></th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>
+          ${sorted.map(f => {
+            const isActive = !!(f.active_for && f.active_for.length);
+            const date = f.last_modified ? new Date(f.last_modified).toLocaleString() : '—';
+            return `
+            <tr class="${isActive ? 'is-active' : ''}" data-filename="${this.esc(f.name)}">
+              <td class="cal-col-pin">
+                <label class="cal-file-pin" title="${this.t('cal.favorite')}">
+                  <input type="checkbox" ${f.favorite ? 'checked' : ''}
+                         onchange="App.toggleCalibrationFavorite('${this.esc(f.name)}', this.checked)">PIN
+                </label>
+              </td>
+              <td>
+                <input type="text" class="cal-file-name-input" value="${this.esc(f.display_name)}"
+                       onchange="App.renameCalibrationFile('${this.esc(f.name)}', this.value)">
+                ${isActive ? `<span class="cal-file-active-badge">${this.t('cal.active')}</span>` : ''}
+              </td>
+              <td class="cal-col-target">${catLabel(f.category)} · ${this.esc(f.device_type)}</td>
+              <td class="cal-col-date">${date}</td>
+              <td class="cal-col-actions">
+                <div class="cal-file-actions">
+                  <button class="btn btn-xs btn-primary" ${isActive ? 'disabled' : ''}
+                          title="${this.t('cal.activate')}"
+                          onclick="App.applyCalibrationFile('${this.esc(f.category)}', '${this.esc(f.name)}')">${this.t('cal.activate')}</button>
+                  <button class="btn btn-xs btn-danger btn-icon" title="${this.t('btn.delete')}"
+                          onclick="App.deleteCalibrationFileEntry('${this.esc(f.category)}', '${this.esc(f.device_type)}', '${this.esc(f.name)}')">✕</button>
+                </div>
+              </td>
+            </tr>`;
+        }).join('')}
+        </tbody>
       </table>`;
+        if (el)
+            el.innerHTML = tableHtml;
+        if (inlineEl)
+            inlineEl.innerHTML = tableHtml;
     },
     async renameCalibrationFile(filename, displayName) {
         await this.api('POST', '/calibration/meta', { filename, display_name: displayName });
@@ -3112,19 +3170,16 @@ const App = {
         el.innerHTML = cams.map(c => {
             const isActive = (this.activeCameras || []).includes(c.id);
             return `
-        <div class="camera-card">
-          <div class="camera-card-head">
+        <div class="camera-card" onclick="App.hwOnSelectConfiguredCamera('${c.id}')" style="cursor: pointer; padding: 10px 12px;">
+          <div class="camera-card-head" style="margin-bottom: 0;">
             <span class="camera-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <strong>${this.esc(c.id)}</strong> <span class="camera-card-role">(${c.role})</span> — Source: ${c.source}</span>
             <div class="camera-card-actions">
               ${isActive
-                ? '<button class="btn btn-xs btn-secondary" onclick="App.stopCamera(\'' + c.id + '\')">Stop</button>'
-                : '<button class="btn btn-xs btn-success" onclick="App.startCamera(\'' + c.id + '\')">Start</button>'}
-              <button class="btn btn-xs btn-danger btn-icon" onclick="App.removeCamera(\'' + c.id + '\')" title="${App.t('btn.delete')}">✕</button>
+                ? '<span class="arm-status-badge" style="background: rgba(76, 175, 80, 0.15); color: var(--green); margin-right: 6px;">AKTIVNÍ</span>'
+                : ''}
+              <button class="btn btn-xs btn-danger btn-icon" onclick="event.stopPropagation(); App.removeCamera('${c.id}')" title="${App.t('btn.delete')}">✕</button>
             </div>
           </div>
-          ${isActive
-                ? '<div class="camera-feed-container"><img src="/api/cameras/' + c.id + '/feed" class="camera-feed-img" onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';" /><div style="display:none; align-items:center; justify-content:center; width:100%; height:100%; font-size:9px; color:var(--text-muted);">' + App.t('hint.streamFailed') + '</div></div>'
-                : '<div class="camera-offline">' + App.t('hint.camOffline') + '</div>'}
         </div>
       `;
         }).join('');
@@ -3815,9 +3870,6 @@ const App = {
                 cls.push('is-active');
             if (!d.supported)
                 cls.push('is-blocked');
-            // The reason a row is out of reach is composed here, from the structured
-            // facts the catalogue carries — the backend has no business shipping
-            // translated prose.
             const title = d.supported
                 ? this.t('tip.deviceSupported', { robot: d.robot_type, leader: d.leader_type || '–' })
                 : this.t('tip.deviceBlocked', {
@@ -3825,9 +3877,6 @@ const App = {
                     conn: this.t('conn.' + d.connection),
                     flag: d.port_flag,
                 });
-            const leader = d.leader_type
-                ? `--teleop.type=${d.leader_type}`
-                : this.t('lbl.noLeader');
             return `<div class="${cls.join(' ')}" data-value="${this.esc(d.robot_type)}"
                    role="button" tabindex="0" title="${this.esc(title)}"
                    onclick="App.selectRobot('${this.esc(d.robot_type)}')"
@@ -3835,10 +3884,6 @@ const App = {
                 <div class="conn-type-main">
                   <span class="conn-type-label">${this.esc(d.label)}</span>
                   <span class="conn-type-conn">${this.esc(this.t('conn.' + d.connection))}</span>
-                </div>
-                <div class="conn-type-flags">
-                  <code>--robot.type=${this.esc(d.robot_type)}</code>
-                  <code>${this.esc(leader)}</code>
                 </div>
               </div>`;
         }).join('');
@@ -5508,7 +5553,7 @@ const App = {
         }
         // Load cameras dock width and open/close state from localStorage
         this.lastCamerasWidth = localStorage.getItem('orchiday_last_cameras_width') || '520px';
-        const isOpen = localStorage.getItem('orchiday_cameras_dock_open') !== 'false';
+        const isOpen = localStorage.getItem('orchiday_cameras_dock_open') === 'true';
         const dock = document.getElementById('docked-cameras-area');
         const camerasHandle = document.getElementById('cameras-drag-handle');
         if (dock) {
@@ -5679,6 +5724,7 @@ const App = {
             return;
         this.bindModals();
         this._modalReturnFocus[id] = document.activeElement;
+        el.style.display = 'flex';
         el.classList.add('open');
         if (!this._modalStack.includes(id))
             this._modalStack.push(id);
@@ -5690,8 +5736,10 @@ const App = {
     },
     closeModal(id) {
         const el = document.getElementById(id);
-        if (el)
+        if (el) {
             el.classList.remove('open');
+            el.style.display = 'none';
+        }
         this._modalStack = this._modalStack.filter(m => m !== id);
         if (this._modalStack.length === 0)
             document.body.classList.remove('modal-open');

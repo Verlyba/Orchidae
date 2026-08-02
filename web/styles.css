@@ -6,22 +6,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-    /* oklch Colors derived from design_test */
-    --bg-editor: oklch(0.20 0.012 250);          /* deeper editor background */
-    --bg-sidebar: oklch(0.24 0.012 250);         /* sidebar & card background */
-    --bg-activity: oklch(0.28 0.015 250);        /* activity bar */
-    --bg-terminal: oklch(0.18 0.012 250);        /* darker terminal */
-    --bg-card-hover: oklch(0.27 0.014 250);      /* card hover state */
-    --bg-inset: oklch(0.17 0.010 250);           /* inset panels */
+    /* oklch Colors derived from design_test - brightened backgrounds & high contrast */
+    --bg-editor: oklch(0.28 0.015 250);          /* lighter sleek editor background */
+    --bg-sidebar: oklch(0.33 0.015 250);         /* lighter card & panel background */
+    --bg-activity: oklch(0.36 0.018 250);        /* activity bar background */
+    --bg-terminal: oklch(0.24 0.012 250);        /* terminal background */
+    --bg-card-hover: oklch(0.38 0.018 250);      /* card hover state */
+    --bg-inset: oklch(0.25 0.012 250);           /* lighter inset panel background */
     
-    --text-main: oklch(0.80 0.006 250);          /* readable gray */
-    --text-muted: oklch(0.55 0.008 250);         /* muted gray */
-    --text-light: oklch(0.87 0.005 250);         /* highlighted text */
+    --text-main: oklch(0.85 0.006 250);          /* readable gray */
+    --text-muted: oklch(0.68 0.008 250);         /* muted gray */
+    --text-light: oklch(0.92 0.005 250);         /* highlighted text */
     --text-white: oklch(0.98 0 0);               /* high contrast white */
     
-    --accent: oklch(0.55 0.18 258);              /* VS blue — slightly brighter */
-    --accent-hover: oklch(0.60 0.18 255);        /* button hover */
-    --accent-light: rgba(14, 99, 156, 0.15);
+    --accent: #ff9b30;              /* Main Orange Accent */
+    --accent-hover: #e08320;        /* Hover Orange */
+    --accent-light: rgba(255, 155, 48, 0.15);
     --accent-glow: transparent;
     
     --green: oklch(0.60 0.12 145);               /* brighter green */
@@ -34,13 +34,13 @@
     --red-light: rgba(168, 32, 32, 0.15);
     
     --yellow: oklch(0.86 0.15 95);               /* yellow */
-    --cyan: oklch(0.78 0.12 180);                /* teal */
+    --cyan: #ff9b30;                             /* Replaced Cyan with #ff9b30 */
     --purple: oklch(0.65 0.16 295);              /* purple accent */
     
-    --border: oklch(0.30 0.012 250);             /* VS gray border */
-    --border-dark: oklch(0.22 0.01 250);         /* darker border */
-    --border-light: oklch(0.40 0.01 250);
-    --border-hover: oklch(0.45 0.015 255);       /* interactive hover border */
+    --border: oklch(0.42 0.015 250);             /* crisp visible border */
+    --border-dark: oklch(0.33 0.012 250);         /* darker border */
+    --border-light: oklch(0.52 0.018 250);       /* lighter border */
+    --border-hover: oklch(0.60 0.020 250);       /* interactive hover border */
     
     /* Dark+ Syntax Highlighting */
     --syntax-keyword: oklch(0.68 0.16 295);
@@ -332,12 +332,12 @@ body {
 
 .activity-btn.active {
     color: var(--text-white);
-    border-left-color: var(--accent);
+    border-left-color: var(--text-light);
 }
 
 .activity-btn.active::before {
     opacity: 1;
-    background: rgba(14, 99, 156, 0.10);
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .activitybar-bottom {
@@ -559,7 +559,7 @@ body {
 /* Editor Main Content Scroll Area */
 .editor-area {
     flex: 1;
-    padding: 16px 20px;
+    padding: 24px 32px;
     overflow-y: auto;
     display: none;
     min-height: 0;
@@ -568,7 +568,7 @@ body {
 .editor-area.active-page {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 20px;
     animation: fadeIn 0.25s ease forwards;
 }
 
@@ -590,11 +590,7 @@ body {
 }
 
 .page-header-row h2::before {
-    content: '';
-    width: 3px;
-    height: 16px;
-    background: var(--accent);
-    flex-shrink: 0;
+    display: none;
 }
 
 .project-badge-global {
@@ -680,8 +676,10 @@ body {
 
 .setup-block {
     background: var(--bg-sidebar);
-    padding: 14px;
+    padding: 28px 32px !important;
     border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -692,17 +690,8 @@ body {
 
 .setup-block::before {
     content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--accent);
-    opacity: 0;
-    transition: opacity 0.3s ease;
+    display: none;
 }
-
-
 
 .setup-block:hover::before {
     opacity: 0;
@@ -716,8 +705,6 @@ body {
     opacity: 1 !important;
 }
 
-/* Removed card actions padding */
-
 .setup-block-content {
     flex: 1;
     overflow-y: auto;
@@ -725,21 +712,22 @@ body {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding-right: 4px;
+    gap: 20px;
+    padding: 14px 6px 14px 6px;
 }
 
 .setup-block h3 {
-    font-size: 12.5px;
+    font-size: 13.5px;
     font-weight: 800;
-    margin-bottom: 10px;
+    margin: 4px 0 18px 0 !important;
     color: var(--text-white);
-    padding-bottom: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-dark);
     text-transform: uppercase;
     letter-spacing: 1px;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
 }
 
 .setup-block h3 svg {
@@ -763,8 +751,8 @@ body {
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-bottom: 4px;
+    gap: 6px;
+    margin-bottom: 12px;
 }
 
 .form-group label {
@@ -779,7 +767,8 @@ input, select, textarea {
     background: var(--bg-inset);
     border: 1px solid var(--border);
     color: var(--text-light);
-    padding: 7px 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
     font-size: 13.5px;
     outline: none;
     transition: var(--transition);
@@ -806,10 +795,10 @@ input[readonly] {
    surface instead of competing buttons. No shadows, glows or transforms. */
 
 .btn {
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--text-light);
-    border: 1px solid var(--border);
-    padding: 6px 12px;
+    background: #282b34;
+    color: #e0e2e8;
+    border: 1px solid #3d414f;
+    padding: 6px 14px;
     font-size: 13.5px;
     font-weight: 600;
     cursor: pointer;
@@ -821,19 +810,24 @@ input[readonly] {
     line-height: 1.4;
     user-select: none;
     white-space: nowrap;
+    border-radius: 4px;
+    filter: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 .btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.09);
-    border-color: var(--border-light);
+    background: #353945;
+    border-color: #555b6e;
+    color: #ffffff;
 }
 
 .btn:active:not(:disabled) {
-    background: rgba(255, 255, 255, 0.03);
+    background: #1f2128;
 }
 
 .btn:focus-visible {
-    outline: 1px solid var(--cyan);
+    outline: 2px solid #ff9b30;
     outline-offset: 1px;
 }
 
@@ -856,67 +850,68 @@ input[readonly] {
     min-height: 28px;
 }
 
-/* Variants — tinted border + text, dark fill */
+/* SOLID OPAQUE VARIANTS — ZERO TRANSPARENCY, ZERO BLUR */
 .btn-primary {
-    background: rgba(0, 188, 212, 0.10);
-    border-color: rgba(0, 188, 212, 0.45);
-    color: var(--cyan);
+    background: #ff9b30 !important;
+    border-color: #ff9b30 !important;
+    color: #121316 !important;
+    font-weight: 700 !important;
 }
 .btn-primary:hover:not(:disabled) {
-    background: rgba(0, 188, 212, 0.18);
-    border-color: var(--cyan);
+    background: #e08320 !important;
+    border-color: #e08320 !important;
+    color: #000000 !important;
 }
 
 .btn-danger {
-    background: rgba(218, 55, 60, 0.10);
-    border-color: rgba(218, 55, 60, 0.45);
-    color: var(--red);
+    background: #d32f2f !important;
+    border-color: #d32f2f !important;
+    color: #ffffff !important;
 }
 .btn-danger:hover:not(:disabled) {
-    background: rgba(218, 55, 60, 0.20);
-    border-color: var(--red);
+    background: #b71c1c !important;
+    border-color: #b71c1c !important;
 }
 
 .btn-success {
-    background: rgba(76, 175, 80, 0.10);
-    border-color: rgba(76, 175, 80, 0.45);
-    color: var(--green);
+    background: #2e7d32 !important;
+    border-color: #2e7d32 !important;
+    color: #ffffff !important;
 }
 .btn-success:hover:not(:disabled) {
-    background: rgba(76, 175, 80, 0.20);
-    border-color: var(--green);
+    background: #1b5e20 !important;
+    border-color: #1b5e20 !important;
 }
 
-/* .btn-secondary is the base look — kept as an explicit alias so existing
-   markup stays valid and the intent stays readable. */
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: var(--border);
-    color: var(--text-light);
+    background: #282b34 !important;
+    border-color: #3d414f !important;
+    color: #e0e2e8 !important;
+}
+.btn-secondary:hover:not(:disabled) {
+    background: #353945 !important;
+    border-color: #ff9b30 !important;
+    color: #ffffff !important;
 }
 
-/* Legacy aliases retained so older markup keeps a consistent look. */
-/* Colour variant only — width belongs to the layout, not to a look modifier.
-   (It used to force width:100%, which stretched the button across whatever
-   container it landed in.) */
 .btn-cyan-dashed {
-    background: rgba(0, 188, 212, 0.08);
-    border-color: rgba(0, 188, 212, 0.35);
-    color: var(--cyan);
+    background: #282b34 !important;
+    border: 1px dashed #ff9b30 !important;
+    color: #ff9b30 !important;
 }
 .btn-cyan-dashed:hover:not(:disabled) {
-    background: rgba(0, 188, 212, 0.16);
-    border-color: var(--cyan);
+    background: #353945 !important;
+    border-color: #ff9b30 !important;
 }
 
 .btn-success-light {
-    background: rgba(76, 175, 80, 0.10);
-    border-color: rgba(76, 175, 80, 0.45);
-    color: var(--green);
+    background: #2e7d32 !important;
+    border-color: #2e7d32 !important;
+    color: #ffffff !important;
     width: 100%;
 }
 .btn-success-light:hover:not(:disabled) {
-    background: rgba(76, 175, 80, 0.20);
+    background: #1b5e20 !important;
 }
 
 /* Square icon-only button — same visual weight as a text button of the same tier */
@@ -936,14 +931,14 @@ input[readonly] {
 .merge-cols {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 26px;
+    gap: 16px;
     align-items: stretch;
 }
 
 .merge-cols > .merge-col + .merge-col,
 .connect-cols > .connect-col + .connect-col {
-    border-left: 1px solid var(--border-dark);
-    padding-left: 26px;
+    border-left: none;
+    padding-left: 0;
 }
 
 
@@ -961,20 +956,26 @@ input[readonly] {
 
 .connect-col,
 .merge-col {
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 28px 24px 28px !important;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 20px;
     min-width: 0;
 }
 
 .connect-col-title,
 .merge-col-title {
-    font-size: 11.5px;
-    font-weight: 700;
-    letter-spacing: 0.7px;
+    font-size: 12.5px;
+    font-weight: 800;
+    letter-spacing: 0.9px;
     text-transform: uppercase;
-    color: var(--text-muted);
-    margin: 0 0 8px;
+    color: var(--text-light);
+    padding-bottom: 12px;
+    margin: 4px 0 18px 0 !important;
+    border-bottom: 1px solid var(--border-dark);
 }
 
 /* In a merged window the columns scroll, not the window. Scrolling the whole
@@ -1072,25 +1073,28 @@ input[readonly] {
 }
 
 .project-row {
-    background: var(--surface);
-    border-left: 3px solid transparent;
-    padding: 9px 12px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 6px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    flex: 0 0 auto;      /* rows keep their height; the column scrolls */
+    gap: 6px;
+    flex: 0 0 auto;
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .project-row:hover {
-    background: var(--surface-hover);
+    background: var(--bg-card-hover);
+    border-color: var(--border-light);
 }
 
 .project-row.selected {
-    border-color: var(--accent);
-    border-left-color: var(--accent);
-    background: rgba(14, 99, 156, 0.10);
+    border-color: var(--border-light);
+    border-left: 3px solid var(--border-light);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 /* The open project is marked on the left edge, so "selected" (cursor)
@@ -1122,7 +1126,7 @@ input[readonly] {
 
 .project-row-name {
     font-weight: 600;
-    font-size: 14.5px;
+    font-size: 15.5px;
     color: var(--text-white);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1200,37 +1204,41 @@ input[readonly] {
 }
 
 .pd-ident {
-    padding-bottom: 8px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
 }
 
 .pd-title {
     font-size: 18px;
     font-weight: 700;
     color: var(--text-white);
-    letter-spacing: -0.2px;
+    line-height: 1.2;
 }
 
 .pd-sub {
     font-size: 12px;
     color: var(--text-muted);
-    word-break: break-all;
-    margin-top: 2px;
+    margin-top: 4px;
 }
 
-/* Four counters across the panel width: fills the top of the panel with
-   the numbers that decide what can be done with the project, instead of
-   stretching a single field across it. */
 .pd-stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    gap: 10px;
+    margin-bottom: 14px;
 }
 
 .pd-stat {
-    padding: 7px 9px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
     min-width: 0;
 }
 
@@ -1240,7 +1248,7 @@ input[readonly] {
 
 .pd-stat-num {
     font-family: var(--font-mono);
-    font-size: 19px;
+    font-size: 20px;
     font-weight: 700;
     color: var(--text-white);
     line-height: 1.1;
@@ -1251,7 +1259,8 @@ input[readonly] {
 }
 
 .pd-stat-label {
-    font-size: 11px;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-muted);
@@ -1260,9 +1269,14 @@ input[readonly] {
 }
 
 .pd-sect {
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 10px;
     flex: 0 0 auto;
     min-width: 0;
 }
@@ -1294,10 +1308,11 @@ input[readonly] {
     font-size: 11.5px;
     font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.8px;
     color: var(--text-light);
-    padding-bottom: 4px;
-    margin: 0;
+    padding-bottom: 6px;
+    margin: 0 0 4px 0;
+    border-bottom: 1px solid var(--border-dark);
 }
 
 .pd-row {
@@ -1329,8 +1344,8 @@ input[readonly] {
 }
 
 .pd-scene.warn {
-    border-left-color: var(--yellow);
-    color: var(--yellow);
+    border-left-color: var(--border-light);
+    color: var(--text-muted);
 }
 
 .pd-note {
@@ -1541,23 +1556,26 @@ input[readonly] {
 .conn-type-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    border: 1px solid var(--border);
-    background: var(--bg-inset);
-    padding: 4px;
+    gap: 8px;
+    border: 1px solid var(--border-dark);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 8px;
     overflow-y: auto;
     min-height: 0;
     flex: 1 1 auto;
+    margin: 10px 0;
 }
 
 .conn-type-row {
-    border: 1px solid transparent;
+    border: 1px solid var(--border-dark);
     border-left: 3px solid var(--border);
-    padding: 5px 8px;
+    border-radius: 6px;
+    padding: 10px 14px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     min-width: 0;
 }
 
@@ -1568,9 +1586,9 @@ input[readonly] {
 }
 
 .conn-type-row.is-active {
-    background: rgba(14, 99, 156, 0.10);
-    border-color: var(--accent);
-    border-left-color: var(--cyan);
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--border-light);
+    border-left-color: var(--border-light);
 }
 
 /* A device LeRobot does not address with a single serial port cannot be
@@ -2207,7 +2225,7 @@ input[readonly] {
 }
 
 .tagging-step.is-active {
-    border-left-color: var(--cyan);
+    border-left-color: var(--border-light);
     color: var(--text-white);
 }
 
@@ -2583,7 +2601,7 @@ input[readonly] {
 }
 
 .cameras-drag-handle:hover {
-    background: var(--accent);
+    background: var(--border-light);
 }
 
 .cameras-dock-body {
@@ -2612,7 +2630,7 @@ input[readonly] {
 }
 
 .terminal-drag-handle:hover {
-    background: var(--accent);
+    background: var(--border-light);
 }
 
 .terminal-header {
@@ -2657,7 +2675,7 @@ input[readonly] {
 
 .terminal-tab-btn.active {
     color: var(--text-white);
-    border-bottom-color: var(--accent);
+    border-bottom-color: var(--text-light);
 }
 
 .terminal-controls {
@@ -4040,8 +4058,8 @@ textarea:focus-visible {
 .policy-pick-card.active,
 .adv-mode-card.active,
 .cfg-card.active {
-    background: var(--accent-light);
-    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-light);
 }
 
 .policy-pick-card {
@@ -4330,7 +4348,7 @@ textarea:focus-visible {
 
 .setup-wizard-tab-btn.active {
     color: var(--text-white);
-    border-bottom-color: var(--cyan);
+    border-bottom-color: var(--border-light);
 }
 
 .setup-wizard-tab-num {
@@ -4344,8 +4362,8 @@ textarea:focus-visible {
 }
 
 .setup-wizard-tab-btn.active .setup-wizard-tab-num {
-    background: var(--cyan);
-    color: var(--bg-editor);
+    background: var(--border-light);
+    color: var(--text-white);
 }
 
 .setup-wizard-panel {
@@ -4985,9 +5003,9 @@ textarea:focus-visible {
 }
 
 .lang-toggle button.active {
-    background: var(--accent);
+    background: var(--border-light);
     color: var(--text-white);
-    border-color: var(--accent-hover);
+    border-color: var(--border-light);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -6901,7 +6919,7 @@ body { min-width: 320px; }
     color: var(--text-main);
 }
 
-.train-row.is-baseline { border-left-color: var(--cyan); }
+.train-row.is-baseline { border-left-color: var(--border-light); }
 .train-row.is-trained { border-left-color: var(--green); }
 
 /* Nothing was recorded under this repo_id, so training cannot start at all.
@@ -7049,8 +7067,8 @@ body { min-width: 320px; }
 
 /* ── Plus card for New Project ── */
 .project-card-new {
-    border: 1px dashed var(--accent) !important;
-    background: rgba(14, 99, 156, 0.04) !important;
+    border: 1px dashed var(--border-light) !important;
+    background: transparent !important;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -7062,14 +7080,14 @@ body { min-width: 320px; }
 }
 
 .project-card-new:hover {
-    background: rgba(14, 99, 156, 0.1) !important;
-    border-color: var(--cyan) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border-color: var(--border-light) !important;
 }
 
 .project-card-plus-icon {
     font-size: 24px;
     font-weight: 700;
-    color: var(--cyan);
+    color: var(--text-light);
     margin-bottom: 4px;
 }
 
@@ -7093,7 +7111,7 @@ body { min-width: 320px; }
 }
 
 .choice-card:hover {
-    border-color: var(--accent);
+    border-color: var(--border-light);
     background: rgba(255, 255, 255, 0.03);
 }
 
@@ -7120,7 +7138,7 @@ body { min-width: 320px; }
     background: var(--bg-inset);
     border: 1px solid var(--border);
     border-left: 3px solid var(--border-light);
-    padding: 14px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -7129,7 +7147,8 @@ body { min-width: 320px; }
 }
 
 .arm-status-card:hover {
-    border-color: var(--accent);
+    border-color: var(--border-light);
+    border-left-color: var(--border-light);
     background: rgba(255, 255, 255, 0.03);
 }
 
