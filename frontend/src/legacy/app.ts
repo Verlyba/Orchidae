@@ -73,6 +73,7 @@ interface WSMessage {
 }
 
 import { I18N } from './i18n';
+import { publishProjects as publishProjectsSnapshot } from '../state/projects';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -113,6 +114,10 @@ export const App = {
   // detail panel survives a re-render triggered by an unrelated event.
   selectedProjectPath: '' as string,
   knownProjects: [] as any[],
+  // Path of the project whose /projects/open round trip is in flight, so the
+  // row and the Open button can show it is busy. Kept as state (not a class
+  // poked onto the DOM) because React owns that markup now.
+  projectOpeningPath: '' as string,
   wsConnectedOnce: false,
   collapsedFolders: new Set<string>(),
   taggingStartTime: 0,
@@ -1505,6 +1510,21 @@ export const App = {
     }));
   },
 
+  /**
+   * Hand the Projects page its state. Everything it shows — rows, counter,
+   * detail panel, which action buttons are live — is derived from this one
+   * snapshot in `pages/ProjectsPage.tsx`.
+   */
+  publishProjects(): void {
+    publishProjectsSnapshot({
+      projects: this.knownProjects,
+      selectedPath: this.selectedProjectPath,
+      openPath: this.project?.path || '',
+      openingPath: this.projectOpeningPath,
+      loaded: true,
+    });
+  },
+
   renderProjectList(projects: any[], recent: any[]): void {
     const all = projects.length ? projects : recent.map(r => ({ name: r.name, _path: r.path, slug: r.slug, skills: [], robots: (r as any).robots || [] }));
     this.knownProjects = all;
@@ -1515,228 +1535,13 @@ export const App = {
       this.selectedProjectPath = (this.project && this.project.path) || (all[0]?._path ?? '');
     }
 
-    const el = document.getElementById('project-list');
-    if (el) {
-      const plusCard = `
-        <div class="project-row project-row-new" onclick="App.openNewProjectChoiceModal()" tabindex="0" role="button" aria-label="Vytvořit nový projekt" style="justify-content: center; align-items: center; border: 1px dashed var(--border-light); background: transparent; padding: 12px; margin-top: 10px; margin-bottom: 4px;">
-          <div style="font-weight:700; color:var(--text-light); font-size:14px; display: flex; align-items: center; gap: 8px;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            ${this.esc(this.t('lbl.newProjectCard'))}
-          </div>
-        </div>`;
-
-      if (!all.length) {
-        el.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
-            <div class="empty-state-text">${this.esc(this.t('hint.noProjects'))}</div>
-          </div>` + plusCard;
-      } else {
-        const rows = all.map(p => {
-          const isOpen = !!(this.project && this.project.path === p._path);
-          const isSel = p._path === this.selectedProjectPath;
-          const robot = (p.robots && p.robots.length) ? p.robots[0] : null;
-          const rt = this.robotTypeLabel(robot ? (robot.type || robot.follower_type || '') : '');
-          const tasks = this.projectTaskTree(p);
-          const steps = tasks.reduce((n, t) => n + t.steps.length, 0);
-          return `
-            <div class="project-row ${isSel ? 'selected' : ''} ${isOpen ? 'open' : ''}"
-                 role="option" aria-selected="${isSel}" tabindex="0"
-                 onclick="App.selectProject(this.dataset.path)"
-                 ondblclick="App.openProject(this.dataset.path)"
-                 onkeydown="if(event.key==='Enter'){App.openProject(this.dataset.path);}else if(event.key===' '){event.preventDefault();App.selectProject(this.dataset.path);}"
-                 data-path="${this.esc(p._path || '')}">
-              <div class="project-row-head">
-                <span class="project-row-name">${this.esc(p.name)}</span>
-                ${isOpen ? `<span class="project-row-flag">${this.esc(this.t('val.projectOpen'))}</span>` : ''}
-              </div>
-              <div class="project-row-meta">
-                <span class="robot-badge ${rt.cls}">${this.esc(rt.label)}</span>
-              </div>
-            </div>`;
-        }).join('');
-        el.innerHTML = rows + plusCard;
-      }
-    }
-
-    const countEl = document.getElementById('project-list-count');
-    if (countEl) countEl.textContent = `${all.length} ${this.t('val.projectsShort')}`;
-
-    // Where the listed projects live on disk. Derived from the paths already
-    // in the listing (no extra endpoint), and answers a question the UI could
-    // not answer at all before: "kam se to vlastně ukládá?".
-    const rootEl = document.getElementById('project-list-root');
-    if (rootEl) {
-      const dirs = new Set(all.map(p => String(p._path || '').replace(/[\\/][^\\/]*$/, '')).filter(Boolean));
-      rootEl.textContent = dirs.size === 1 ? [...dirs][0] : (dirs.size ? this.t('val.mixedLocations') : '—');
-    }
-
-    this.renderProjectDetail();
-
-    // Sidebar small project shortcuts
-    const sideEl = document.getElementById('sidebar-projects-list-container');
-    if (sideEl) {
-      if (!all.length) {
-         sideEl.innerHTML = `<div style="font-size: 10px; color: var(--text-muted);">${App.t('hint.noProjects')}</div>`;
-      } else {
-        sideEl.innerHTML = all.map(p => {
-          const isActive = this.project && this.project.path === p._path;
-          return `
-            <div class="sidebar-project-item ${isActive ? 'active' : ''}" onclick="App.openProject(this.dataset.path)" data-path="${this.esc(p._path || '')}">
-              <div class="name">${this.esc(p.name)}</div>
-              <div class="meta">${p.slug || ''}</div>
-            </div>
-          `;
-        }).join('');
-      }
-    }
+    this.publishProjects();
   },
 
   selectProject(path: string): void {
     if (!path) return;
     this.selectedProjectPath = path;
-    document.querySelectorAll<HTMLElement>('#project-list .project-row').forEach(row => {
-      const on = row.dataset.path === path;
-      row.classList.toggle('selected', on);
-      row.setAttribute('aria-selected', String(on));
-    });
-    this.renderProjectDetail();
-  },
-
-  /** Small key/value row of the detail panel. */
-  _detailRow(label: string, value: string, mono = false): string {
-    return `<div class="pd-row"><span class="pd-key">${this.esc(label)}</span>` +
-           `<span class="pd-val${mono ? ' mono' : ''}">${this.esc(value || '—')}</span></div>`;
-  },
-
-  /**
-   * Everything about the selected project that is knowable from its
-   * project.json and skills/ directory — i.e. without opening it.
-   */
-  renderProjectDetail(): void {
-    const host = document.getElementById('project-detail');
-    const stateEl = document.getElementById('project-detail-state');
-    const hintEl = document.getElementById('project-detail-hint');
-    const btnOpen = document.getElementById('btn-project-open') as HTMLButtonElement | null;
-    const btnExport = document.getElementById('btn-project-export') as HTMLButtonElement | null;
-    const btnDelete = document.getElementById('btn-project-delete') as HTMLButtonElement | null;
-    if (!host) return;
-
-    const p = this.knownProjects.find(x => x._path === this.selectedProjectPath);
-    if (!p) {
-      host.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M9 21V9"></path></svg></div>
-          <div class="empty-state-text">${this.esc(this.t('hint.projectDetailEmpty'))}</div>
-        </div>`;
-      if (stateEl) stateEl.textContent = '';
-      if (hintEl) hintEl.textContent = this.t('hint.projectDetail');
-      [btnOpen, btnExport, btnDelete].forEach(b => { if (b) b.disabled = true; });
-      return;
-    }
-
-    const isOpen = !!(this.project && this.project.path === p._path);
-    if (btnOpen) { btnOpen.disabled = isOpen; }
-    if (btnExport) { btnExport.disabled = !isOpen; }
-    if (btnDelete) { btnDelete.disabled = false; }
-    if (stateEl) stateEl.textContent = isOpen ? this.t('val.projectOpen') : this.t('val.projectClosed');
-    if (hintEl) {
-      // Export runs over the *open* project server-side, so say so instead of
-      // letting a disabled button look broken.
-      hintEl.textContent = isOpen ? this.t('hint.projectDetailOpen') : this.t('hint.projectDetailClosed');
-    }
-
-    const robots: any[] = p.robots || [];
-    const cameras: any[] = p.cameras || [];
-    const tasks = this.projectTaskTree(p);
-    const splittable = tasks.filter(t => t.steps.length >= 2);
-    const created = p.created_at ? new Date(p.created_at).toLocaleString() : '';
-
-    const stat = (v: string | number, label: string, warn = false) =>
-      `<div class="pd-stat${warn ? ' warn' : ''}"><span class="pd-stat-num">${this.esc(String(v))}</span>` +
-      `<span class="pd-stat-label">${this.esc(label)}</span></div>`;
-
-    const robotsHtml = robots.length
-      ? robots.map(r => {
-          const rt = this.robotTypeLabel(r.type || r.follower_type || '');
-          return `<tr><td><span class="robot-badge ${rt.cls}">${this.esc(rt.label)}</span></td>` +
-                 `<td class="mono">${this.esc(r.id || '—')}</td>` +
-                 `<td class="mono">${this.esc(r.port || r.device_id || '—')}</td></tr>`;
-        }).join('')
-      : `<tr><td colspan="3" class="pd-none">${this.esc(this.t('val.noRobots'))}</td></tr>`;
-
-    const camerasHtml = cameras.length
-      ? cameras.map(c => `<tr><td class="mono">${this.esc(c.id || '—')}</td>` +
-          `<td>${this.esc(c.role || '—')}</td>` +
-          `<td class="mono">${Array.isArray(c.resolution) ? c.resolution.join('×') : '—'} @ ${this.esc(String(c.fps ?? '—'))}</td></tr>`).join('')
-      : `<tr><td colspan="3" class="pd-none">${this.esc(this.t('val.noCameras'))}</td></tr>`;
-
-    const tasksHtml = tasks.length
-      ? tasks.map(t => {
-          const ok = t.steps.length >= 2;
-          return `
-            <div class="pd-task">
-              <div class="pd-task-head">
-                <span class="pd-task-name">${this.esc(t.name)}</span>
-                <span class="pd-task-mode ${ok ? 'ok' : 'baseline'}">${this.esc(this.t(ok ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
-              </div>
-              <div class="pd-task-steps">${
-                t.steps.length
-                  ? t.steps.map((s, i) => `<span class="pd-step"><span class="pd-step-num">${i + 1}</span>${this.esc(s.name || s.slug)}</span>`).join('')
-                  : `<span class="pd-none">${this.esc(this.t('val.noSubSteps'))}</span>`
-              }</div>
-            </div>`;
-        }).join('')
-      : `<div class="pd-none">${this.esc(this.t('val.noTasks'))}</div>`;
-
-    host.innerHTML = `
-      <div class="pd-ident">
-        <div class="pd-title">${this.esc(p.name)}</div>
-        <div class="pd-sub mono">${this.esc(p._path || '')}</div>
-      </div>
-
-      <div class="pd-stats">
-        ${stat(robots.length, this.t('val.robots'), robots.length === 0)}
-        ${stat(cameras.length, this.t('val.cameras'))}
-        ${stat(tasks.length, this.t('val.tasks'))}
-        ${stat(splittable.length, this.t('val.splittable'))}
-      </div>
-
-      <div class="pd-cols">
-        <div class="pd-col">
-          <section class="pd-sect">
-            <h4 class="pd-h">${this.esc(this.t('blk.pd.identity'))}</h4>
-            ${this._detailRow(this.t('lbl.slug'), p.slug || '', true)}
-            ${this._detailRow(this.t('lbl.created'), created)}
-            ${this._detailRow(this.t('lbl.policyArch'), p.policy_architecture || '')}
-          </section>
-
-          <section class="pd-sect">
-            <h4 class="pd-h">${this.esc(this.t('blk.pd.scene'))}</h4>
-            ${p.scene_description
-              ? `<p class="pd-scene">${this.esc(p.scene_description)}</p>`
-              : `<p class="pd-scene warn">${this.esc(this.t('warn.noSceneDesc'))}</p>`}
-          </section>
-        </div>
-
-        <section class="pd-sect">
-          <h4 class="pd-h">${this.esc(this.t('blk.pd.hardware'))}</h4>
-          <table class="pd-table">
-            <thead><tr><th>${this.esc(this.t('lbl.device'))}</th><th>${this.esc(this.t('lbl.id'))}</th><th>${this.esc(this.t('lbl.port'))}</th></tr></thead>
-            <tbody>${robotsHtml}</tbody>
-          </table>
-          <table class="pd-table">
-            <thead><tr><th>${this.esc(this.t('lbl.camera'))}</th><th>${this.esc(this.t('lbl.role'))}</th><th>${this.esc(this.t('lbl.resFps'))}</th></tr></thead>
-            <tbody>${camerasHtml}</tbody>
-          </table>
-        </section>
-      </div>
-
-      <section class="pd-sect">
-        <h4 class="pd-h">${this.esc(this.t('blk.pd.tasks'))}</h4>
-        <p class="pd-note">${this.esc(this.t('hint.splitRule'))}</p>
-        ${tasksHtml}
-      </section>`;
+    this.publishProjects();
   },
 
   openSelectedProject(): void {
@@ -1839,11 +1644,8 @@ export const App = {
     // Opening runs hardware auto-detection and deploys the project's
     // calibration files into LeRobot's cache server-side, so it is not
     // instant — mark the row and the button as busy for the whole round trip.
-    const rows = document.querySelectorAll<HTMLElement>(`[data-path="${CSS.escape(path)}"]`);
-    rows.forEach(c => c.classList.add('opening'));
-    const btn = document.getElementById('btn-project-open') as HTMLButtonElement | null;
-    const btnText = btn?.textContent || '';
-    if (btn) { btn.disabled = true; btn.textContent = this.t('btn.opening'); }
+    this.projectOpeningPath = path;
+    this.publishProjects();
     try {
       const r = await this.api('POST', '/projects/open', { path });
       if (r && r.ok === false) {
@@ -1851,8 +1653,10 @@ export const App = {
       }
     } finally {
       this.projectOpenInFlight = false;
-      rows.forEach(c => c.classList.remove('opening'));
-      if (btn) { btn.textContent = btnText; }
+      this.projectOpeningPath = '';
+      // Clear the busy marker even if the listing below never arrives, so a
+      // failed open cannot leave the row spinning forever.
+      this.publishProjects();
       // Do not rely on the project_opened socket event for the refresh: the
       // page must settle into the right state even when /ws is unavailable.
       await this.loadProjects();
@@ -1947,30 +1751,10 @@ export const App = {
 
   /** Mark which row is the open project, without refetching from the server. */
   updateProjectCardsActiveState(): void {
-    const activePath = this.project?.path || '';
-
-    document.querySelectorAll<HTMLElement>('#project-list .project-row').forEach(row => {
-      const isOpen = !!(activePath && (row.dataset.path || '') === activePath);
-      row.classList.toggle('open', isOpen);
-      const flag = row.querySelector('.project-row-flag');
-      if (isOpen && !flag) {
-        const span = document.createElement('span');
-        span.className = 'project-row-flag';
-        span.textContent = this.t('val.projectOpen');
-        row.querySelector('.project-row-head')?.appendChild(span);
-      } else if (!isOpen && flag) {
-        flag.remove();
-      }
-    });
-
-    // Update sidebar project shortcuts
-    document.querySelectorAll('#sidebar-projects-list-container .sidebar-project-item').forEach(item => {
-      const itemPath = (item as HTMLElement).dataset.path || '';
-      item.classList.toggle('active', !!(activePath && itemPath === activePath));
-    });
-
-    // The detail panel's Open/Export buttons are keyed off the open project.
-    this.renderProjectDetail();
+    // Which row reads as "open", and whether the detail panel's Open/Export
+    // buttons are live, both follow from `this.project` — so re-publishing the
+    // state is the whole job. No refetch from the server.
+    this.publishProjects();
   },
 
   async refreshProject(): Promise<void> {

@@ -1,6 +1,7 @@
 /** #page-datasety — migrated verbatim from the pre-React web/index.html. */
 
 import { App } from '../legacy/app';
+import { initiallyDisabled } from '../util/initiallyDisabled';
 
 export function DatasetyPage() {
   return (
@@ -340,7 +341,7 @@ export function DatasetyPage() {
                 className="btn btn-xs btn-danger"
                 id="btn-stop-record"
                 onClick={(event: any) => { App.stopWorkflowRecord() }}
-                disabled={true}
+                ref={initiallyDisabled}
                 title="Nahrávání neběží"
                 data-i18n="btn.stopRecording"
               >Zastavit nahrávání</button>
@@ -385,7 +386,7 @@ export function DatasetyPage() {
                     onClick={(event: any) => { App.taggingNextStep() }}
                     data-i18n-title="rec.markPhaseEndTip"
                     title="Uloží hranici mezi aktuální a následující fází na aktuálním snímku epizody (klávesa mezerník / M)"
-                    disabled={true}
+                    ref={initiallyDisabled}
                   >
                     <svg
                       width="12"
@@ -407,7 +408,7 @@ export function DatasetyPage() {
                     onClick={(event: any) => { App.taggingUndoStep() }}
                     data-i18n-title="rec.undoMarkTip"
                     title="Vrátit poslední značku (překlik) — klávesa Backspace / U"
-                    disabled={true}
+                    ref={initiallyDisabled}
                   >
                     <svg
                       width="12"
@@ -529,7 +530,7 @@ export function DatasetyPage() {
                           className="btn btn-xs btn-secondary"
                           id="ds-btn-viz"
                           onClick={(event: any) => { App.dsVisualize() }}
-                          disabled={true}
+                          ref={initiallyDisabled}
                           data-i18n="btn.visualize"
                         >Vizualizovat</button>
                         {' '}
@@ -537,7 +538,7 @@ export function DatasetyPage() {
                           className="btn btn-xs btn-secondary"
                           id="ds-btn-replay"
                           onClick={(event: any) => { App.startReplay() }}
-                          disabled={true}
+                          ref={initiallyDisabled}
                           title="Přehraje epizodu na reálném follower rameni (lerobot-replay)"
                           data-i18n="btn.replay"
                         >Přehrát na rameni</button>
@@ -546,7 +547,7 @@ export function DatasetyPage() {
                           className="btn btn-xs btn-secondary"
                           id="ds-btn-info"
                           onClick={(event: any) => { App.dsRunOp('info') }}
-                          disabled={true}
+                          ref={initiallyDisabled}
                           title="Vypíše metadata datasetu do konzole"
                           data-i18n="btn.detailInfo"
                         >Detailní info</button>
@@ -555,7 +556,7 @@ export function DatasetyPage() {
                           className="btn btn-xs btn-secondary"
                           id="ds-btn-stats"
                           onClick={(event: any) => { App.dsRunOp('recompute_stats') }}
-                          disabled={true}
+                          ref={initiallyDisabled}
                           title="Přepočítá normalizační statistiky (nutné po ruční úpravě dat)"
                           data-i18n="btn.recomputeStats"
                         >Přepočítat statistiky</button>
@@ -596,7 +597,7 @@ export function DatasetyPage() {
                           className="btn btn-xs btn-primary"
                           id="ds-btn-push"
                           onClick={(event: any) => { App.dsPush() }}
-                          disabled={true}
+                          ref={initiallyDisabled}
                           data-i18n="btn.pushHub"
                         >Push na Hub</button>
                       </div>
@@ -623,7 +624,7 @@ export function DatasetyPage() {
                       className="btn btn-xs btn-secondary"
                       id="ds-btn-export-model"
                       onClick={(event: any) => { App.exportSkillModel(App.dsSelectedSkill()) }}
-                      disabled={true}
+                      ref={initiallyDisabled}
                       data-i18n="btn.exportModel"
                       data-i18n-title="tip.exportModel"
                       title="Exportovat natrénovaný model vybrané dovednosti"
@@ -633,7 +634,7 @@ export function DatasetyPage() {
                       className="btn btn-xs btn-primary"
                       id="ds-btn-split-steps"
                       onClick={(event: any) => { App.splitDatasetSteps() }}
-                      disabled={true}
+                      ref={initiallyDisabled}
                       data-i18n="btn.splitSteps"
                       data-i18n-title="tip.splitSteps"
                       title="Rozdělit dataset podle značek kroků na dílčí datasety pro trénink orchestrace"
@@ -665,7 +666,7 @@ export function DatasetyPage() {
                         className="btn btn-xs btn-danger"
                         id="ds-btn-del"
                         onClick={(event: any) => { App.dsDeleteEpisodes() }}
-                        disabled={true}
+                        ref={initiallyDisabled}
                         data-i18n="btn.delete"
                       >Smazat</button>
                     </div>
@@ -687,7 +688,7 @@ export function DatasetyPage() {
                         className="btn btn-xs btn-secondary"
                         id="ds-btn-task"
                         onClick={(event: any) => { App.dsModifyTask() }}
-                        disabled={true}
+                        ref={initiallyDisabled}
                         data-i18n="btn.rewriteTask"
                       >Přepsat task</button>
                     </div>
@@ -722,7 +723,7 @@ export function DatasetyPage() {
                         className="btn btn-xs btn-secondary"
                         id="ds-btn-split"
                         onClick={(event: any) => { App.dsSplit() }}
-                        disabled={true}
+                        ref={initiallyDisabled}
                         data-i18n="btn.split"
                       >Rozdělit</button>
                     </div>
@@ -754,7 +755,7 @@ export function DatasetyPage() {
                         className="btn btn-xs btn-secondary"
                         id="ds-btn-merge"
                         onClick={(event: any) => { App.dsMerge() }}
-                        disabled={true}
+                        ref={initiallyDisabled}
                         data-i18n="btn.merge"
                       >Sloučit</button>
                     </div>

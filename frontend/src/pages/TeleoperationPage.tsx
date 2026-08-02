@@ -1,6 +1,7 @@
 /** #page-teleoperation — migrated verbatim from the pre-React web/index.html. */
 
 import { App } from '../legacy/app';
+import { initiallyDisabled } from '../util/initiallyDisabled';
 
 export function TeleoperationPage() {
   return (
@@ -304,7 +305,7 @@ export function TeleoperationPage() {
           <button
             className="btn btn-xs btn-primary"
             id="btn-start-teleop"
-            disabled={true}
+            ref={initiallyDisabled}
             onClick={(event: any) => { App.startTeleop() }}
             data-i18n="btn.startTeleop"
           >Spustit Teleop</button>
@@ -313,7 +314,7 @@ export function TeleoperationPage() {
             className="btn btn-xs btn-danger"
             id="btn-stop-teleop"
             onClick={(event: any) => { App.stopTeleop() }}
-            disabled={true}
+            ref={initiallyDisabled}
             title="Teleoperace neběží"
             data-i18n="btn.stopTeleop"
           >Zastavit Teleop</button>

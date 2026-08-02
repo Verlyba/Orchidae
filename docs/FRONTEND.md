@@ -75,6 +75,44 @@ so the utilities do not exist. Corners come from `--radius-sm|md|lg` and
 nothing else; `rounded-md` in a className and `var(--radius-md)` in CSS are
 the same three-step scale. `scripts/verify.sh` enforces this on both sides.
 
+## The trap: React decides clicks from props, not from the DOM
+
+React does not ask the DOM whether a control is disabled. Before it dispatches
+a click it looks at the element's **props** (`shouldPreventMouseEvent`). So a
+button written as
+
+```tsx
+<button id="btn-x" disabled={true} onClick={() => App.x()}>…</button>
+```
+
+that `app.ts` later enables the only way it knows how —
+
+```ts
+(document.getElementById('btn-x') as HTMLButtonElement).disabled = false;
+```
+
+looks enabled, *is* enabled as far as the browser is concerned, and still
+swallows every click. Silently: no error, no warning, nothing in the console.
+That is how the React port left 18 buttons dead on arrival — the Projects
+page's Open / Export / Delete, all of Datasety's dataset actions, both teleop
+buttons, stop-training and stop-inference.
+
+There are exactly two allowed ways to write it, and `scripts/verify.sh`
+rejects the constant:
+
+```tsx
+disabled={!selected}              // derived from React state — preferred
+ref={initiallyDisabled}           // app.ts owns the property (util/initiallyDisabled.ts)
+```
+
+The second loses nothing: the browser does not fire click events on a disabled
+control either, so `el.disabled = true` still blocks the button on its own.
+
+The general shape of the trap is worth remembering when converting the
+remaining pages: **anything React holds in props and app.ts mutates in the DOM
+is a place the two can silently disagree.** `disabled` is the one that eats
+events; `value`, `checked` and `selected` are the others.
+
 ## State of the migration
 
 The components are a faithful port of the hand-written `index.html`: same
@@ -83,10 +121,19 @@ pre-migration build by comparing the live DOM of every page and overlay
 (2 400+ nodes, identical) and by byte-comparing screenshots of all eight pages
 (identical).
 
-The consequence is that **the logic layer is still imperative**. `legacy/app.ts`
-drives the UI by `getElementById` and `innerHTML`, exactly as before, and the
-React tree is rendered once and never re-rendered — which is why it is safe
-for app.ts to mutate it. Concretely:
+**Projects is the first page off imperative rendering.** `state/projects.ts`
+holds a snapshot (listing, selected path, open path, path being opened) that
+`legacy/app.ts` publishes through `App.publishProjects()`; `ProjectsPage.tsx`
+subscribes with `useSyncExternalStore` and is the only thing that paints it.
+`renderProjectDetail()`, `_detailRow()` and the innerHTML halves of
+`renderProjectList()` / `updateProjectCardsActiveState()` are gone. A store
+rather than context because the publisher is not a component and cannot call
+hooks.
+
+Everywhere else **the logic layer is still imperative**. `legacy/app.ts`
+drives the UI by `getElementById` and `innerHTML`, exactly as before, and
+those parts of the React tree are rendered once and never re-rendered — which
+is why it is safe for app.ts to mutate them. Concretely:
 
 - every page is mounted at once and hidden with `.editor-area` /
   `.active-page`; `App.changeTab()` switches them,
@@ -96,6 +143,5 @@ for app.ts to mutate it. Concretely:
 - `<React.StrictMode>` is off: it would mount twice and run `init()` twice,
   opening two WebSockets.
 
-Converting a page to real React state is the natural next step, and can be
-done one page at a time. The order that pays off first is Projects (smallest,
-list + detail), then Datasets (largest amount of dynamic `innerHTML`).
+Datasets is the next page worth converting — it holds the largest amount of
+dynamic `innerHTML` left.

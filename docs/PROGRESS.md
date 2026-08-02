@@ -8,6 +8,139 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (20) — **18 tlačítek v celé appce bylo mrtvých** (React zahazoval
+kliknutí) + stránka Projekty přepsaná na skutečný React stav
+
+**Výchozí stav.** `git pull --rebase origin main` (main byl mezitím posunutý na
+běh 19), `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý
+(292 pytestů). Fronta tedy vypadala prázdná — a nebyla.
+
+### Priorita A, kterou nikdo neviděl: React nedispatchuje kliknutí podle DOMu
+
+Šel jsem podle otevřeného bodu 1 z minula (převést Projekty na React stav) a
+při ověřování nového chování jsem si pro kontrolu proklikal i **starý** build.
+Tlačítko „Otevřít projekt" v něm **neudělalo vůbec nic** — žádný request,
+žádná chyba, prázdná konzole.
+
+Příčina: **React se před dispatchem kliknutí ptá PROPS elementu, ne DOMu**
+(`shouldPreventMouseEvent` — klik na tlačítko, jehož props říkají `disabled`,
+zahodí dřív, než se spustí jakýkoliv listener). Převodník v běhu (19) přeložil
+HTML atribut `disabled` na `disabled={true}` v JSX, jenže `app.ts` tlačítka
+odemyká jediným způsobem, který zná:
+
+```ts
+(document.getElementById('btn-x') as HTMLButtonElement).disabled = false;
+```
+
+To přepíše DOM vlastnost, ale ne props. Tlačítko tedy **vypadá odemčeně, pro
+prohlížeč odemčené je, a přesto spolkne každé kliknutí**. Bez chyby, bez
+varování, bez čehokoliv v konzoli — proto to prošlo přes DOM i screenshot
+srovnání běhu (19): vykreslený DOM byl skutečně identický, mrtvá byla až
+reakce na klik.
+
+**Rozsah, změřený nad běžícími backendy (starý build z `git worktree`
+vs. nový, stejná fixture data):**
+
+```
+STARÝ (main): klik dorazí k App:  0 / 22
+NOVÝ:         klik dorazí k App: 20 / 22
+```
+
+Zbylé dva nejsou chyba: `#export-project` je trvale zamčený checkbox bez
+handleru a `#btn-project-export` je v novém buildu řízený stavem (bez
+otevřeného projektu se klik zahazuje správně — s otevřeným projektem projde,
+ověřeno zvlášť).
+
+Mrtvá byla: **Projekty** Otevřít / Exportovat / Smazat, **všech 14** akcí nad
+datasety (viz/replay/info/stats/push/export/split-steps/del/task/split/merge,
+stop nahrávání, další značka, zpět značku), **obě** tlačítka teleoperace, stop
+tréninku a stop inference. Prakticky: projekt šlo otevřít **jen dvojklikem na
+řádek** (ten handler props `disabled` neřeší), nic víc.
+
+**Oprava.** `util/initiallyDisabled.ts` — ref, který nastaví vlastnost při
+mountu, a v JSX žádný `disabled` prop. React tak o `disabled` neví a klik
+propustí; zamčené tlačítko blokuje prohlížeč sám (na `disabled` control se
+click event nedispatchuje), takže se nic neztratí. 19 míst v 5 souborech.
+Nový krok 10 ve `verify.sh` konstantu `disabled={true}` zakazuje — povolené je
+`disabled={výraz}` ze stavu nebo `ref={initiallyDisabled}`. Popsáno v
+`docs/FRONTEND.md` i s obecným ponaučením pro zbytek migrace: *co React drží v
+props a app.ts přepisuje v DOMu, se může tiše rozejít* (`disabled` žere
+eventy, stejný tvar mají `value`, `checked`, `selected`).
+
+### Projekty jedou ze skutečného React stavu
+
+`state/projects.ts` drží snapshot (výpis, vybraná cesta, otevřená cesta, cesta
+která se právě otevírá), `app.ts` ho publikuje jedinou metodou
+`App.publishProjects()`, `ProjectsPage.tsx` ho odebírá přes
+`useSyncExternalStore` a je jediné, co ho kreslí. Store, ne context — publisher
+není komponenta a hooky volat nemůže.
+
+Zmizelo: `renderProjectDetail()`, `_detailRow()` a innerHTML polovina
+`renderProjectList()` i `updateProjectCardsActiveState()` (~225 řádků). S nimi
+i řetězcové skládání HTML s ručním `esc()` a inline `onclick="App.x(this.
+dataset.path)"`, které fungovalo jen proto, že `window.App` existuje.
+
+Vypadly přitom **tři mrtvé věci**, které psaly do elementů, jež v markupu
+nejsou už od commitu 15b282e: zápis do `#project-list-root`, zápis do
+`#sidebar-projects-list-container` a jeho aktualizace v
+`updateProjectCardsActiveState`. (Odpovídající CSS `.project-list-foot` a
+`.sidebar-project-item` v `app.css` jsem nechal — patička „Umístění projektů"
+byla odstraněná záměrně a její vrácení je rozhodnutí majitele, ne moje.)
+
+**Otevírání projektu má konečně vidět, že běží.** Předtím `openProject()`
+lepilo třídu `.opening` na řádek a přepisovalo text tlačítka — a obojí bylo
+k ničemu, protože se k němu klik nedostal. Teď je `openingPath` součástí
+stavu: řádek dostane `.opening`, tlačítko říká „Otevírám…" a je zamčené po
+celou dobu round tripu, a čistí se i když volání selže. Ověřeno se zdrženým
+`/api/projects/open`: `idle → {btn:"Otevírám…", disabled:true, opening rows:1}
+→ idle`; starý build ve stejném testu neukázal nic.
+
+Dva drobné důsledky: `#project-detail-hint` a `#btn-project-open` už nenesou
+`data-i18n` (text vlastní React a překreslí se při přepnutí jazyka sám) — díky
+tomu popisek „Otevírám…" přežije přepnutí jazyka uprostřed otevírání, což dřív
+`applyI18n()` přepsalo zpět. A karta „nový projekt" už nedostává neplatné
+`aria-selected` (staré `selectProject()` ho stříkalo na všechny `.project-row`
+včetně `role="button"` karty).
+
+`verify.sh` krok 7 navíc hledal kořen stránky od **prvního** `return (`
+v souboru; stránka s lokálními pod-komponentami nad sebou ho tím shodila.
+Kotví se teď na exportovanou komponentu jménem podle souboru.
+
+### Ověřeno v cloudu
+
+- `bash scripts/verify.sh` **prochází celé** (292 pytestů, 10 kroků).
+- **DOM celé appky je identický se starým buildem** — oba backendy vedle sebe
+  nad stejnou fixture, normalizovaný strom `#root` (8 stránek, dok, 12 modalů,
+  wizard): **3 525 řádků, 4 rozdílné** — přesně ty dva `data-i18n` atributy
+  popsané výše. 0 chyb v konzoli v obou.
+- Stránka Projekty zvlášť v **5 stavech × 2 jazyky** (výchozí výběr, druhý
+  vybraný, otevřený+vybraný, otevřený jinde, žádné projekty): mimo ty dva
+  atributy a zmizelé `aria-selected` na kartě „nový projekt" **beze změny**.
+- **Zamčenost na startu se nezměnila**: 20 z 22 kontrol je po načtení
+  `disabled` ve starém i novém buildu — oprava odemyká kliknutí, ne tlačítka.
+
+**Na fyzickém robotu zbývá vyzkoušet:** oprava mrtvých tlačítek je poprvé, co
+jdou z UI vůbec spustit akce nad hardwarem — takže se musí projít **celý**
+skutečný běh: start/stop teleoperace, stop nahrávání a klávesy pro hranice
+pod-úkolů (další značka / zpět), stop tréninku, stop inference a akce nad
+datasety (split na pod-datasety, merge, push). V cloudu jsem ověřil jen to, že
+klik dorazí k `App.*` — co ta metoda udělá s reálným LeRobotem a robotem, ne.
+Stejně tak otevření projektu s reálnou kalibrací (nasazení do cache LeRobotu).
+
+**Otevřeno pro příště:**
+1. Další stránka na React stav: **Datasety** (nejvíc dynamického `innerHTML`).
+   Pozor při tom na `value` / `checked` / `selected` — stejný tvar pasti jako
+   `disabled`.
+2. Až bude logika ve stavu, zapnout `<StrictMode>` (dnes by spustil `init()`
+   dvakrát).
+3. Bundle je pořád jeden 736 kB chunk — rozdělit (`manualChunks`), až přibude
+   React kód.
+4. Pořád platí otázka na majitele z běhu (18): jak appku spouští (port 4173)?
+5. Zvážit vrácení patičky „Umístění projektů" pod seznam projektů — kód, který
+   ji plnil, tu byl ještě dnes, samotný element zmizel v 15b282e.
+
+---
+
 ## 2026-08-02 (19) — Zadání F: **frontend přepsán na React + Vite + Tailwind**
 (pixel za pixel stejný výsledek, doloženo)
 

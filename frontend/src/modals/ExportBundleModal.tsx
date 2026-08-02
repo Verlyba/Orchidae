@@ -1,6 +1,7 @@
 /** #modal-export-bundle — migrated verbatim from the pre-React web/index.html. */
 
 import { App } from '../legacy/app';
+import { initiallyDisabled } from '../util/initiallyDisabled';
 
 export function ExportBundleModal() {
   return (
@@ -27,7 +28,7 @@ export function ExportBundleModal() {
             Balíček (.orchiday) obsahuje definici projektu a popisy dovedností. Volitelně přidejte nasbírané datasety a natrénované modely — balíček pak plně funguje po přenosu na jiné zařízení.
           </div>
           <label className="export-opt">
-            <input type="checkbox" id="export-project" defaultChecked={true} disabled={true} />
+            <input type="checkbox" id="export-project" defaultChecked={true} ref={initiallyDisabled} />
             {' '}
             <span>
               <strong data-i18n="export.project">Projekt & dovednosti</strong>

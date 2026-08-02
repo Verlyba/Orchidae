@@ -206,9 +206,14 @@ if [ "$HAVE_NODE" -eq 1 ]; then
       }
     }
     // Each page component must still BE a .editor-area pane at its root.
+    // Anchor on the EXPORTED component, not on the first `return (` in the
+    // file: a page is free to define local sub-components above itself, and
+    // those return markup too.
     for (const p of pages) {
       const body = fs.readFileSync(`frontend/src/pages/${p}.tsx`, "utf8");
-      const root = body.slice(body.indexOf("return ("));
+      const at = body.search(new RegExp(`^export function ${p}\\s*\\(`, "m"));
+      if (at < 0) { console.log(`${p}.tsx does not export a function named ${p}`); bad = true; continue; }
+      const root = body.slice(body.indexOf("return (", at));
       if (!/^\s*return \(\s*\n\s*<div id="page-[a-z]+" className="editor-area/.test(root)) {
         console.log(`${p}.tsx does not start with a <div id="page-…" className="editor-area…"> root`);
         bad = true;
@@ -337,6 +342,52 @@ if [ "$HAVE_NODE" -eq 1 ]; then
     if (missing.length) { console.log("called from a component, not defined in app.ts:", missing); process.exit(1); }
     console.log(`checked ${called.size} App.* references`);
   ' || fail "a component calls a missing App method"
+else
+  echo "skipped (node unavailable)"
+fi
+
+# ── 10. No control is rendered with a hardcoded `disabled` ────────────────
+# React decides whether to dispatch a click from the element's PROPS, not from
+# the DOM. A button rendered `disabled={true}` and later enabled the way every
+# page still does it — `el.disabled = false` from app.ts — therefore looks
+# enabled, is enabled as far as the browser is concerned, and still swallows
+# every click. Silently: no error, no warning. That killed 18 buttons at once
+# after the React port (Projects Open/Export/Delete, all of Datasety's dataset
+# actions, both teleop buttons, stop-training, stop-inference).
+#
+# Two ways out, both allowed: derive it from state (`disabled={!selected}` —
+# see ProjectsPage) or hand the DOM property back to app.ts with
+# `ref={initiallyDisabled}`. What is banned is the constant.
+step "no hardcoded disabled= on a control"
+if [ "$HAVE_NODE" -eq 1 ]; then
+  node -e '
+    const fs = require("fs");
+    const files = [];
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = `${d}/${e.name}`;
+      if (e.isDirectory()) walk(p); else if (p.endsWith(".tsx")) files.push(p);
+    } };
+    walk("frontend/src");
+    const bad = [];
+    for (const f of files) {
+      const text = fs.readFileSync(f, "utf8");
+      // `disabled={true}` and a bare `disabled` attribute both put a literal
+      // in props. `disabled={expr}` is state-driven and fine. Attributes are
+      // written one per line here, which is what keeps the prose in comments
+      // ("letting a disabled button look broken") out of the match.
+      text.split("\n").forEach((line, i) => {
+        if (/disabled=\{true\}/.test(line) || /^\s*disabled\s*\/?>?\s*$/.test(line)) {
+          bad.push(`${f}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    if (bad.length) {
+      console.log(bad.join("\n"));
+      console.log("fix: derive it from state, or use ref={initiallyDisabled} so app.ts owns the property");
+      process.exit(1);
+    }
+    console.log(`no constant disabled props in ${files.length} components`);
+  ' || fail "a control is rendered with a hardcoded disabled prop (React will swallow its clicks)"
 else
   echo "skipped (node unavailable)"
 fi

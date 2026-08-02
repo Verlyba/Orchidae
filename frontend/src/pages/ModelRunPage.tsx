@@ -1,6 +1,7 @@
 /** #page-modelrun — migrated verbatim from the pre-React web/index.html. */
 
 import { App } from '../legacy/app';
+import { initiallyDisabled } from '../util/initiallyDisabled';
 
 export function ModelRunPage() {
   return (
@@ -295,7 +296,7 @@ export function ModelRunPage() {
               className="btn btn-xs btn-danger"
               id="btn-stop-inference"
               onClick={(event: any) => { App.stopWorkflowInference() }}
-              disabled={true}
+              ref={initiallyDisabled}
               data-i18n="btn.stop"
             >Zastavit</button>
           </div>
