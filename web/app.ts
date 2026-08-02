@@ -292,7 +292,6 @@ const App = {
     this.bindAutoSlug();
     this.loadProjects();
     this.bindResizers();
-    this.bindColumnResizers();
     this.bindModals();
     // Paint the marking column before any project is open, so it reads as
     // "nothing selected yet" instead of an empty box.
@@ -779,15 +778,18 @@ const App = {
       activeBtn.setAttribute('aria-current', 'page');
     }
 
-    // 2. Toggles workspace page visibility
-    document.querySelectorAll('.workspace .editor-area').forEach(page => {
+    // 2. Toggles workspace page visibility.
+    // Selected by class alone, not '.workspace .editor-area': scoping it to a
+    // container makes hiding depend on the markup nesting staying intact, and
+    // a single stray </div> earlier in the file put half the pages outside
+    // .workspace — they then kept .active-page forever and five pages
+    // rendered stacked on top of each other, 32px tall each.
+    document.querySelectorAll('.editor-area').forEach(page => {
       page.classList.remove('active-page');
     });
     const activePage = document.getElementById(`page-${tabId}`);
     if (activePage) {
       activePage.classList.add('active-page');
-      // Blocks now have real widths — wire up column splitters for this page
-      this.initColumnResizers(activePage);
     }
 
     // 3. Update breadcrumbs trail dynamically
@@ -5070,96 +5072,6 @@ const App = {
   },
 
   // ── Terminal UI Controls & Resizing ─────────────────────────────────
-  // ── Draggable column splitters between page blocks ──────────────────
-  _colResize: null as null | { left: HTMLElement; right: HTMLElement; startX: number; lw: number; rw: number },
-
-  /** Bind the single document-level drag listeners (called once from init). */
-  bindColumnResizers(): void {
-    document.addEventListener('mousemove', (e: MouseEvent) => {
-      const c = this._colResize;
-      if (!c) return;
-      const total = c.lw + c.rw;
-      const MIN = 180;
-      let nl = c.lw + (e.clientX - c.startX);
-      if (nl < MIN) nl = MIN;
-      if (nl > total - MIN) nl = total - MIN;
-      c.left.style.flexGrow = String(nl);
-      c.right.style.flexGrow = String(total - nl);
-    });
-
-    document.addEventListener('mouseup', () => {
-      if (this._colResize) {
-        this._colResize = null;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        setTimeout(() => this.drawLossChart(), 50);
-      }
-    });
-  },
-
-  /**
-   * Insert drag handles between the side-by-side blocks of a page so panels
-   * can be resized horizontally — same interaction as the terminal/cameras
-   * docks. Idempotent: a section is only wired once.
-   */
-  initColumnResizers(pageEl: HTMLElement): void {
-    const sections = pageEl.querySelectorAll<HTMLElement>('.setup-section, .datacollection-grid');
-    sections.forEach(sec => {
-      if (sec.dataset.resizableInit) return;
-      // Mark immediately so a second changeTab() call before the deferred
-      // measurement below runs can't queue this section twice.
-      sec.dataset.resizableInit = '1';
-      const blocks = ([...sec.children] as HTMLElement[]).filter(
-        c => c.classList.contains('setup-block') || c.classList.contains('datacollection-block')
-      );
-      if (blocks.length < 2) return;
-
-      // Defer to the next frame: the page was just made visible this same
-      // tick (display:none -> flex), so getBoundingClientRect() here would
-      // still reflect the pre-layout state and lock in degenerate widths
-      // (e.g. every block collapsing toward 0) for the rest of the session.
-      requestAnimationFrame(() => this._setupColumnResizers(sec, blocks));
-    });
-  },
-
-  _setupColumnResizers(sec: HTMLElement, blocks: HTMLElement[]): void {
-      // Capture current widths, then switch to a flex split layout using those
-      // widths as flex-grow ratios so the layout looks unchanged until dragged.
-      // A too-small reading means layout still hadn't settled — fall back to
-      // an even split rather than locking in a broken ratio.
-      const raw = blocks.map(b => b.getBoundingClientRect().width);
-      const usable = raw.every(w => w >= 40);
-      const widths = usable ? raw : blocks.map(() => 1);
-      sec.classList.add('has-col-resizers');
-      blocks.forEach((b, i) => {
-        b.style.flex = `${widths[i]} 1 0`;
-        b.style.minWidth = '0';
-      });
-
-      for (let i = 0; i < blocks.length - 1; i++) {
-        const rz = document.createElement('div');
-        rz.className = 'col-resizer';
-        rz.setAttribute('role', 'separator');
-        rz.setAttribute('aria-orientation', 'vertical');
-        rz.title = this.t('resizer.title');
-        blocks[i].after(rz);
-        rz.addEventListener('mousedown', (e: MouseEvent) => {
-          const left = rz.previousElementSibling as HTMLElement | null;
-          const right = rz.nextElementSibling as HTMLElement | null;
-          if (!left || !right) return;
-          this._colResize = {
-            left, right,
-            startX: e.clientX,
-            lw: left.getBoundingClientRect().width,
-            rw: right.getBoundingClientRect().width,
-          };
-          document.body.style.cursor = 'ew-resize';
-          document.body.style.userSelect = 'none';
-          e.preventDefault();
-        });
-      }
-  },
-
   bindResizers(): void {
     const termHandle = document.getElementById('terminal-drag-handle');
     const termArea = document.getElementById('bottom-dock-container') || document.getElementById('terminal-area');

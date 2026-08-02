@@ -199,7 +199,7 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 0 14px;
-    font-size: 12px;
+    font-size: 13.5px;
     color: var(--text-muted);
     flex-shrink: 0;
     user-select: none;
@@ -217,7 +217,7 @@ body {
     gap: 7px;
     font-weight: 800;
     color: var(--text-light);
-    font-size: 12.5px;
+    font-size: 14px;
     letter-spacing: 0.3px;
 }
 
@@ -229,7 +229,7 @@ body {
 .title-bar-center {
     font-weight: 600;
     color: var(--text-muted);
-    font-size: 11.5px;
+    font-size: 13px;
     letter-spacing: 0.2px;
 }
 
@@ -270,7 +270,7 @@ body {
 }
 
 .nav-title {
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     color: var(--text-light);
     padding: 14px 16px 4px 16px;
@@ -304,7 +304,7 @@ body {
     border-left: 2.5px solid transparent;
     cursor: pointer;
     transition: var(--transition);
-    font-size: 11.5px;
+    font-size: 13px;
     font-weight: 500;
     position: relative;
     overflow: hidden;
@@ -385,7 +385,7 @@ body {
 }
 
 .estop-label {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 800;
     color: var(--red);
     text-transform: uppercase;
@@ -404,7 +404,7 @@ body {
 }
 
 .sidebar-subtitle {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.8px;
@@ -422,7 +422,7 @@ body {
     background: transparent;
     border: none;
     color: var(--text-light);
-    font-size: 12.5px;
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
     text-align: left;
@@ -456,7 +456,7 @@ body {
 
 .skills-tree-folder .count-badge {
     margin-left: auto;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 600;
     color: var(--syntax-variable);
     background: rgba(156, 220, 254, 0.12);
@@ -496,7 +496,7 @@ body {
     background: transparent;
     border: none;
     color: var(--text-main);
-    font-size: 12px;
+    font-size: 13.5px;
     cursor: pointer;
     text-align: left;
     margin: 1px 0;
@@ -519,7 +519,7 @@ body {
 
 .skills-tree-item .ep-badge {
     margin-left: auto;
-    font-size: 9px;
+    font-size: 10.5px;
     font-family: var(--font-mono);
     padding: 1px 5px;
     font-weight: 600;
@@ -543,8 +543,8 @@ body {
     border: 1px solid var(--accent);
 }
 
-.sidebar-project-item .name { font-weight: 600; color: var(--text-light); font-size: 12px; }
-.sidebar-project-item .meta { font-size: 10px; color: var(--text-muted); }
+.sidebar-project-item .name { font-weight: 600; color: var(--text-light); font-size: 13.5px; }
+.sidebar-project-item .meta { font-size: 11.5px; color: var(--text-muted); }
 
 /* --- 5. WORKSPACE CONTAINER (MAIN) --- */
 .workspace {
@@ -580,7 +580,7 @@ body {
 }
 
 .page-header-row h2 {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 800;
     color: var(--text-white);
     letter-spacing: -0.2px;
@@ -598,7 +598,7 @@ body {
 }
 
 .project-badge-global {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     background-color: var(--accent-light);
     color: var(--text-light);
@@ -615,7 +615,7 @@ body {
 
 .info-tooltip-trigger {
     cursor: help;
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--cyan);
     position: relative;
     display: inline-flex;
@@ -644,7 +644,7 @@ body {
     color: var(--text-light);
     border: 1px solid var(--border);
     padding: 10px 14px;
-    font-size: 10.5px;
+    font-size: 12px;
     width: 260px;
     white-space: normal;
     opacity: 0;
@@ -731,7 +731,7 @@ body {
 }
 
 .setup-block h3 {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 800;
     margin-bottom: 10px;
     color: var(--text-white);
@@ -769,7 +769,7 @@ body {
 }
 
 .form-group label {
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     font-weight: 700;
     text-transform: uppercase;
@@ -781,7 +781,7 @@ input, select, textarea {
     border: 1px solid var(--border);
     color: var(--text-light);
     padding: 7px 10px;
-    font-size: 12px;
+    font-size: 13.5px;
     outline: none;
     transition: var(--transition);
     font-family: var(--font-sans);
@@ -811,7 +811,7 @@ input[readonly] {
     color: var(--text-light);
     border: 1px solid var(--border);
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -846,14 +846,14 @@ input[readonly] {
 /* Size tiers */
 .btn-xs {
     padding: 4px 10px;
-    font-size: 11px;
+    font-size: 12.5px;
     min-height: 26px;
     letter-spacing: 0.2px;
 }
 
 .btn-sm {
     padding: 5px 12px;
-    font-size: 11.5px;
+    font-size: 13px;
     min-height: 28px;
 }
 
@@ -937,9 +937,16 @@ input[readonly] {
 .merge-cols {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 18px;
+    gap: 26px;
     align-items: stretch;
 }
+
+.merge-cols > .merge-col + .merge-col,
+.connect-cols > .connect-col + .connect-col {
+    border-left: 1px solid var(--border-dark);
+    padding-left: 26px;
+}
+
 
 .merge-cols-3 { grid-template-columns: 1.2fr 1fr 1.3fr; }
 
@@ -963,7 +970,7 @@ input[readonly] {
 
 .connect-col-title,
 .merge-col-title {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.7px;
     text-transform: uppercase;
@@ -971,14 +978,26 @@ input[readonly] {
     margin: 0 0 8px;
 }
 
-/* A column keeps the body it had as a standalone panel, including the
-   .setup-block-content wrapper. That wrapper scrolls on its own when it is a
-   window; as a column it must not, or the window grows scrollbars inside
-   scrollbars. The window's own content area does the scrolling. */
+/* In a merged window the columns scroll, not the window. Scrolling the whole
+   content area took each column's action footer — including "Spustit
+   Trénink" — down with the content it belongs to. Per-column scroll keeps
+   every footer pinned at the bottom of its own column. */
+.setup-block-content > .merge-cols,
+.setup-block-content > .connect-cols {
+    min-height: 0;
+    height: 100%;
+}
+
+.merge-col,
+.connect-col {
+    min-height: 0;
+}
+
 .merge-col > .setup-block-content {
-    flex: 0 1 auto;
-    overflow: visible;
-    padding-right: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 /* Each column keeps its own action footer — the buttons act on that column's
@@ -1003,7 +1022,7 @@ input[readonly] {
 }
 
 .panel-toolbar-label {
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
@@ -1104,7 +1123,7 @@ input[readonly] {
 
 .project-row-name {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 14.5px;
     color: var(--text-white);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1113,7 +1132,7 @@ input[readonly] {
 
 .project-row-flag {
     flex: 0 0 auto;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
@@ -1127,7 +1146,7 @@ input[readonly] {
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 10px;
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-muted);
 }
 
@@ -1145,7 +1164,7 @@ input[readonly] {
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--border-dark);
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-light);
     min-width: 0;
 }
@@ -1186,14 +1205,14 @@ input[readonly] {
 }
 
 .pd-title {
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 700;
     color: var(--text-white);
     letter-spacing: -0.2px;
 }
 
 .pd-sub {
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-muted);
     word-break: break-all;
     margin-top: 2px;
@@ -1209,7 +1228,6 @@ input[readonly] {
 }
 
 .pd-stat {
-    background: var(--bg-inset);
     padding: 7px 9px;
     display: flex;
     flex-direction: column;
@@ -1223,7 +1241,7 @@ input[readonly] {
 
 .pd-stat-num {
     font-family: var(--font-mono);
-    font-size: 18px;
+    font-size: 19px;
     font-weight: 700;
     color: var(--text-white);
     line-height: 1.1;
@@ -1234,7 +1252,7 @@ input[readonly] {
 }
 
 .pd-stat-label {
-    font-size: 9.5px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-muted);
@@ -1274,7 +1292,7 @@ input[readonly] {
 }
 
 .pd-h {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -1287,7 +1305,7 @@ input[readonly] {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    font-size: 11.5px;
+    font-size: 13px;
 }
 
 .pd-key {
@@ -1304,7 +1322,7 @@ input[readonly] {
 
 .pd-scene {
     margin: 0;
-    font-size: 11.5px;
+    font-size: 13px;
     line-height: 1.5;
     color: var(--text-light);
     border-left: 2px solid var(--border-light);
@@ -1318,13 +1336,13 @@ input[readonly] {
 
 .pd-note {
     margin: 0;
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.4;
     color: var(--text-muted);
 }
 
 .pd-none {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     font-style: normal;
 }
@@ -1332,12 +1350,12 @@ input[readonly] {
 .pd-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 .pd-table th {
     text-align: left;
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -1381,14 +1399,14 @@ input[readonly] {
 }
 
 .pd-task-name {
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-white);
 }
 
 .pd-task-mode {
     flex: 0 0 auto;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -1413,7 +1431,7 @@ input[readonly] {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-light);
     border: 1px solid var(--border);
     padding: 1px 6px 1px 1px;
@@ -1421,7 +1439,7 @@ input[readonly] {
 
 .pd-step-num {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 700;
     color: var(--bg-editor);
     background: var(--text-muted);
@@ -1438,7 +1456,7 @@ input[readonly] {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 600;
     padding: 2px 8px;
     width: fit-content;
@@ -1495,7 +1513,7 @@ input[readonly] {
 }
 
 .empty-state-icon {
-    font-size: 24px;
+    font-size: 26px;
     margin-bottom: 10px;
     color: var(--border-light);
     opacity: 0.6;
@@ -1508,7 +1526,7 @@ input[readonly] {
 }
 
 .empty-state-text {
-    font-size: 12px;
+    font-size: 13.5px;
     text-align: center;
     line-height: 1.5;
 }
@@ -1518,7 +1536,6 @@ input[readonly] {
    ═══════════════════════════════════════════════════════════════════ */
 
 .robot-slider-container {
-    background: var(--bg-inset);
     padding: 4px;
     margin-bottom: 10px;
     display: flex;
@@ -1572,12 +1589,12 @@ input[readonly] {
 
 .robot-type-pill .pill-title {
     font-weight: 700;
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-light);
 }
 
 .robot-type-pill .pill-subtitle {
-    font-size: 8.5px;
+    font-size: 10px;
     color: var(--text-muted);
 }
 
@@ -1595,7 +1612,7 @@ input[readonly] {
     padding: 6px 10px;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 13.5px;
     transition: var(--transition);
 }
 
@@ -1639,7 +1656,7 @@ input[readonly] {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     border: 1px dashed var(--border);
 }
@@ -1700,7 +1717,7 @@ input[readonly] {
 
 .datacollection-block-header {
     padding: 10px 14px;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 800;
     color: var(--text-light);
     background: oklch(0.22 0.012 250);
@@ -1734,7 +1751,7 @@ input[readonly] {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     overflow: hidden;
     width: 100%;
@@ -1751,7 +1768,7 @@ input[readonly] {
     left: 6px;
     background: rgba(0, 0, 0, 0.8);
     padding: 2px 7px;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     color: var(--text-white);
     z-index: 2;
@@ -1764,7 +1781,7 @@ input[readonly] {
     flex-wrap: wrap;
     justify-content: space-between;
     gap: 4px 14px;
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     background: var(--bg-inset);
     padding: 7px 10px;
@@ -1824,7 +1841,7 @@ input[readonly] {
 }
 
 .rec-cfg-flag label {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     color: var(--text-muted);
     cursor: pointer;
@@ -1851,7 +1868,7 @@ input[readonly] {
 }
 
 .rec-keymap-note {
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     flex: 1 1 220px;
 }
@@ -1859,12 +1876,12 @@ input[readonly] {
 .rec-keymap-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 10.5px;
+    font-size: 12px;
 }
 
 .rec-keymap-table th {
     text-align: left;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -1888,7 +1905,7 @@ input[readonly] {
     width: 1%;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     padding-right: 0;
 }
@@ -1898,7 +1915,7 @@ input[readonly] {
     min-width: 18px;
     text-align: center;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--yellow);
     border: 1px solid var(--border-light);
     padding: 1px 4px;
@@ -1911,7 +1928,6 @@ input[readonly] {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: var(--bg-inset);
     padding: 10px;
     flex: 0 0 auto;
 }
@@ -1930,13 +1946,13 @@ input[readonly] {
 
 .rec-verdict-text {
     flex: 1 1 160px;
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
 }
 
 .tagging-empty {
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
 }
@@ -1969,7 +1985,7 @@ input[readonly] {
     background: var(--bg-inset);
     border: 1px solid var(--border-dark);
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: 12.5px;
     flex: 0 0 auto;
 }
 
@@ -1987,11 +2003,11 @@ input[readonly] {
 
 .rec-episode-actions .btn {
     padding: 2px 6px;
-    font-size: 10px;
+    font-size: 11.5px;
 }
 
 .rec-episodes-empty {
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
     text-align: center;
@@ -2024,7 +2040,7 @@ input[readonly] {
     border: 1px solid var(--border-dark);
     border-left: 2px solid var(--border-light);
     background: var(--bg-sidebar);
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-main);
 }
 
@@ -2040,7 +2056,7 @@ input[readonly] {
 
 .tagging-step-idx {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     text-align: right;
 }
@@ -2055,7 +2071,7 @@ input[readonly] {
 
 .tagging-step-t {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
 }
 
@@ -2073,7 +2089,7 @@ input[readonly] {
     flex-wrap: wrap;
     justify-content: space-between;
     gap: 4px 12px;
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
 }
 
@@ -2087,7 +2103,7 @@ input[readonly] {
 
 /* State badges shared by the step rows and the phase indicator */
 .tagging-panel .tag {
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -2151,7 +2167,7 @@ input[readonly] {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     color: var(--text-white);
     padding-bottom: 6px;
@@ -2167,7 +2183,7 @@ input[readonly] {
 }
 
 .brain-badge {
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 800;
     text-transform: uppercase;
     padding: 2px 7px;
@@ -2189,7 +2205,6 @@ input[readonly] {
 }
 
 .pipeline-steps-container {
-    background: var(--bg-inset);
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -2203,7 +2218,7 @@ input[readonly] {
     align-items: center;
     gap: 8px;
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: 12.5px;
     background: transparent;
     transition: var(--transition);
 }
@@ -2240,7 +2255,7 @@ input[readonly] {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     color: var(--text-muted);
     flex-shrink: 0;
@@ -2281,9 +2296,8 @@ input[readonly] {
 
 .latch-status-indicator {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-muted);
-    background: var(--bg-inset);
     padding: 6px 10px;
 }
 
@@ -2454,7 +2468,7 @@ input[readonly] {
 .terminal-tabs {
     display: flex;
     gap: 12px;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.8px;
@@ -2470,7 +2484,7 @@ input[readonly] {
     align-items: center;
     border-bottom: 2px solid transparent;
     transition: var(--transition);
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
 }
@@ -2488,7 +2502,7 @@ input[readonly] {
     display: flex;
     align-items: center;
     gap: 12px;
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 .terminal-body {
@@ -2496,7 +2510,7 @@ input[readonly] {
     overflow-y: auto;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 13px;
     line-height: 1.5;
 }
 
@@ -2510,7 +2524,7 @@ input[readonly] {
 .t-line span.tag {
     font-weight: 700;
     padding: 1px 5px;
-    font-size: 9px;
+    font-size: 10.5px;
     line-height: 1.3;
 }
 
@@ -2538,7 +2552,7 @@ input[readonly] {
     outline: none;
     color: var(--text-white);
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 13px;
     padding: 0;
 }
 
@@ -2596,7 +2610,7 @@ body.modal-open {
 }
 
 .modal-header h4 {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     color: var(--text-white);
     text-transform: uppercase;
@@ -2607,7 +2621,7 @@ body.modal-open {
     background: transparent;
     border: 1px solid transparent;
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 15px;
     cursor: pointer;
     line-height: 1;
     transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
@@ -2706,7 +2720,7 @@ body.modal-open {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 16px;
+    font-size: 17px;
     cursor: pointer;
     line-height: 1;
     width: 28px;
@@ -2763,7 +2777,7 @@ body.modal-open {
 }
 
 .welcome-text {
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-muted);
     letter-spacing: 3px;
@@ -2780,7 +2794,7 @@ body.modal-open {
 }
 
 .wizard-subtitle {
-    font-size: 15px;
+    font-size: 16px;
     color: var(--text-light);
     text-align: center;
     margin-bottom: 20px;
@@ -2821,7 +2835,7 @@ body.modal-open {
 }
 
 .wizard-form-group label {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     color: var(--text-light);
     text-align: left;
@@ -2836,7 +2850,7 @@ body.modal-open {
     background-color: var(--bg-sidebar);
     color: var(--text-white);
     border: 1px solid var(--border);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 600;
     outline: none;
     transition: var(--transition);
@@ -2858,7 +2872,7 @@ body.modal-open {
     background-color: var(--bg-sidebar);
     color: var(--text-white);
     border: 1px solid var(--border);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 600;
     outline: none;
     appearance: none;
@@ -2881,7 +2895,7 @@ body.modal-open {
 
 /* Wizard page 2 styling */
 .wizard-description-text {
-    font-size: 13px;
+    font-size: 14.5px;
     color: var(--text-main);
     text-align: center;
     max-width: 360px;
@@ -2904,7 +2918,7 @@ body.modal-open {
     background-color: var(--bg-sidebar);
     color: var(--text-light);
     border: 1px solid var(--border);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     cursor: pointer;
     transition: var(--transition);
@@ -2948,7 +2962,7 @@ body.modal-open {
     border: 1px solid var(--border);
     padding: 10px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--cyan);
     overflow-y: auto;
     white-space: pre-wrap;
@@ -3009,7 +3023,7 @@ body.modal-open {
 }
 
 .skip-text {
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 700;
     color: var(--text-muted);
     max-width: 0;
@@ -3048,7 +3062,7 @@ body.modal-open {
     padding: 6px 10px;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border);
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-light);
     display: flex;
     justify-content: space-between;
@@ -3096,7 +3110,7 @@ input[type="checkbox"]:checked::after {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 800;
     color: var(--text-white);
 }
@@ -3282,7 +3296,7 @@ textarea:focus-visible {
     background: var(--accent);
     color: var(--text-white);
     padding: 8px 14px;
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 700;
     text-decoration: none;
     transition: top 0.15s ease;
@@ -3367,7 +3381,7 @@ textarea:focus-visible {
 
     .activity-btn::after {
         content: "•";
-        font-size: 16px;
+        font-size: 17px;
         color: var(--text-muted);
         transition: var(--transition);
         display: block;
@@ -3448,7 +3462,7 @@ textarea:focus-visible {
 /* Phones / very narrow: compact title bar and modals */
 @media (max-width: 640px) {
     .title-bar-center {
-        font-size: 10px;
+        font-size: 11.5px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -3472,7 +3486,7 @@ textarea:focus-visible {
 
 /* --- Page subtitle --- */
 .page-subtitle {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     margin: -6px 0 0 0;
     flex-shrink: 0;
@@ -3504,11 +3518,11 @@ textarea:focus-visible {
 
 .tool-card > h3 {
     margin: 0 0 2px;
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 .tool-card .tool-desc {
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-muted);
     line-height: 1.5;
     margin: 0;
@@ -3517,7 +3531,7 @@ textarea:focus-visible {
 
 .tool-card code {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     color: var(--cyan);
     background: rgba(0, 0, 0, 0.25);
     padding: 1px 4px;
@@ -3561,7 +3575,7 @@ textarea:focus-visible {
 .train-stat-lbl,
 .orch-stat-label,
 .teleop-stat-label {
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -3576,7 +3590,7 @@ textarea:focus-visible {
 .orch-stat-value,
 .teleop-stat-value {
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--text-white);
     line-height: 1.15;
@@ -3607,90 +3621,30 @@ textarea:focus-visible {
 
 
 .adv-mode-card strong {
-    font-size: 11.5px;
+    font-size: 13px;
     color: var(--text-light);
 }
 
 .adv-mode-card code {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     color: var(--syntax-string);
     word-break: break-all;
 }
 
 .adv-mode-card span {
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.4;
 }
 
-
-/* ═══════════════════════════════════════════════════════════════════════
-   DRAGGABLE COLUMN SPLITTERS (v2.9)
-   Resize side-by-side page blocks by dragging the bar between them,
-   mirroring the terminal/cameras dock handles.
-   ═══════════════════════════════════════════════════════════════════════ */
-.setup-section.has-col-resizers,
-.datacollection-grid.has-col-resizers {
-    display: flex;
-    flex-direction: row;
-}
-
-.col-resizer {
-    flex: 0 0 6px;
-    align-self: stretch;
-    cursor: ew-resize;
-    position: relative;
-    background: transparent;
-    transition: background-color 0.15s ease;
-}
-
-/* Visible center grip line */
-.col-resizer::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 2px;
-    height: 28px;
-    background: var(--border-light);
-    transition: background-color 0.15s ease, height 0.15s ease;
-}
-
-.col-resizer:hover {
-    background: var(--accent-light);
-}
-
-.col-resizer:hover::before {
-    background: var(--accent);
-    height: 44px;
-}
-
-/* Disable all transitions during dragging to prevent layout lag */
-body.resizing,
-body.resizing * {
-    transition: none !important;
-}
-
-/* Under the stacking breakpoint the splitters are meaningless */
-@media (max-width: 920px) {
-    .setup-section.has-col-resizers,
-    .datacollection-grid.has-col-resizers {
-        display: block !important;
-    }
-
-    .col-resizer {
-        display: none;
-    }
-}
 
 /* --- Live process badge (e.g. TELEOP AKTIVNI) --- */
 .running-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 800;
     letter-spacing: 0.8px;
     color: var(--green);
@@ -3726,6 +3680,38 @@ body.resizing * {
     min-height: 0;
     overflow-y: auto;
     align-content: start;
+}
+
+
+/* A page is one working surface: its windows reach the bottom edge rather
+   than stopping wherever the content happened to end and leaving a strip of
+   page showing above the terminal dock.
+
+   `flex: 1 1 0` and not `1 1 auto`: with `auto` the section's base size is
+   its content, so tall content pushed the section past the page and took the
+   .block-actions footer — the primary button of the page — below the fold.
+   Sized from zero, the section is bounded by the page, and the overflow goes
+   where it belongs: .setup-block-content, which scrolls. */
+.setup-wizard-panel > .setup-section,
+.editor-area > .setup-section {
+    align-items: stretch;
+    min-height: 0;
+    flex: 1 1 0;
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.setup-wizard-panel > .setup-section > .setup-block,
+.editor-area > .setup-section > .setup-block {
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* Some wizard steps (Nastavení → Cesty, Nástroje) hang their window straight
+   off the panel with no .setup-section in between. Same rule for them. */
+.setup-wizard-panel > .setup-block {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -3786,7 +3772,7 @@ body.resizing * {
 }
 
 .policy-pick-card strong {
-    font-size: 12px;
+    font-size: 13.5px;
     color: var(--text-light);
 }
 
@@ -3795,7 +3781,7 @@ body.resizing * {
 }
 
 .policy-pick-card span {
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.4;
 }
@@ -3842,7 +3828,7 @@ body.resizing * {
     flex: 1 1 180px;
     min-width: 0;
     margin-right: auto;
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.35;
     color: var(--text-muted);
 }
@@ -3906,13 +3892,13 @@ body.resizing * {
 }
 
 .cfg-card-title {
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 700;
     color: var(--text-light);
 }
 
 .cfg-card-desc {
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.45;
 }
@@ -3925,7 +3911,7 @@ body.resizing * {
 }
 
 .cal-live-title {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     margin-bottom: 6px;
 }
@@ -3933,7 +3919,7 @@ body.resizing * {
 .cal-live-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: 12.5px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -3980,7 +3966,7 @@ body.resizing * {
 
 .cal-live-note {
     margin-top: 6px;
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--green);
 }
 
@@ -4021,7 +4007,7 @@ body.resizing * {
 .cal-live-phase {
     display: block;
     margin-top: 3px;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 600;
     color: var(--yellow);
 }
@@ -4029,7 +4015,7 @@ body.resizing * {
 /* Port shown inline on a run button, so the action and its target read as one control. */
 .btn-port-hint {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     opacity: 0.75;
 }
 
@@ -4047,7 +4033,7 @@ body.resizing * {
     color: var(--text-muted);
     cursor: pointer;
     padding: 8px 14px;
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 700;
     display: inline-flex;
     align-items: center;
@@ -4071,7 +4057,7 @@ body.resizing * {
     width: 16px;
     height: 16px;
     background: rgba(255, 255, 255, 0.06);
-    font-size: 9px;
+    font-size: 10.5px;
 }
 
 .setup-wizard-tab-btn.active .setup-wizard-tab-num {
@@ -4087,23 +4073,12 @@ body.resizing * {
     min-height: 0;
 }
 
-/* The base .setup-section stretches (flex:1) and its grid rows fill that
-   stretched height (grid-template-rows: 1fr) — right for content-dense tabs
-   (Connect, Sběr dat, Imitační učení), wrong for the shorter ones below:
-   that combination left a large empty box under short content. Only these
-   specific short tabs get sized to their actual content instead. */
-/* `flex: 0 1 auto` + `minmax(0, auto)`: the section is sized to its content
-   (no empty box under short tabs) but is still allowed to SHRINK when the
-   window is short. With `flex: 0 0 auto` it could not, so on a low viewport
-   the bottom of the panel — including the .block-actions footer with the
-   primary action — was pushed out of the scrollport. Shrinking hands the
-   overflow to .setup-block-content, which already scrolls. */
-#page-setup .setup-wizard-panel[data-tab-panel="models"] .setup-section {
-    flex: 0 1 auto;
-    min-height: 0;
-    grid-template-rows: minmax(0, auto);
-    max-width: 640px;
-}
+/* These tabs used to be sized to their content so short ones would not show
+   an empty box below the last control. At a real desktop width that traded
+   one kind of emptiness for a worse one: the window stopped 200+px above the
+   terminal dock with bare page showing in between, and Modely used 37% of a
+   1710px page. They stretch now, and their content is laid out to use the
+   room — see the three-column Modely panel in index.html. */
 
 /* Kalibrace deliberately has NO max-width and DOES take the full height: the
    page is a two-column workspace (per-arm state | the running calibration),
@@ -4115,16 +4090,10 @@ body.resizing * {
     grid-template-rows: minmax(0, 1fr);
 }
 
-#page-datasety .setup-wizard-panel[data-tab-panel="manage"] .setup-section,
-#page-uceni .setup-wizard-panel[data-tab-panel="advanced"] .setup-section {
-    flex: 0 1 auto;
-    min-height: 0;
-    grid-template-rows: minmax(0, auto);
-}
 
 .setup-wizard-next-hint {
     margin-top: 8px;
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     font-style: italic;
 }
@@ -4148,7 +4117,6 @@ body.resizing * {
     flex-direction: column;
     gap: 12px;
     padding: 12px;
-    background: var(--bg-inset);
     min-height: 0;
     overflow-y: auto;
 }
@@ -4185,7 +4153,7 @@ body.resizing * {
 }
 
 .cal-arm-state {
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -4207,14 +4175,14 @@ body.resizing * {
     display: grid;
     grid-template-columns: minmax(0, auto) minmax(0, 1fr);
     gap: 4px 10px;
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
 }
 
 .cal-kv strong {
     color: var(--text-white);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 12px;
     text-align: right;
     word-break: break-all;
 }
@@ -4240,14 +4208,14 @@ body.resizing * {
 
 .cal-arm-hint {
     flex: 1 1 140px;
-    font-size: 10px;
+    font-size: 11.5px;
     line-height: 1.35;
     color: var(--text-muted);
 }
 
 .cal-store-note,
 .cal-ranges-note {
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.45;
     color: var(--text-muted);
 }
@@ -4337,7 +4305,7 @@ body.resizing * {
 }
 
 .cal-proc-head {
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -4350,7 +4318,7 @@ body.resizing * {
     padding: 4px 6px;
     background: rgba(0, 0, 0, 0.28);
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     line-height: 1.4;
     color: var(--text-muted);
     white-space: pre-wrap;
@@ -4358,7 +4326,7 @@ body.resizing * {
 }
 
 .cal-proc-desc {
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.45;
     color: var(--text-muted);
 }
@@ -4366,7 +4334,7 @@ body.resizing * {
 .cal-proc-desc code,
 .cal-arm-hint code {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--cyan);
 }
 
@@ -4402,12 +4370,12 @@ body.resizing * {
 .cal-file-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 .cal-file-table thead th {
     text-align: left;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
@@ -4441,7 +4409,7 @@ body.resizing * {
 .cal-col-date {
     color: var(--text-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     white-space: nowrap;
 }
 
@@ -4456,7 +4424,7 @@ body.resizing * {
     border: 1px solid var(--border);
     cursor: pointer;
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     user-select: none;
     transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
@@ -4483,7 +4451,7 @@ body.resizing * {
     background: transparent;
     border: 1px solid transparent;
     color: var(--text-light);
-    font-size: 11.5px;
+    font-size: 13px;
     font-weight: 600;
     padding: 3px 5px;
 }
@@ -4500,7 +4468,7 @@ body.resizing * {
 
 .cal-file-active-badge {
     display: inline-block;
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.5px;
     color: var(--cyan);
@@ -4518,7 +4486,7 @@ body.resizing * {
 
 /* Empty state inside a modal body */
 .modal-empty-note {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     text-align: center;
     padding: 18px 8px;
@@ -4536,7 +4504,7 @@ body.resizing * {
 .cfg-card-input input {
     flex: 1;
     min-width: 0;
-    font-size: 11px;
+    font-size: 12.5px;
     font-family: var(--font-mono);
 }
 
@@ -4566,7 +4534,7 @@ body.resizing * {
 }
 
 .settings-pane .diag-row-value {
-    font-size: 12.5px;
+    font-size: 14px;
 }
 
 .diag-row {
@@ -4607,7 +4575,7 @@ body.resizing * {
 }
 
 .diag-row-label {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
@@ -4616,7 +4584,7 @@ body.resizing * {
 
 .diag-row-value {
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--text-light);
     word-break: break-all;
@@ -4658,7 +4626,6 @@ body.resizing * {
 .lang-toggle {
     display: inline-flex;
     flex-shrink: 0;
-    background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 3px;
     gap: 3px;
@@ -4670,7 +4637,7 @@ body.resizing * {
     background: transparent;
     color: var(--text-muted);
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 700;
     padding: 6px 16px;
     cursor: pointer;
@@ -4784,7 +4751,7 @@ body { min-width: 320px; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 13.5px;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -4795,7 +4762,7 @@ body { min-width: 320px; }
 }
 
 .camera-card-role {
-    font-size: 10px;
+    font-size: 11.5px;
     opacity: 0.6;
 }
 
@@ -4913,13 +4880,13 @@ body { min-width: 320px; }
 }
 
 .export-opt strong {
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 500;
     color: var(--text-light);
 }
 
 .export-opt small {
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.4;
 }
@@ -4934,7 +4901,7 @@ body { min-width: 320px; }
 
 .page-header-sub {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -4961,6 +4928,36 @@ body { min-width: 320px; }
     flex: 0 0 auto;
 }
 
+/* Help is prose, and prose does not get wider — a 1700px line is unreadable
+   no matter how much room there is. On a wide screen the page gains a second
+   column instead, so the same readable measure fills the width and the
+   scroll is half as long. */
+@media (min-width: 1500px) {
+    /* The multicol box must not be the scroll container. A `columns` element
+       with a constrained height fills the visible height and then continues
+       sideways, so the page scrolled horizontally instead of down. Letting
+       the box grow and handing the scroll to #page-help keeps the flow
+       vertical and balances the two columns. */
+    .help-scroll {
+        display: block;
+        columns: 2;
+        column-gap: 22px;
+        max-width: 1700px;
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
+    .help-scroll > .help-block {
+        break-inside: avoid;
+        margin-bottom: 14px;
+    }
+
+    .help-scroll > .help-two-col {
+        break-inside: avoid;
+        margin-bottom: 14px;
+    }
+}
+
 .help-two-col {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -4975,7 +4972,7 @@ body { min-width: 320px; }
 }
 
 .help-p {
-    font-size: 12.5px;
+    font-size: 14px;
     line-height: 1.65;
     color: var(--text-light);
     margin: 0 0 10px 0;
@@ -5011,13 +5008,13 @@ body { min-width: 320px; }
 }
 
 .hf-node-title {
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 700;
     color: var(--text-white);
 }
 
 .hf-node-desc {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
     margin-top: 2px;
     line-height: 1.5;
@@ -5065,7 +5062,7 @@ body { min-width: 320px; }
     position: absolute;
     top: 6px;
     left: 12px;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -5081,7 +5078,7 @@ body { min-width: 320px; }
 }
 
 .hf-branch-item {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 600;
     padding: 5px 10px;
     border: 1px solid var(--border);
@@ -5118,7 +5115,7 @@ body { min-width: 320px; }
 }
 
 .help-steps li {
-    font-size: 12px;
+    font-size: 13.5px;
     line-height: 1.6;
     color: var(--text-light);
 }
@@ -5131,7 +5128,7 @@ body { min-width: 320px; }
 .help-p code,
 .help-list li code {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12.5px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border);
     padding: 0 4px;
@@ -5147,7 +5144,7 @@ body { min-width: 320px; }
 }
 
 .help-list li {
-    font-size: 12px;
+    font-size: 13.5px;
     line-height: 1.6;
     color: var(--text-light);
 }
@@ -5165,12 +5162,12 @@ body { min-width: 320px; }
 .help-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: 13.5px;
 }
 
 .help-table th {
     text-align: left;
-    font-size: 10.5px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-muted);
@@ -5216,13 +5213,13 @@ body { min-width: 320px; }
 
 .help-path-row code {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--cyan);
     word-break: break-all;
 }
 
 .help-path-row span {
-    font-size: 11.5px;
+    font-size: 13px;
     color: var(--text-muted);
     line-height: 1.5;
 }
@@ -5249,7 +5246,7 @@ body { min-width: 320px; }
     background-color: var(--bg-sidebar);
     color: var(--text-white);
     border: 1px solid var(--border);
-    font-size: 12.5px;
+    font-size: 14px;
     font-family: inherit;
     line-height: 1.5;
     outline: none;
@@ -5262,7 +5259,7 @@ body { min-width: 320px; }
 }
 
 .wizard-field-hint {
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-muted);
     line-height: 1.4;
     text-transform: none;
@@ -5325,7 +5322,7 @@ body { min-width: 320px; }
 }
 
 .arm-visual-legend-label {
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -5347,7 +5344,7 @@ body { min-width: 320px; }
 }
 
 .arm-visual-label {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     color: var(--cyan);
     text-transform: uppercase;
@@ -5448,7 +5445,7 @@ body { min-width: 320px; }
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 10px;
+    font-size: 11.5px;
 }
 
 /* Collapsed side panel — shrinks to a thin strip showing only the toggle
@@ -5485,7 +5482,7 @@ body { min-width: 320px; }
 
 .arm-id-badge {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     color: var(--text-light);
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--border);
@@ -5498,7 +5495,7 @@ body { min-width: 320px; }
 
 .arm-visual-idle-hint {
     color: var(--text-muted);
-    font-size: 9.5px;
+    font-size: 11px;
 }
 
 /* Unified Page Layout & Universal Vertical Expansion
@@ -5564,7 +5561,6 @@ body { min-width: 320px; }
     flex-direction: column;
     gap: 12px;
     padding: 12px;
-    background: var(--bg-inset);
     min-height: 0;
     overflow-y: auto;
 }
@@ -5588,7 +5584,7 @@ body { min-width: 320px; }
     align-items: center;
     gap: 6px;
     margin: 0;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -5609,7 +5605,7 @@ body { min-width: 320px; }
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px 10px;
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-muted);
 }
 
@@ -5633,7 +5629,7 @@ body { min-width: 320px; }
     gap: 2px 8px;
     padding: 6px 8px;
     background: rgba(0, 0, 0, 0.2);
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 .tele-cal-row.is-calibrated {
@@ -5669,7 +5665,7 @@ body { min-width: 320px; }
 .tele-cal-device {
     grid-area: device;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     text-align: right;
     overflow: hidden;
@@ -5680,7 +5676,7 @@ body { min-width: 320px; }
 .tele-cal-file {
     grid-area: file;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-muted);
     word-break: break-all;
 }
@@ -5690,7 +5686,7 @@ body { min-width: 320px; }
 }
 
 .tele-cal-note {
-    font-size: 10px;
+    font-size: 11.5px;
     line-height: 1.4;
     color: var(--text-muted);
 }
@@ -5703,7 +5699,7 @@ body { min-width: 320px; }
 }
 
 .teleop-field-label {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 600;
     color: var(--text-muted);
 }
@@ -5711,7 +5707,7 @@ body { min-width: 320px; }
 .teleop-input {
     width: 100%;
     padding: 5px 8px;
-    font-size: 11px;
+    font-size: 12.5px;
     background: var(--bg-inset);
     border: 1px solid var(--border);
     color: var(--text-light);
@@ -5741,7 +5737,7 @@ body { min-width: 320px; }
 }
 
 .teleop-check-row label {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: normal;
     color: var(--text-light);
     cursor: pointer;
@@ -5770,7 +5766,7 @@ body { min-width: 320px; }
 }
 
 .teleop-joints-caption {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -5801,19 +5797,19 @@ body { min-width: 320px; }
 }
 
 .joint-telemetry-name {
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     color: var(--text-muted);
 }
 
 .joint-telemetry-val {
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     color: var(--text-light);
 }
 
 .joint-telemetry-tgt {
-    font-size: 9px;
+    font-size: 10.5px;
     color: var(--text-muted);
 }
 
@@ -5867,7 +5863,6 @@ body { min-width: 320px; }
     min-height: 0;
     overflow-y: auto;
     padding: 10px;
-    background: var(--bg-inset);
 }
 
 /* A flex item shrinks below its content by default. On a scrolling flex
@@ -5892,7 +5887,7 @@ body { min-width: 320px; }
 
 .settings-pane-title {
     margin: 0;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -5909,7 +5904,7 @@ body { min-width: 320px; }
 
 /* Sub-label next to a panel heading: says what the panel writes and where. */
 .block-head-sub {
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-muted);
     text-align: right;
     min-width: 0;
@@ -5947,7 +5942,7 @@ body { min-width: 320px; }
 /* Secondary line under a diagnostic value — the actual path being reported. */
 .diag-row-path {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     color: var(--text-muted);
     word-break: break-all;
 }
@@ -6128,7 +6123,7 @@ body { min-width: 320px; }
 }
 
 .orch-task-name {
-    font-size: 11.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-white);
     overflow: hidden;
@@ -6154,7 +6149,7 @@ body { min-width: 320px; }
 
 .orch-step-idx {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     color: var(--text-muted);
     text-align: center;
@@ -6167,7 +6162,7 @@ body { min-width: 320px; }
 }
 
 .orch-step-name {
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--text-light);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6179,7 +6174,7 @@ body { min-width: 320px; }
    title attribute, where it can be read without widening anything. */
 .orch-step-path {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 10.5px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6187,7 +6182,7 @@ body { min-width: 320px; }
 }
 
 .orch-step-flag {
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.4px;
@@ -6206,7 +6201,7 @@ body { min-width: 320px; }
 
 .orch-empty {
     padding: 10px;
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.4;
     color: var(--text-muted);
     text-align: center;
@@ -6228,7 +6223,7 @@ body { min-width: 320px; }
 .mr-input-row > input {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 .latch-texts {
@@ -6239,7 +6234,7 @@ body { min-width: 320px; }
 }
 
 .latch-texts > span:first-child {
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 700;
 }
 
@@ -6247,7 +6242,7 @@ body { min-width: 320px; }
    did not exist in the HTML at all — it exists now, so the banner says what
    the state means instead of only naming it. */
 .latch-desc {
-    font-size: 9.5px;
+    font-size: 11px;
     line-height: 1.3;
     color: var(--text-muted);
 }
@@ -6284,7 +6279,7 @@ body { min-width: 320px; }
 }
 
 .mr-vlm-frame > div {
-    font-size: 8.5px;
+    font-size: 10px;
     color: var(--text-muted);
     text-align: center;
     padding: 2px;
@@ -6293,7 +6288,7 @@ body { min-width: 320px; }
 .mr-vlm-text {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 10px;
+    font-size: 11.5px;
     line-height: 1.35;
     color: var(--text-muted);
 }
@@ -6339,7 +6334,7 @@ body { min-width: 320px; }
 
 .mr-idle-hint {
     padding: 10px;
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.4;
     color: var(--text-muted);
     border: 1px dashed var(--border);
@@ -6372,7 +6367,7 @@ body { min-width: 320px; }
 .mr-subtask-label {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--text-light);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6393,7 +6388,7 @@ body { min-width: 320px; }
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 10px;
+    font-size: 11.5px;
 }
 
 .mr-metric-label {
@@ -6423,18 +6418,18 @@ body { min-width: 320px; }
 }
 
 .mr-joints .jt-name {
-    font-size: 8px;
+    font-size: 10px;
     color: var(--text-muted);
 }
 
 .mr-joints .jt-val {
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     color: var(--text-light);
 }
 
 .mr-joints .jt-tgt {
-    font-size: 8px;
+    font-size: 10px;
     color: var(--text-muted);
 }
 
@@ -6459,7 +6454,7 @@ body { min-width: 320px; }
 /* Daemon state badge — its own class rather than the .tag styles, which are
    scoped to .tagging-panel and would not apply here. */
 .mr-tag {
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -6529,7 +6524,7 @@ body { min-width: 320px; }
 
 .train-task-name {
     flex: 1 1 auto;
-    font-size: 11.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-white);
     overflow: hidden;
@@ -6544,7 +6539,7 @@ body { min-width: 320px; }
 }
 
 .train-group-title {
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
@@ -6561,7 +6556,7 @@ body { min-width: 320px; }
     border: 1px solid var(--border-dark);
     border-left: 2px solid var(--border-light);
     background: var(--bg-sidebar);
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--text-main);
 }
 
@@ -6577,7 +6572,7 @@ body { min-width: 320px; }
 
 .train-row-idx {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     color: var(--text-muted);
     min-width: 10px;
 }
@@ -6590,7 +6585,7 @@ body { min-width: 320px; }
 }
 
 .train-row-name {
-    font-size: 11px;
+    font-size: 12.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -6598,7 +6593,7 @@ body { min-width: 320px; }
 
 .train-row-repo {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 10.5px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6612,7 +6607,7 @@ body { min-width: 320px; }
 }
 
 .train-flag {
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -6640,12 +6635,12 @@ body { min-width: 320px; }
 .train-row-progress-meta {
     display: flex;
     justify-content: space-between;
-    font-size: 9px;
+    font-size: 10.5px;
     color: var(--text-muted);
 }
 
 .train-empty {
-    font-size: 10.5px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
 }
@@ -6660,7 +6655,7 @@ body { min-width: 320px; }
 }
 
 .train-cmd-label {
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
@@ -6669,7 +6664,7 @@ body { min-width: 320px; }
 
 .train-cmd-preview code {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     line-height: 1.5;
     color: var(--text-muted);
     background: var(--bg-inset);

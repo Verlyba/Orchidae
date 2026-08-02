@@ -113,7 +113,6 @@ window.I18N = {
     "dock.clearLogs": "Vymazat logy",
     "dock.cameras": "Živé kamery",
     "dock.layout": "Rozložení:",
-    "resizer.title": "Táhněte pro změnu šířky panelů",
     // -- Portability (increment 10) --
     "btn.importBundle": "Importovat balíček",
     "btn.exportBundle": "Exportovat balíček",
@@ -578,8 +577,6 @@ window.I18N = {
     "hint.configuredCams": "Nakonfigurované kamery:",
     "hint.noCamerasYet": "Žádné kamery.",
     "hint.jointAngles": "Úhly kloubů (Aktuální vs Cíl)",
-    "hint.vlmInterval": "Interval, ve kterém se spouští vizuální kontrola VLM inspectora při monitorování scény.",
-    "hint.ceoPromptDesc": "Definuje, jak se uživatelská instrukce rozkládá na dovednosti.",
     "hint.activeTagging": "Aktivní fázování (Active Tagging)",
     "hint.liveRecCtrl": "Řízení nahrávání",
     "hint.recordedEps": "Nahrané epizody (demonstrace)",
@@ -1071,7 +1068,6 @@ window.I18N = {
     "dock.clearLogs": "Clear logs",
     "dock.cameras": "Live cameras",
     "dock.layout": "Layout:",
-    "resizer.title": "Drag to resize the panels",
     // -- Portability (increment 10) --
     "btn.importBundle": "Import bundle",
     "btn.exportBundle": "Export bundle",
@@ -1534,8 +1530,6 @@ window.I18N = {
     "hint.configuredCams": "Configured cameras:",
     "hint.noCamerasYet": "No cameras.",
     "hint.jointAngles": "Joint angles (Current vs Target)",
-    "hint.vlmInterval": "Interval at which the VLM inspector's visual check runs while monitoring the scene.",
-    "hint.ceoPromptDesc": "Defines how the user instruction is decomposed into skills.",
     "hint.activeTagging": "Active phase tagging",
     "hint.liveRecCtrl": "Recording control",
     "hint.recordedEps": "Recorded episodes (demonstrations)",
