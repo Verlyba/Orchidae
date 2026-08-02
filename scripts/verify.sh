@@ -88,7 +88,91 @@ if [ -n "$DUPES" ]; then
   fail "duplicate ids in web/index.html"
 fi
 
-# ── 7. Every App.<fn>() referenced from HTML actually exists ──────────────
+# ── 7. index.html tag balance + top-level page structure ──────────────────
+# A single missing </div> does not break the HTML parser — it silently nests
+# everything that follows *inside* the previous element. That has now landed
+# twice: once the "manage" dataset panel ended up inside "collect", and once
+# #page-settings swallowed both #page-help and #bottom-dock-container, which
+# made the Help page unreachable and hid the console dock on every other page.
+# Neither showed up in any other check here.
+step "index.html structure"
+if command -v node >/dev/null 2>&1; then
+  node -e '
+    const fs = require("fs");
+    // Comments are stripped first: they legitimately contain "</div>" when
+    // they annotate which element a closing tag belongs to.
+    const html = fs.readFileSync("web/index.html", "utf8").replace(/<!--[\s\S]*?-->/g, "");
+    const VOID = new Set(["area","base","br","col","embed","hr","img","input","link",
+      "meta","param","source","track","wbr","path","circle","rect","line","polyline",
+      "polygon","ellipse","use","stop"]);
+    const lineOf = i => html.slice(0, i).split("\n").length;
+    const stack = [];
+    let bad = false;
+    for (const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g)) {
+      const [, close, rawTag, attrs] = m;
+      const tag = rawTag.toLowerCase();
+      if (VOID.has(tag) || attrs.trimEnd().endsWith("/")) continue;
+      const line = lineOf(m.index);
+      if (!close) {
+        const id = (attrs.match(/id="([^"]+)"/) || [])[1] || null;
+        stack.push({ tag, id, line });
+      } else {
+        const top = stack[stack.length - 1];
+        if (!top) { console.log(`line ${line}: stray </${tag}>`); bad = true; break; }
+        if (top.tag !== tag) {
+          console.log(`line ${line}: </${tag}> closes <${top.tag}${top.id ? "#" + top.id : ""}> opened on line ${top.line}`);
+          console.log("  -> a closing tag is missing above this point");
+          bad = true; break;
+        }
+        stack.pop();
+      }
+    }
+    if (!bad && stack.length) {
+      console.log("never closed:", stack.map(e => `<${e.tag}${e.id ? "#" + e.id : ""}> line ${e.line}`).join(", "));
+      bad = true;
+    }
+    process.exit(bad ? 1 : 0);
+  ' || fail "web/index.html has unbalanced tags"
+
+  # Every page and the console dock must be a DIRECT child of #workspace-main.
+  # If one nests inside another, the inner one inherits `display: none` from
+  # .editor-area and can never be shown, whatever the nav does.
+  node -e '
+    const fs = require("fs");
+    const html = fs.readFileSync("web/index.html", "utf8").replace(/<!--[\s\S]*?-->/g, "");
+    const VOID = new Set(["area","base","br","col","embed","hr","img","input","link",
+      "meta","param","source","track","wbr","path","circle","rect","line","polyline",
+      "polygon","ellipse","use","stop"]);
+    const WANT = /^(page-[a-z]+|bottom-dock-container)$/;
+    const stack = [];
+    const found = [];
+    for (const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g)) {
+      const [, close, rawTag, attrs] = m;
+      const tag = rawTag.toLowerCase();
+      if (VOID.has(tag) || attrs.trimEnd().endsWith("/")) continue;
+      if (!close) {
+        const id = (attrs.match(/id="([^"]+)"/) || [])[1] || null;
+        if (id && WANT.test(id)) {
+          const parent = stack[stack.length - 1];
+          found.push({ id, parent: parent ? (parent.id || parent.tag) : "(root)" });
+        }
+        stack.push({ tag, id });
+      } else if (stack.length && stack[stack.length - 1].tag === tag) {
+        stack.pop();
+      } else break; // unbalanced — the check above already reported it
+    }
+    const stray = found.filter(f => f.parent !== "workspace-main");
+    if (stray.length) {
+      stray.forEach(f => console.log(`#${f.id} is nested inside #${f.parent}, not #workspace-main`));
+      process.exit(1);
+    }
+    console.log(`checked ${found.length} top-level panes under #workspace-main`);
+  ' || fail "a page or the console dock is nested in the wrong parent"
+else
+  echo "skipped (node unavailable)"
+fi
+
+# ── 8. Every App.<fn>() referenced from HTML actually exists ──────────────
 # An onclick pointing at a missing method fails silently at runtime.
 step "HTML -> App method references"
 if command -v node >/dev/null 2>&1; then

@@ -93,19 +93,43 @@ body {
     font-feature-settings: 'cv02', 'cv03', 'cv04';
 }
 
+/* A scrollbar is the only thing that tells the user a panel has more content
+   below the fold. At 6px with an 8%-white thumb it was invisible against the
+   dark background, so a clipped panel read as a rendering fault instead of as
+   something to scroll. Wide enough to see and to grab, with a track that
+   marks out the scrollable area even when the thumb is short. */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
 }
 ::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(0, 0, 0, 0.25);
+    border-left: 1px solid var(--border);
 }
 ::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.08);
-    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.22);
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255,255,255,0.15);
+    background: var(--cyan);
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* Firefox has no ::-webkit-scrollbar; these two properties are all it offers
+   and they must be set explicitly or it draws the OS default light scrollbar
+   on the dark UI. They are deliberately NOT applied in Chromium: setting
+   `scrollbar-color` there makes the engine ignore every ::-webkit-scrollbar
+   rule above, which would undo the whole block. Firefox does not support the
+   ::-webkit-scrollbar selector, so this @supports test picks exactly it. */
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.22) rgba(0, 0, 0, 0.25);
+    }
 }
 
 /* --- Utility Animations --- */
@@ -4213,11 +4237,15 @@ body.resizing * {
     flex-shrink: 0;
 }
 
-/* --- Settings diagnostics: dense row list (content height) --- */
+/* --- Settings diagnostics: dense row list (content height) ---
+   A grid, not a column: nine key/value rows stacked vertically were 578 px
+   tall in a 490 px wide pane — taller than the pane, so the last four rows
+   were cut mid-row. Two columns halve the height AND use the width the pane
+   already has. Falls back to one column below ~410 px of content width. */
 .diag-list {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    align-content: start;
     gap: 8px;
     min-height: 0;
 }
@@ -5598,6 +5626,26 @@ body { min-width: 320px; }
     padding: 10px;
     background: var(--bg-inset);
     border: 1px solid var(--border);
+}
+
+/* A flex item shrinks below its content by default. On a scrolling flex
+   column that is silently destructive: the child box gets shorter than what
+   it paints, the overflow leaks out with `overflow: visible`, and the pane's
+   own scrollHeight never learns about it. Result on the diagnostics pane was
+   rows cut in half with a scrollbar that barely knew it had anywhere to go.
+   Direct children keep their natural height; the PANE does the scrolling. */
+.settings-pane > * {
+    flex: 0 0 auto;
+}
+
+/* Three path pickers (Python / LeRobot repo / dataset storage) in as many
+   columns as fit. One card per row made each of them ~800 px wide to hold a
+   single input, and pushed the last two below the fold. */
+.settings-path-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    align-content: start;
+    gap: 10px;
 }
 
 .settings-pane-title {

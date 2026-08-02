@@ -4760,7 +4760,10 @@ const App = {
     const term = document.getElementById('bottom-dock-container') || document.getElementById('terminal-area');
     if (!term) return;
     term.style.transition = 'height 0.15s ease-out'; // Smooth anim only when toggling via button
-    if (term.style.height === '40px' || term.style.height === '') {
+    // An empty inline height means the dock is still at its CSS height (26vh),
+    // i.e. OPEN. Treating that as collapsed made the very first click grow the
+    // dock to 38vh instead of giving the workspace its space back.
+    if (term.style.height === '40px') {
       term.style.height = '38vh';
     } else {
       term.style.height = '40px';

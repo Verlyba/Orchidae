@@ -8,6 +8,129 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-01 (6) — Chybějící `</div>`: Nápověda byla nedostupná a konzole
+neviditelná na všech stránkách kromě Nastavení
+
+**Priorita A.** `scripts/verify.sh` na výchozím stavu prošel celý (136 pytestů),
+takže podle deníku byla fronta na frontendu. Při měření stránky Nastavení ale
+vyšlo něco jiného: `#page-settings` má v DOM **šest** dětí, mezi nimi
+`div.editor-area` a `section.bottom-dock-container`. Ty tam nepatří.
+
+**Co bylo rozbité**
+
+`web/index.html` postrádal jeden `</div>` — uzávěr `#page-settings`. HTML parser
+neuzavřenou značku nehlásí, jen do ní **zanoří všechno, co následuje**. Konkrétně:
+
+| element | kde měl být | kde skutečně byl |
+|---|---|---|
+| `#page-help` | dítě `#workspace-main` | uvnitř `#page-settings` |
+| `#bottom-dock-container` | dítě `#workspace-main` | uvnitř `#page-settings` |
+
+Důsledky, obojí ověřené v headless Chromiu:
+
+1. **Stránka Nápověda se nedala otevřít.** `.editor-area` má `display: none`
+   a zobrazuje se přes `.active-page`. `#page-help` tuhle třídu od kliknutí na
+   „Nápověda" v levém pruhu dostal, ale zdědil `display: none` po
+   `#page-settings` → naměřeno **0 × 0 px**. Osm bloků nápovědy o orchestračním
+   schématu bylo od té doby nedostupných.
+2. **Konzolový dok byl 0 × 0 na všech stránkách kromě Nastavení.** Naměřeno:
+   `page-projects / teleoperation / datasety` → `dockH: 0`, `page-settings` →
+   `dockH: 234`. Terminál je přitom jediné místo, kde je vidět výstup LeRobotu —
+   a `lerobot-find-port` po uživateli chce **odpovídat v tom terminálu**
+   („Odpovídejte v terminálu dole" je doslova v popisku toho nástroje).
+   Během teleop, kalibrace, sběru dat i tréninku nebylo vidět nic.
+3. Na Nastavení dok naopak ujídal 234 px z pracovní plochy panelu, což je
+   skutečná příčina toho, proč diagnostika ořezávala řádky (položka ve frontě
+   z běhu (5) — příčinou nebyl jen flex-shrink).
+
+**Kdy to přistálo.** Kontrolou párování značek napříč posledními 15 commity
+v `web/index.html`: první rozbitý je **f494000** („frontend: fold the CLI-tools
+page into Settings as a wizard tab"). Rozbité tedy bylo posledních **7 commitů**.
+Běh (2) tuhle kontrolu dělal ručně a tehdy vyšla čistá — proto teď není ruční.
+
+**Co se změnilo**
+
+- `web/index.html` — doplněn chybějící `</div>` a **všechny uzávěry v okolí jsou
+  okomentované**, ke kterému elementu patří. (Pozor: komentář nesmí obsahovat
+  doslovný `</div>` — kontrola níže komentáře odstraňuje, ale je to matoucí.)
+- **`scripts/verify.sh` — nový krok „index.html structure"**, dvě kontroly:
+  1. **Párování značek** nad celým `index.html` (komentáře se předtím strippnou,
+     protože legitimně obsahují `</div>`). Hlásí řádek a který element zůstal
+     otevřený.
+  2. **Každé `#page-*` a `#bottom-dock-container` musí být přímé dítě
+     `#workspace-main`.** Tohle je ta kontrola, která by rozbití chytila i kdyby
+     značky náhodou vyšly.
+  Ověřeno, že to opravdu chytá: po dočasném smazání toho `</div>` verify.sh
+  spadne a vypíše přesně `#page-help is nested inside #page-settings` a
+  `#bottom-dock-container is nested inside #page-settings`.
+- **Viditelné scrollbary** (`styles.css`) — byly 6 px široké s palcem
+  `rgba(255,255,255,0.08)` na tmavém pozadí, tedy prakticky neviditelné. Proto
+  ořezaný panel vypadal jako rozbité vykreslení a ne jako něco, kam se dá
+  scrollovat. Nově 10 px, palec 22 % bílé, track s ohraničením, ostré rohy
+  (`border-radius` odstraněn), na hover azurový.
+  **Past, na kterou jsem narazil:** doplnil jsem k tomu `* { scrollbar-color }`
+  kvůli Firefoxu — a tím Chromium **přestalo respektovat celý blok
+  `::-webkit-scrollbar`** (nastavení `scrollbar-color` má v Chromiu přednost
+  a webkit pseudoelementy vypne). Naměřeno: `offsetWidth - clientWidth` zůstalo
+  2 px místo 12. Vyřešeno obalením do
+  `@supports not selector(::-webkit-scrollbar) { … }` — projde jen Firefox.
+- **Nastavení, pravý panel:** `.diag-list` je nově `grid` s
+  `repeat(auto-fill, minmax(175px, 1fr))` místo sloupce. Devět řádků klíč/hodnota
+  bylo 578 px vysokých v panelu širokém 490 px; ve dvou sloupcích je to 393 px
+  a zároveň se využije šířka, kterou panel stejně má.
+- **Nastavení, levý panel:** tři výběry cest (Python / repozitář LeRobot /
+  úložiště) jsou v `.settings-path-grid` (`minmax(260px, 1fr)`). Jako jedna
+  karta na řádek byla každá z nich ~800 px široká kvůli jednomu inputu.
+- `.settings-pane > * { flex: 0 0 auto }` — flex položka se defaultně smrskne
+  pod svůj obsah. Ve scrollujícím flex sloupci to znamená, že box je nižší než
+  to, co kreslí, přebytek uteče ven přes `overflow: visible` a panel se o něm
+  ve svém `scrollHeight` **nikdy nedozví**. Přesně tak vznikly řádky uříznuté
+  v půlce.
+- `app.ts` `toggleTerminal()` — prázdná inline výška znamená, že dok je na své
+  CSS výšce (26vh), tedy **otevřený**. Kód ji považoval za zavřený, takže první
+  kliknutí na „Toggle" dok **zvětšilo** na 38vh místo aby uvolnilo plochu.
+  Teď se sbaluje. (Do teď to skoro nešlo poznat — dok byl vidět jen na jedné
+  stránce.)
+- Bump assetů na `?v=3.59.0`.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **136 pytestů**, compileall,
+  i18n parita cs=en=795, žádná duplicitní id, **9 panelů pod `#workspace-main`**,
+  102 `App.*` odkazů.
+- **Zanoření v DOM proti běžícímu backendu**: všech 8 stránek i dok mají teď
+  rodiče `main#workspace-main`. Před opravou dva z nich `#page-settings`.
+- **Dok**: `dockH: 234` na *všech* stránkách (před opravou 0 všude kromě
+  Nastavení).
+- **Nápověda**: kliknutí na položku v levém pruhu (`App.changeTab('help')`)
+  otevře stránku **1390 × 632** bez `alert()`; osm bloků má přirozené výšky
+  `[324, 751, 592, 298, 298, 427, 303, 243]` a scrollport 3022 / 568 scrolluje
+  (tj. žádná regrese zmáčknutých bloků z běhu (3)). Před opravou 0 × 0.
+- **Nastavení, 1600×900**: všech **9 diagnostických řádků viditelných** (před
+  opravou byly 4 uříznuté). Levý panel má 456 px obsahu v 393 px → scrolluje,
+  a **scrollbar se opravdu vykreslí**: `offsetWidth - clientWidth` = 12 px na
+  levém panelu a 2 px (jen rámečky) na pravém, kde se scrollovat nemá.
+  Kolečkem myši dojede `scrollTop` na maximum 63 a poslední karta je celá vidět.
+- **Regresní přeměření všech osmi stránek** na 1600×900, 1280×800 a 1024×760
+  **se zapnutými scrollbary**: žádný vodorovný přetok, žádný nedosažitelný
+  prvek, nejširší tlačítko 225 px, žádná chyba v konzoli. Hit-testem ověřeno,
+  že **každé tlačítko v `.block-actions` na viditelném tabu jde kliknout** —
+  nic ho nepřekrývá, ani nově zobrazený dok.
+- **Anglický režim** na Nastavení: jediný řetězec s českou diakritikou je
+  „Čeština" na přepínači jazyka (záměr — jazyky se píšou svým jazykem).
+
+**Zbývá vyzkoušet na fyzickém robotu / reálném desktopu** (v cloudu nelze)
+
+- Že se do konzole opravdu propisuje výstup LeRobotu **na jiných stránkách než
+  Nastavení** — dok tam teď je, ale s reálným procesem to ověřené není. Týká se
+  to hlavně `lerobot-find-port`, který čeká odpověď od uživatele v terminálu.
+- Že „Toggle" u doku sbalí a rozbalí konzoli bez toho, aby se rozbil layout
+  stránky pod ním (měřeno jen v otevřeném stavu 26vh).
+- Vzhled scrollbarů mimo Chromium: ve Firefoxu jede větev `@supports`, na macOS
+  jsou navíc systémové overlay scrollbary. Ověřeno jen v Chromiu, a i to
+  s vypnutým `--hide-scrollbars` (headless ho jinak přidává sám a scrollbar
+  pak není v layoutu vůbec — pozor při měření).
+
 ## 2026-08-01 (5) — Setup/Kalibrace: z 14 % prázdné stránky pracovní plocha
 
 **Proč právě tohle.** `scripts/verify.sh` na výchozím stavu prošel celý (136
@@ -456,7 +579,13 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   `.block-actions`.
 - ~~Teleoperace: `.setup-block` se ořezává při nízkém okně~~ — hotovo
   2026-08-01 (4), sloupec `.teleop-col` má vlastní scrollport.
-- **Nastavení: pravý panel diagnostiky ořezává řádky mid-row.** Změřeno na
+- ~~Nastavení: pravý panel diagnostiky ořezává řádky mid-row~~ — hotovo
+  2026-08-01 (6). Příčiny byly tři, ne jedna: (a) dok zabíral 234 px uvnitř
+  `#page-settings` kvůli chybějícímu `</div>`, (b) `.settings-pane` děti se
+  smršťovaly pod svůj obsah, (c) scrollbar byl 6 px a neviditelný. Původní
+  popis níže zůstává, protože past při měření platí dál.
+  <details><summary>původní zápis</summary>
+  **Nastavení: pravý panel diagnostiky ořezává řádky mid-row.** Změřeno na
   1600×900: `.diag-list` má obsah 532 px v boxu 323 px, `overflow: visible`.
   Řádky 7–9 (conda, Miniconda, volné místo) jsou proto uříznuté v půlce
   a **není vidět žádný scrollbar** — vypadá to jako rozbité vykreslení.
@@ -471,6 +600,7 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   (`page.mouse.wheel`), ne přiřazením `scrollTop`.
   Lék je stejný jako u teleoperace: dát přímým dětem scrollujícího flex
   panelu `flex: 0 0 auto`, aby se nesmršťovaly, plus viditelný scrollbar.
+  </details>
 - ~~Setup / Kalibrace má obrovskou mrtvou plochu~~ — hotovo 2026-08-01 (5),
   dvousloupcová plocha, obsazenost 14 % → 31 %. Zbývá **Setup/Connect**
   (~360 px dole) a **Orchestrace/Běh modelu** (~270 px uprostřed). Stejný
@@ -484,7 +614,9 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   až na něj přijde řada, začít tam.
 - **Před commitem na `main` pouštět `scripts/verify.sh`.** 58277f7 přistál
   s dvěma padajícími kontrolami (chybějící `App.browseFile`, dva nedefinované
-  i18n klíče) a se ztrátou popisu scény i přepínače jazyka.
+  i18n klíče) a se ztrátou popisu scény i přepínače jazyka. Od (6) verify.sh
+  navíc kontroluje párování značek a zanoření stránek — f494000 kvůli tomu
+  sedmkrát po sobě prošel s nedostupnou Nápovědou a neviditelnou konzolí.
 - **Prázdná plocha v panelech.** Teleoperace hotová 2026-08-01 (4); Setup,
   Orchestrace a Učení zbývají (viz měření výše). Vyplnit rozvržením nebo
   grafickým prvkem, NE roztažením polí. Tohle je věc, kterou zadání označuje
@@ -508,8 +640,25 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   Zvážit přidání kontroly „žádný panel neořezává obsah" do `scripts/verify.sh`
   jako volitelný krok (skip, když `playwright` chybí) — layoutové regrese se
   podle tohohle deníku vracejí každý běh.
-- Konzolový dok dole překrývá spodek pracovní plochy při nízkém okně
-  (< ~800 px). `.editor-area` sice scrolluje, ale dok si nerezervuje místo.
+  **Doplněno během (6), dvě nové pasti při měření:** `playwright` se v cloudu
+  doinstaluje (`npm i playwright`), ale stažený build se neshoduje
+  s předinstalovaným prohlížečem — je nutné
+  `chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' })`.
+  A **headless Chromium si sám přidává `--hide-scrollbars`**, takže se scrollbar
+  nepočítá do layoutu a na screenshotu není; kdo měří scroll affordance, musí
+  spustit s `ignoreDefaultArgs: ['--hide-scrollbars']`, jinak měří nesmysl.
+  Třetí past: `scrollIntoView()` je kvůli `scroll-behavior: smooth`
+  (styles.css:2788) **asynchronní** — v hit-testu je potřeba
+  `{ behavior: 'instant' }`, jinak vyjde jako nedosažitelné tlačítko, které
+  ve skutečnosti jde kliknout.
+- ~~Konzolový dok dole překrývá spodek pracovní plochy~~ — od opravy zanoření
+  2026-08-01 (6) je dok sourozencem stránek v `#workspace-main`, takže si místo
+  rezervuje a nic nepřekrývá (ověřeno hit-testem tlačítek v `.block-actions`
+  na 1600×900 / 1280×800 / 1024×760). **Novou cenou je, že každá stránka
+  přišla o 234 px výšky** — na 1024×760 zbývá na pracovní plochu ~270 px.
+  Všechno je dosažitelné scrollem, ale stránky Nastavení a Učení jsou tam
+  těsné. Dok jde sbalit na 40 px tlačítkem „Toggle" (od (6) funguje napoprvé).
+  Zvážit, jestli si stav sbaleného doku nemá appka pamatovat.
 - `.datacollection-grid` má v CSS pravidla pro `nth-child(3)` (280px sloupec
   kamer), ale v HTML jsou jen 2 bloky — kamerový sloupec ze sběru dat zmizel
   (souvisí s mrtvými id `cam-feed-placeholder-1/2` níže). Rozhodnout: vrátit,
