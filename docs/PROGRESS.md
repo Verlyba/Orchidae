@@ -8,6 +8,173 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (10) — Orchestrace: stránka konečně říká, co běh **opravdu**
+udělá (rozložený plán + checkpoint každého kroku z backendu)
+
+**Výchozí stav.** `bash scripts/verify.sh` na čerstvém klonu spadl na dvou
+testech (`websockets` chyběl v kontejneru — už poněkolikáté, viz doporučení
+níž), `setup-dev.sh` to doinstaloval a gate prošel celý (151 pytestů).
+Priorita A tedy prázdná. Fronta ukazovala na `modelrun` jako nejsilnějšího
+kandidáta: tři roztažená pole naráz (`#orch-input` 1204 px, `#eval-policy-path`
+a `#eval-task-name` po 646 px) a obsazenost 20 / 23 / 25 %.
+
+**Ale hlavní problém téhle stránky nebyl layout — bylo to, že lhala**
+
+Než jsem sáhl na CSS, přečetl jsem, co backend při běhu opravdu dělá
+(`Orchestrator.run()` → `Controller._execute_motor_task()` →
+`LeRobotBridge.start_inference()`), a UI tomu neodpovídalo:
+
+1. **Patička slibovala gate, který neexistuje.** `hint.deployScope` říkal
+   „Nasadí checkpoint zadaný v řádku „LeRobot Worker" …; **teprve pak lze
+   spustit plán**." `executeOrchestration()` nic takového netestuje a
+   `_execute_motor_task()` si daemona nastartuje sám, když neběží.
+2. **Orchestrace to pole vůbec nepoužívá.** Checkpoint každého kroku si
+   backend dopočítá sám (`_policy_path_for()` = `dataset_storage_dir` /
+   `outputs/training/{parent}_{slug}_{arch}`) a mezi kroky ho v běžícím
+   daemonu **hot-swapuje**. Ručně zadaná cesta je jiná věc — ACT baseline,
+   jeden model nasazený natvrdo. Stránka ty dvě větve nijak nerozlišovala,
+   přitom právě jejich srovnání je smyslem projektu.
+3. **Vůbec nebylo vidět, co se spustí.** Ani rozložení úkolu na pod-kroky
+   (to dělá `_resolve_orchestration_plan()`), ani jestli je na ně vůbec
+   natrénovaný model. Chybějící checkpoint přitom `start_inference()`
+   odmítne — běh se na tom kroku zastaví.
+
+**Backend — nový read-only endpoint, který nemůže odejít od skutečnosti**
+
+`GET /api/orchestration/plan_preview` →
+`OrchidayController.orchestration_plan_preview()`. Pro každý úkol nejvyšší
+úrovně vrátí seřazené **spustitelné** kroky a u každého cestu ke checkpointu
++ jestli existuje. Klíčové je, čím to počítá — vším, co používá sám běh:
+
+| údaj | zdroj | proč právě ten |
+|---|---|---|
+| seznam kroků | `_resolve_orchestration_plan()` | resolver, který orchestrátoru expanduje plán |
+| cesta ke checkpointu | `_policy_path_for()` | to, co dostane daemon |
+| připravenost | `LeRobotBridge.policy_exists()` | kontrola, na které `start_inference()` odmítne start |
+
+`policy_exists()` je nový **veřejný** tvar `_verify_policy_exists()` — UI se
+musí ptát před během a musí dostat tutéž odpověď, jakou by dal most.
+Bez otevřeného projektu vrací prázdný seznam, ne 404 (stejný důvod jako
+u `/api/project` v běhu (9) — 404 dělá šum v konzoli).
+
+**Hlavní změna — `page-modelrun` má tři sloupce místo jednoho sloupce karet**
+
+Předtím: jedna karta, v ní všechno pod sebou, ~90 inline `style=""` atributů
+a písma 8–9,5 px. Teď tři panely, každý odpovídá na jednu otázku:
+
+- **Sloupec 1 „Plán a modely" (nový).** Čtyři počítadla (úkolů /
+  orchestrovaných / checkpointů připraveno / architektura) a pod nimi strom
+  úkolů: u každého štítek `ACT + ORCHESTRACE` (≥ 2 spustitelné kroky, tzn.
+  daemon mezi nimi přepíná modely) vs `JEN ACT BASELINE`, a u každého kroku
+  jméno, **jméno adresáře checkpointu** (celá cesta v `title`, aby
+  nerozšiřovala sloupec) a `Připraven` / `Chybí`. Otázku „projde tenhle běh?"
+  tedy stránka zodpoví **před** spuštěním. Volnou výšku pohlcuje ten seznam.
+- **Sloupec 2 „Orchestrace (CEO → VLM)".** Instrukce pro plánovač, rozložený
+  plán (roste s plánem), stavová řádka, Task Latch a VLM inspektor. **Snímek
+  z VLM je druhý prvek, kterému velikost prospívá** — byl to náhled 84 px,
+  ve kterém se verdikt zkontrolovat nedá; nově se škáluje výškou a drží 4:3,
+  takže se z volného místa stane čitelný rámeček, ne roztažený ovládací prvek.
+- **Sloupec 3 „Worker — inferenční daemon".** Ruční nasazení jednoho
+  checkpointu (**popsané jako ACT baseline**, protože to tak je), stav
+  daemona, fronta pod-úkolů k odeslání přes `SET_TASK` a telemetrie.
+- Konfigurační pole jsou v `repeat(auto-fit, minmax(120px, 1fr))`, jen cesta
+  ke checkpointu bere dva sloupce — recept z běhu (9). **Roztažená pole
+  3 → 0**: `#orch-input` 1204 → 352 px, `#eval-policy-path` 646 → 306 px,
+  `#eval-task-name` 646 → 149 px.
+
+**Opravené chyby (nalezené při práci, ne plánované)**
+
+1. **`task-latch-desc-text` byl mrtvý odkaz** (byl ve frontě). Čtyři místa do
+   něj psala text, element v HTML **neexistoval** — banner tedy stav jen
+   pojmenoval a nikdy nevysvětlil. Element doplněn.
+2. **Task Latch měl dva pisatele, kteří si odporovali.**
+   `orchestration_locked/unlocked` psaly anglicky, `updateInferenceDaemonStatus()`
+   česky a jinými slovy — stejný stav vypadal různě podle toho, kdo tam byl
+   naposled. Nově je jediný pisatel `setTaskLatch()` a řídí ho **jen**
+   orchestrátor; daemon má vlastní štítek. Odpovídá to i zdrojáku: `TaskLatch`
+   je objekt orchestrátoru, ne daemona.
+3. **Natvrdo česky psané řetězce** (položka ve frontě): `renderInferenceSubtasks`
+   („Spustit", „Tento úkol nemá žádné definované sub-skilly"),
+   `triggerInferenceSubtask` („Běží…"), `sendInferenceStopSignal`, hláška
+   TASK_DONE a dvě anglické `alert()` hlášky ve `startWorkflowInference`.
+   Všechno přes `t()`. Přibylo 60 klíčů (cs i en).
+4. **`alert.selectStepToTrain` v i18n vůbec nebyl** — uživateli se v dialogu
+   ukázal holý klíč. Doplněno (mimo rozsah, ale je to jeden řádek).
+5. **`alert.noFollowerPort` jsem omylem přidal podruhé** a `verify.sh` to
+   chytil (kontrola duplicit z běhu (8) funguje). Smazána **pozdější**
+   definice, aby se hodnota, která je dnes v provozu, nezměnila.
+6. **Řádky pod-úkolů se malovaly inline styly z pěti míst** a re-render je
+   zahodil. Nově je stav v `App` (`inferenceActiveSubSkill`,
+   `inferenceDoneSubSkills`) a řádky se z něj překreslí — takže přepnutí
+   jazyka nechá běžící i dokončený krok označený.
+7. **Krok spuštěný orchestrátorem se ve frontě daemona neoznačil vůbec.**
+   `orchestration_task_started` teď volá `setInferenceSubtaskRunning()` —
+   sloupce 2 a 3 se nemůžou rozejít v tom, který pod-úkol běží.
+8. **Dvě dlouhé akce neměly indikátor průběhu**: „Spustit plán" (round trip
+   přes LLM) a „Nasadit Policy" (server otevírá sériový port a kamery).
+   Obě po dobu requestu disabled s popiskem „Odesílám…" / „Nasazuji…".
+   „Nasadit Policy" se **neobnovuje ručně**, ale přes `updateActionButtonStates()`
+   — úspěšný start přijde jako `process_started` a tlačítko musí zůstat vypnuté.
+9. **Vzor „statický `data-i18n` + dynamický text"** (past zapsaná ve frontě):
+   všechny čtyři elementy, které se na téhle stránce přepisují za běhu (stav
+   orchestrace, titulek a popis latche, štítek daemona, verdikt VLM), si při
+   zápisu **přenastaví i klíč**. Stavová řádka nesoucí jméno kroku klíč naopak
+   **odebere** a překreslí se z `orchStatusKey` — jinak by ji `applyI18n()`
+   přepsalo na překlad bez toho jména.
+10. **Mrtvé CSS**: `.modelrun-unified-grid` (2 pravidla) už nikde nebylo
+    použité — smazáno.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **161 pytestů** (bylo 151),
+  compileall, i18n parita cs=en=927 bez duplicit, žádná duplicitní id,
+  9 panelů pod `#workspace-main`, flat design tokens, 105 `App.*` odkazů.
+- **Nové testy — `tests/test_orchestration_preview.py` (10 testů)**: pod-kroky
+  se nevypisují jako samostatné úkoly; rodič se expanduje na seřazené kroky;
+  pořadí se bere z `project.json`, ne abecedně; verdikt `orchestrated` = ≥ 2
+  kroky; **cesta se rovná `_policy_path_for()`** (tj. testem svázaná s tím, co
+  dostane daemon); připravenost pochází z mostu; fallback architektury;
+  prázdný projekt; žádný otevřený projekt; úkol bez jména.
+- **Endpoint proti běžícímu backendu**: úkol se dvěma pod-kroky →
+  `orchestrated: true` a dvě cesty `…/probe_task_probe_step_{approach,grasp}_diffusion`;
+  úkol bez pod-kroků → `orchestrated: false` a jediný krok = on sám.
+- **Průchod stavy proti běžícímu backendu** (7 stavů): klid (daemon `Neběží`,
+  panel skrytý, hint vidět) → nasazení (panel `flex`, hint pryč, dva
+  dispatchovatelné kroky) → odeslání pod-úkolu (řádek `is-running`, tlačítko
+  „Běží…" disabled) → `TASK_DONE` (řádek `is-done`, daemon zpět na `Čeká`) →
+  plán běží + `orchestration_locked` (latch červený, text „Motor provádí
+  krok…") → `unlocked` + `task_completed` (latch zelený, VLM badge `is-ok`) →
+  přepnutí jazyka. **Nahrávací ani inferenční proces v tomhle ověření
+  neběžel** — testován je stavový automat UI, ne LeRobot.
+- **Anglický režim** (přes `setLang('en')`): v celém `page-modelrun`
+  **nezůstal jediný řádek s českou diakritikou**, včetně stavové řádky
+  nesoucí jméno kroku (ta byla jediný nález prvního kola a je opravená).
+- **Obsazenost plochy proti běžícímu backendu**, stejný fixture:
+  `modelrun` **20 / 23 / 25 % → 24 / 33 / 37 %** (1600×900 / 1280×800 /
+  1024×760), **roztažená pole 3 → 0**, žádný vodorovný přetok, nic ořezaného.
+  `datasety` beze změny (33 / 39 / 39 %) — žádná regrese.
+- **Hit-test** tlačítek v patičkách na **860×700** (pod globálním zlomem
+  920 px): všechna tři dosažitelná, sloupce se skládají pod sebe, `ovfX = 0`.
+- **Konzole prohlížeče**: jediná chyba je import fontů z Googlu (kontejner bez
+  internetu, viz fronta). V logu serveru žádná 404 ani traceback.
+
+**Zbývá vyzkoušet na fyzickém robotu** (v cloudu nelze)
+
+- Že checkpoint označený `Připraven` daemon opravdu přijme — ověřená je shoda
+  s `policy_exists()`, ne že `lerobot` ten adresář načte.
+- Že `Chybí` opravdu znamená zastavení běhu: `start_inference()` to odmítne
+  a `_execute_motor_task()` na to reaguje, ale proti běžícímu procesu to
+  ověřené není.
+- Že hot-swap policy mezi kroky (`swap_policy` / `SET_POLICY`) proběhne a že
+  se fronta pod-úkolů posouvá podle skutečných `TASK_DONE` z daemona.
+  Simulované byly jen události.
+- Že „Nasadit Policy" ukazuje „Nasazuji…" po celou dobu round tripu — v
+  kontejneru není sériový port, takže odpověď přijde řádově dřív.
+- Že „Spustit plán" s reálným LM Studiem opravdu vrátí plán (v kontejneru
+  není LLM — v konzoli je vidět `LLM CEO server connection failed`).
+- Vzhled mimo Chromium (třísloupcová mřížka, `aspect-ratio` na VLM rámečku,
+  `overflow-wrap: anywhere` na popiscích) na macOS/WebKitu a ve Firefoxu.
+
 ## 2026-08-02 (9) — Sběr dat: značkování pod-úkolů je vidět **před** nahráváním
 + měřicí fixture konečně měřil to, co appka opravdu ukazuje
 
@@ -1044,7 +1211,7 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   navíc kontroluje párování značek a zanoření stránek — f494000 kvůli tomu
   sedmkrát po sobě prošel s nedostupnou Nápovědou a neviditelnou konzolí.
 - **Prázdná plocha v panelech.** Teleoperace hotová (4), Kalibrace (5),
-  Projekty (8), `datasety` (9). Zbývají **`setup/connect`**, **`modelrun`**
+  Projekty (8), `datasety` (9), `modelrun` (10). Zbývají **`setup/connect`**
   a **`uceni`**. Vyplnit rozvržením nebo grafickým prvkem, NE roztažením polí.
   Tohle je věc, kterou zadání označuje za hlavní problém.
   **POZOR na čísla ve frontě z běhů (7)–(8):** fixture tehdy zakládal projekt
@@ -1107,13 +1274,15 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 - Mrtvé odkazy na id v `app.ts` (jsou null-guardované, takže nic nepadá, ale je to
   neudržovaný kód): `status-ws`, `status-robot`, `status-lm`, `robot-list`,
   `sidebar-proj-name`, `sidebar-projects-list-container`, `breadcrumb-file`,
-  `breadcrumb-section`, `task-latch-desc-text`, `train-repo-id`,
-  `cam-feed-placeholder-1/2`. (`active-skill-size` a `active-skill-training`
-  jsou od (9) skutečné elementy v řádku statistik na kartě Sběr dat.)
+  `breadcrumb-section`, `train-repo-id`, `cam-feed-placeholder-1/2`.
+  (`active-skill-size` a `active-skill-training` jsou od (9) skutečné elementy
+  v řádku statistik na kartě Sběr dat; `task-latch-desc-text` od (10) existuje
+  v HTML a banner Task Latche ho opravdu používá.)
   Buď doplnit chybějící UI (indikátor stavu WS/robota by se hodil), nebo smazat.
 - Natvrdo česky psané řetězce v dynamicky generovaném HTML (mimo i18n):
-  `dsRefreshList`, `advPopulateResumeSkills`, `renderInferenceSubtasks`,
-  wizard `wizard-opt-found-*`. (Seznam epizod v `selectSkill` je hotový od (9).)
+  `dsRefreshList`, `advPopulateResumeSkills`, wizard `wizard-opt-found-*`.
+  (Seznam epizod v `selectSkill` hotový od (9), `renderInferenceSubtasks`
+  a celý sloupec workeru od (10).)
   Také `calibrateArm()` („Spouštím (leader)…") a hlášky `log()` napříč
   `app.ts` — ty se do konzole píšou vždy česky.
 - **Vzor, na který si dát pozor:** element se statickým `data-i18n`, do kterého
@@ -1133,7 +1302,7 @@ kreslí; 1600×900 / 1280×800 / 1024×760:
 |---|---|---|
 | `setup` | **17 / 20 / 22 %** | nejhorší — tab Connect (Kalibrace hotová v (5)) |
 | `teleoperation` | **17 / 20 / 22 %** | po (4) |
-| `modelrun` | 20 / 23 / 25 % | + 3 roztažená pole, viz níže |
+| `modelrun` | ~~20 / 23 / 25 %~~ → **24 / 33 / 37 %** | hotovo (10), tři sloupce, 0 roztažených polí |
 | `projects` | 26 / 33 / 43 % | po (8) |
 | `settings` | 28 / 34 / 34 % | po (6), + `#settings-scene-desc` 726 px |
 | `help` | 27 / 35 / 41 % | scrolluje, v pořádku |
@@ -1161,11 +1330,9 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
 **zabije i vlastní shell** — vzorec se shoduje s příkazovou řádkou toho pkillu.
 
 - **Roztažená pole přes celou šířku okna** — `scripts/measure-layout.sh` je hlásí
-  ve sloupci `wide` (práh 620 px). Zbývá: `modelrun` `#orch-input` 1204 px při
-  1600×900 plus `#eval-policy-path` a `#eval-task-name` po 646 px, `uceni`
-  `#train-extra-args` 884 px, `settings` `#settings-scene-desc` 726 px.
-  `datasety` je hotové od (9). Přesně to, co zadání zakazuje — a `modelrun` je
-  teď nejsilnější kandidát: má tři takové prvky naráz.
+  ve sloupci `wide` (práh 620 px). Zbývá: `uceni` `#train-extra-args` 884 px
+  a `settings` `#settings-scene-desc` 726 px. `datasety` hotové od (9),
+  `modelrun` od (10) (3 → 0). Přesně to, co zadání zakazuje.
   **Recept, který na `datasety` zabral:** pole do
   `grid-template-columns: repeat(auto-fit, minmax(215px, 1fr))` a jen dvě pole
   s opravdu dlouhou hodnotou (cesta, CLI argumenty) přes `span 2` — plus zkrátit
@@ -1182,6 +1349,22 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
   primární akce nemá být přišpendlená ke spodní hraně stránky místo panelu.
 
 **Backend / LeRobot**
+- **`bash scripts/setup-dev.sh` je na čerstvém kontejneru povinný krok.**
+  Běhy (7)–(10) shodně začaly dvěma padajícími testy jen proto, že v obrazu
+  chybí `websockets`. Není to chyba kódu (`pyproject.toml` ji deklaruje od (7))
+  — je to nepřipravené prostředí. **Nediagnostikovat to znovu, rovnou pustit
+  setup a měřit až potom.**
+- **Doporučení pro další běhy — stáhnout si zdrojáky LeRobotu.** Priorita B
+  zadání chce ověřovat chování příkazů proti zdrojáku, a v cloudu je z PyPI
+  dostupná jen 0.4.4 (viz níž). Vyplatí se `pip download lerobot` /
+  `git clone https://github.com/huggingface/lerobot` do `/tmp` na začátku běhu
+  a číst `record.py` / `calibrate.py` přímo, ne z `lerobot_cheatsheet.md`.
+- **`orchestration_plan_preview()` je od (10) jediné místo, kde UI zjišťuje,
+  co běh udělá.** Když se změní `_policy_path_for()`, `_resolve_orchestration_plan()`
+  nebo `_verify_policy_exists()`, změní se s nimi automaticky i stránka —
+  a `tests/test_orchestration_preview.py` to hlídá
+  (`test_checkpoint_path_matches_what_the_executor_would_use`). Nezavádět
+  vedle toho druhý, ručně psaný výpočet cest v `app.ts`.
 - Nedá se ověřit chování na LeRobotu ≥ 0.5 — PyPI index v cloudu má maximum
   0.4.4. Nové wrappery aspoň spadnou nahlas místo tichého no-opu.
 - **Konzole prohlížeče má být od (9) čistá** (kromě importu fontů z Googlu —

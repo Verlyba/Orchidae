@@ -124,6 +124,20 @@ const App = {
   // an element's inline display, which stopped being a reliable signal once the
   // marking panel became permanently visible.
   recordingActive: false,
+  // Last /orchestration/plan_preview response, kept so a language switch can
+  // repaint the plan column without refetching (and without silently showing
+  // checkpoint readiness from a different moment than the numbers above it).
+  orchPreview: null as any,
+  // Sub-steps currently offered to the inference daemon, plus which one it was
+  // last told to run. Held in state because the rows are rebuilt on a language
+  // switch and the running row must survive that.
+  inferenceSubSkills: [] as string[],
+  inferenceActiveSubSkill: '' as string,
+  inferenceDoneSubSkills: [] as string[],
+  // Last orchestration status line as key + params, so a language switch can
+  // re-render a message that carries a step name instead of leaving it in the
+  // previous language.
+  orchStatusKey: null as { key: string, params?: Record<string, string | number> } | null,
   armVisualConfig: null as any,
   armJointRanges: { leader: {}, follower: {} } as { leader: Record<string, {min: number, max: number}>, follower: Record<string, {min: number, max: number}> },
   wizardActivePage: 1,
@@ -237,6 +251,15 @@ const App = {
       if (dsPage && dsPage.classList.contains('active-page')) this.dsRefreshList();
       const trainPage = document.getElementById('page-uceni');
       if (trainPage && trainPage.classList.contains('active-page')) this.advPopulateResumeSkills();
+      // The orchestration page builds its plan preview and its sub-task queue
+      // in JS as well, so both would keep the previous language. Rendered from
+      // the cached response — no refetch just to change the wording.
+      if (this.orchPreview) this.renderOrchPreview(this.orchPreview);
+      if (this.orchStatusKey?.params) {
+        const el = document.getElementById('orch-status-indicator');
+        if (el) el.textContent = this.t(this.orchStatusKey.key, this.orchStatusKey.params);
+      }
+      this.renderInferenceSubtasks(this.inferenceSubSkills);
     } catch (_) { /* renders are best-effort */ }
   },
 
@@ -560,70 +583,48 @@ const App = {
         break;
       case 'orchestration_task_started':
         this.setPipelineStep(data, 'active');
-        this.updateOrchStatus(`Active step: ${data}`, 'var(--yellow)');
+        // Carries the step name, so it must not keep a data-i18n key.
+        this.updateOrchStatus(this.t('orch.activeStep', { task: data }), 'var(--yellow)',
+          'orch.activeStep', { task: data });
+        // The daemon is executing this step's own policy now — reflect that in
+        // the worker column so the two columns cannot disagree about which
+        // sub-task is live.
         const evalTaskEl = document.getElementById('eval-task-name') as HTMLInputElement | null;
         if (evalTaskEl) {
           evalTaskEl.value = data;
         }
+        this.setInferenceSubtaskRunning(data);
         break;
       case 'orchestration_task_completed':
         this.setPipelineStep(data.task, data.success ? 'done' : 'failed');
-        const snapBadgeComp = document.getElementById('vlm-inspect-badge');
-        if (snapBadgeComp) {
-          snapBadgeComp.textContent = data.success ? 'Success' : 'Failed';
-          if (data.success) {
-            snapBadgeComp.style.background = 'var(--green-light)';
-            snapBadgeComp.style.color = 'var(--green)';
-          } else {
-            snapBadgeComp.style.background = 'var(--red-light)';
-            snapBadgeComp.style.color = 'var(--red)';
-          }
-        }
+        this.setVlmVerdict(data.success ? 'ok' : 'failed');
         break;
       case 'orchestration_locked':
-        const latchBanner = document.getElementById('task-latch-card-banner');
-        if (latchBanner) {
-          latchBanner.className = 'task-latch-banner locked';
-          const latchIcon = document.getElementById('task-latch-visual-icon');
-          const latchTitle = document.getElementById('task-latch-title-text');
-          const latchDesc = document.getElementById('task-latch-desc-text');
-          if (latchIcon) latchIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
-          if (latchTitle) latchTitle.textContent = 'Task Latch: LOCKED';
-          if (latchDesc) latchDesc.textContent = 'Motor executing at 30 FPS. Async CEO/VLM processing paused for safety.';
-        }
+        this.setTaskLatch(true);
         break;
       case 'orchestration_unlocked':
-        const latchBannerUn = document.getElementById('task-latch-card-banner');
-        if (latchBannerUn) {
-          latchBannerUn.className = 'task-latch-banner unlocked';
-          const latchIcon = document.getElementById('task-latch-visual-icon');
-          const latchTitle = document.getElementById('task-latch-title-text');
-          const latchDesc = document.getElementById('task-latch-desc-text');
-          if (latchIcon) latchIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>';
-          if (latchTitle) latchTitle.textContent = 'Task Latch: UNLOCKED';
-          if (latchDesc) latchDesc.textContent = 'Motor finished block. VLM Inspector active on boundaries.';
-        }
+        this.setTaskLatch(false);
         break;
       case 'orchestration_vlm_snap':
         const snapImg = document.getElementById('vlm-inspect-image') as HTMLImageElement | null;
         const snapNone = document.getElementById('vlm-inspect-none');
-        const snapBadge = document.getElementById('vlm-inspect-badge');
         if (snapImg && snapNone) {
           snapImg.src = `data:image/jpeg;base64,${data}`;
           snapImg.style.display = 'block';
           snapNone.style.display = 'none';
         }
-        if (snapBadge) {
-          snapBadge.textContent = 'Verifying...';
-          snapBadge.style.background = 'var(--accent-light)';
-          snapBadge.style.color = 'var(--yellow)';
-        }
+        this.setVlmVerdict('verifying');
         break;
       case 'orchestration_finished':
-        this.updateOrchStatus(data ? 'CEO task completed successfully!' : 'Completed with errors.', data ? 'var(--green)' : 'var(--yellow)');
+        this.updateOrchStatus(this.t(data ? 'orch.finishedOk' : 'orch.finishedErr'),
+          data ? 'var(--green)' : 'var(--yellow)', data ? 'orch.finishedOk' : 'orch.finishedErr');
+        // A finished run may have produced nothing new on disk, but a failed
+        // one is very often a missing checkpoint — re-read the flags.
+        this.loadOrchPreview();
         break;
       case 'orchestration_error':
-        this.updateOrchStatus(`Error: ${data}`, 'var(--red)');
+        this.updateOrchStatus(this.t('orch.error', { msg: String(data) }), 'var(--red)',
+          'orch.error', { msg: String(data) });
         break;
       case 'pong':
         break;
@@ -809,6 +810,11 @@ const App = {
       // Also needed on 'setup': the calibration tab's mini arm SVG and
       // joint-ID legend reuse this same config.
       this.loadArmVisualConfig();
+    } else if (tabId === 'modelrun') {
+      // Checkpoints appear on disk while training runs, so the readiness
+      // flags are only true as of the moment they were fetched — re-read
+      // them every time the page is opened rather than caching.
+      this.loadOrchPreview();
     }
   },
 
@@ -3334,27 +3340,40 @@ const App = {
     const rPort = robots[0]?.port || '';
 
     if (!path) {
-      const msg = "Policy checkpoint path must be specified for deployment!";
-      this.log('ERROR', `Validation Failed: ${msg}`);
+      const msg = this.t('alert.noPolicyPath');
+      this.log('ERROR', msg);
       alert(msg);
       return;
     }
 
     if (!rPort) {
-      const msg = "No Follower robot serial port configured! Cannot deploy policy without hardware port.";
-      this.log('ERROR', `Validation Failed: ${msg}`);
+      const msg = this.t('alert.noFollowerPort');
+      this.log('ERROR', msg);
       alert(msg);
       return;
     }
 
-    this.log('INFO', `Deploying trained policy checkpoint: ${path}...`);
-    const res = await this.api('POST', '/inference/start', {
-      robot_type: rType,
-      policy_path: path,
-      skill_slug: taskName.replace('eval_', ''),
-      port: rPort,
-      fps: 30
-    });
+    this.log('INFO', this.t('log.deployingPolicy', { path }));
+    const btn = document.getElementById('btn-deploy-policy') as HTMLButtonElement | null;
+    const label = btn?.textContent || '';
+    // Spawning the daemon opens the serial port and the cameras — seconds on
+    // real hardware, so the button has to say it is working.
+    if (btn) { btn.disabled = true; btn.textContent = this.t('btn.deployBusy'); }
+    let res: any;
+    try {
+      res = await this.api('POST', '/inference/start', {
+        robot_type: rType,
+        policy_path: path,
+        skill_slug: taskName.replace('eval_', ''),
+        port: rPort,
+        fps: 30
+      });
+    } finally {
+      // Restored from the process state, not by flipping it back: a successful
+      // start arrives as process_started and must leave the button disabled.
+      if (btn) { btn.textContent = label || this.t('btn.deployPolicy'); }
+      this.updateActionButtonStates();
+    }
     if (res && res.ok !== false) {
       this.initPersistentInferenceUI();
     }
@@ -3363,8 +3382,9 @@ const App = {
   async stopWorkflowInference(): Promise<void> {
     const taskName = (document.getElementById('eval-task-name') as HTMLInputElement).value.trim();
     await this.api('POST', '/inference/stop', { skill_slug: taskName.replace('eval_', '') });
-    const panel = document.getElementById('infer-persistent-panel');
-    if (panel) panel.style.display = 'none';
+    this.setInferencePanelVisible(false);
+    this.updateInferenceDaemonStatus('OFF');
+    this.setInferenceSubtaskRunning('');
   },
 
   selectRobot(type: string): void {
@@ -3660,21 +3680,141 @@ const App = {
 
   // ── CEO Planner & NLP Orchestration ─────────────────────────────────
   async executeOrchestration(): Promise<void> {
-    const input = (document.getElementById('orch-input') as HTMLInputElement).value.trim();
+    const inputEl = document.getElementById('orch-input') as HTMLInputElement | null;
+    const input = inputEl?.value.trim() || '';
     if (!input) return;
-    this.updateOrchStatus('Planning task steps...', 'var(--yellow)');
-    
-    await this.api('POST', '/orchestrate', { instruction: input });
-    (document.getElementById('orch-input') as HTMLInputElement).value = '';
+    this.updateOrchStatus(this.t('orch.planning'), 'var(--yellow)', 'orch.planning');
+
+    const btn = document.getElementById('btn-run-plan') as HTMLButtonElement | null;
+    const label = btn?.textContent || '';
+    // The CEO round trip goes through an LLM, so the answer is not immediate —
+    // without this the button looks like it did nothing.
+    if (btn) { btn.disabled = true; btn.textContent = this.t('btn.runPlanBusy'); }
+    try {
+      await this.api('POST', '/orchestrate', { instruction: input });
+      if (inputEl) inputEl.value = '';
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = label || this.t('btn.runPlan'); }
+    }
   },
 
-  /** Updates the orchestration status line (#orch-status-indicator) on the
-   * Orchestration/Model-run page — called on plan-active/completed/error. */
-  updateOrchStatus(message: string, color?: string): void {
+  /** Loads what an orchestration run would actually execute: per task, the
+   * ordered steps the plan resolver produces and the checkpoint each one gets.
+   * The backend answers with the same code the run uses, so this column states
+   * the run instead of guessing at it. */
+  async loadOrchPreview(): Promise<void> {
+    const btn = document.getElementById('btn-orch-preview-refresh') as HTMLButtonElement | null;
+    const label = btn?.textContent || '';
+    // Every step is a filesystem check on the server, so this is not instant
+    // on a project with many steps.
+    if (btn) { btn.disabled = true; btn.textContent = this.t('val.loadingShort'); }
+    try {
+      const data = await this.api('GET', '/orchestration/plan_preview');
+      this.orchPreview = data;
+      this.renderOrchPreview(data);
+    } catch (err) {
+      console.error('Failed to load the orchestration plan preview', err);
+      this.orchPreview = null;
+      this.renderOrchPreview(null);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = label || this.t('btn.reload'); }
+    }
+  },
+
+  renderOrchPreview(data: any): void {
+    const list = document.getElementById('orch-preview-tasks');
+    if (!list) return;
+
+    const tasks: any[] = data?.tasks || [];
+    const steps = tasks.flatMap(t => t.steps || []);
+    const ready = steps.filter((s: any) => s.policy_ready).length;
+    const orchestrated = tasks.filter(t => t.orchestrated).length;
+
+    const setStat = (id: string, text: string, warn = false) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text;
+      el.classList.toggle('is-warn', warn);
+    };
+    setStat('orch-stat-tasks', String(tasks.length));
+    setStat('orch-stat-orchestrated', `${orchestrated}/${tasks.length}`, tasks.length > 0 && orchestrated === 0);
+    setStat('orch-stat-checkpoints', `${ready}/${steps.length}`, ready < steps.length);
+    setStat('orch-stat-arch', (data?.policy_architecture || '–').toUpperCase());
+
+    if (!this.project) {
+      list.innerHTML = `<div class="orch-empty">${this.esc(this.t('hint.noProjectForPlan'))}</div>`;
+      return;
+    }
+    if (!tasks.length) {
+      list.innerHTML = `<div class="orch-empty">${this.esc(this.t('hint.noTasksForPlan'))}</div>`;
+      return;
+    }
+
+    list.innerHTML = tasks.map(task => {
+      const stepRows = (task.steps || []).map((step: any, i: number) => `
+        <div class="orch-step">
+          <span class="orch-step-idx">${i + 1}</span>
+          <span class="orch-step-body">
+            <span class="orch-step-name" title="${this.esc(step.slug)}">${this.esc(step.name)}</span>
+            <span class="orch-step-path" title="${this.esc(step.policy_path)}">${
+              this.esc(String(step.policy_path).split(/[\\/]/).filter(Boolean).pop() || step.policy_path)}</span>
+          </span>
+          <span class="orch-step-flag ${step.policy_ready ? 'ready' : 'missing'}">${
+            this.esc(this.t(step.policy_ready ? 'val.ckptReady' : 'val.ckptMissing'))}</span>
+        </div>`).join('');
+      return `
+        <div class="orch-task ${task.orchestrated ? 'is-orchestrated' : ''}">
+          <div class="orch-task-head">
+            <span class="orch-task-name" title="${this.esc(task.slug)}">${this.esc(task.name)}</span>
+            <span class="pd-task-mode ${task.orchestrated ? 'ok' : 'baseline'}">${
+              this.esc(this.t(task.orchestrated ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
+          </div>
+          <div class="orch-steps">${stepRows}</div>
+        </div>`;
+    }).join('');
+  },
+
+  /** Updates the orchestration status line (#orch-status-indicator).
+   * `key` must be given whenever the message is a plain translation, so a
+   * language switch repaints it; a message carrying runtime values (a step
+   * name, an error) drops the attribute instead of being overwritten back to
+   * a stale translation on the next applyI18n(). */
+  updateOrchStatus(message: string, color?: string, key?: string, params?: Record<string, string | number>): void {
     const el = document.getElementById('orch-status-indicator');
     if (!el) return;
     el.textContent = message;
+    // A keyed message without params can be repainted by applyI18n() alone; one
+    // carrying runtime values must not (applyI18n would drop the values), so it
+    // is re-rendered from the remembered key+params instead.
+    if (key && !params) el.setAttribute('data-i18n', key);
+    else el.removeAttribute('data-i18n');
+    this.orchStatusKey = key ? { key, params } : null;
     if (color) el.style.color = color;
+  },
+
+  /** The single writer of the task-latch banner. It reports the orchestrator's
+   * TaskLatch (locked while a motor step runs, unlocked while the VLM checks
+   * the scene) and nothing else — the inference daemon has its own badge, and
+   * having both write this element is why the same state used to show two
+   * different texts depending on which path got there last. */
+  setTaskLatch(locked: boolean): void {
+    const banner = document.getElementById('task-latch-card-banner');
+    if (!banner) return;
+    banner.className = `task-latch-banner ${locked ? 'locked' : 'unlocked'}`;
+    const icon = document.getElementById('task-latch-visual-icon');
+    if (icon) {
+      icon.innerHTML = locked
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>';
+    }
+    const setKeyed = (id: string, key: string) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.setAttribute('data-i18n', key);
+      el.textContent = this.t(key);
+    };
+    setKeyed('task-latch-title-text', locked ? 'latch.lockedTitle' : 'latch.unlockedTitle');
+    setKeyed('task-latch-desc-text', locked ? 'latch.lockedDesc' : 'latch.unlockedDesc');
   },
 
   /** Builds the step list inside #pipeline-steps from the CEO's resolved
@@ -5442,6 +5582,17 @@ const App = {
     if (s) this.selectSkill(s);
   },
 
+  /** Shows or hides everything that only makes sense while a daemon holds the
+   * robot. One switch for the panel and the idle hint, because they are two
+   * halves of the same state and drifting apart means the column claims both
+   * "no daemon" and "here is its telemetry". */
+  setInferencePanelVisible(visible: boolean): void {
+    const panel = document.getElementById('infer-persistent-panel');
+    if (panel) panel.classList.toggle('is-visible', visible);
+    const hint = document.getElementById('infer-idle-hint');
+    if (hint) hint.style.display = visible ? 'none' : '';
+  },
+
   initPersistentInferenceUI(): void {
     const s = this.activeSkill;
     if (!s) return;
@@ -5449,11 +5600,7 @@ const App = {
     const details = this.project?.skills_details || {};
     const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
 
-    const panel = document.getElementById('infer-persistent-panel');
-    if (panel) {
-      panel.style.display = 'flex';
-    }
-
+    this.setInferencePanelVisible(true);
     this.updateInferenceDaemonStatus('WAITING');
 
     const settleEl = document.getElementById('infer-settle-frames');
@@ -5461,80 +5608,63 @@ const App = {
     const deltaEl = document.getElementById('infer-max-delta');
     if (settleEl) settleEl.textContent = '0/5';
     if (loadEl) loadEl.textContent = '0.0 mA';
-    if (deltaEl) deltaEl.textContent = '0.0000';
+    if (deltaEl) deltaEl.textContent = '0.0000 rad';
 
+    this.inferenceActiveSubSkill = '';
+    this.inferenceDoneSubSkills = [];
     this.renderInferenceSubtasks(subSkills);
   },
 
+  /** The queue of sub-steps the deployed daemon can be told to run. Rebuilt
+   * from state (not from the DOM) so a language switch keeps the running row
+   * marked instead of resetting every button to "Run". */
   renderInferenceSubtasks(subSkills: string[]): void {
+    this.inferenceSubSkills = subSkills;
     const container = document.getElementById('infer-subtasks-container');
     if (!container) return;
 
-    if (subSkills.length === 0) {
-      container.innerHTML = `
-        <div style="font-size:10px; color:var(--text-muted); text-align:center; padding:6px; border:1px dashed var(--border);">
-          Tento úkol nemá žádné definované sub-skilly (fáze).
-        </div>
-      `;
+    if (!subSkills.length) {
+      container.innerHTML = `<div class="orch-empty">${this.esc(this.t('hint.noSubSkills'))}</div>`;
       return;
     }
 
     const details = this.project?.skills_details || {};
-
     container.innerHTML = subSkills.map((sub, idx) => {
+      const running = sub === this.inferenceActiveSubSkill;
+      const done = !running && this.inferenceDoneSubSkills.includes(sub);
+      const state = running ? 'is-running' : done ? 'is-done' : '';
+      const btnKey = running ? 'val.subtaskRunning' : done ? 'val.subtaskDone' : 'btn.runSubtask';
       const name = details[sub]?.name || sub;
       return `
-        <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); padding:4px 8px;" id="infer-row-${sub}">
-          <span style="font-size:10px; color:var(--text-light); flex:1;">
-            ${idx + 1}. ${this.esc(name)}
-          </span>
-          <button class="btn btn-xs btn-primary" onclick="App.triggerInferenceSubtask('${sub}')" style="padding:2px 8px; font-size:9.5px; font-weight:700;">
-            Spustit
-          </button>
-        </div>
-      `;
+        <div class="mr-subtask ${state}" id="infer-row-${this.esc(sub)}">
+          <span class="mr-subtask-label" title="${this.esc(sub)}">${idx + 1}. ${this.esc(name)}</span>
+          <button class="btn btn-xs ${running || done ? 'btn-success' : 'btn-primary'}"
+                  onclick="App.triggerInferenceSubtask('${this.esc(sub)}')"
+                  title="${this.esc(this.t('tip.dispatchSubtask'))}" ${running ? 'disabled' : ''}>${
+            this.esc(this.t(btnKey))}</button>
+        </div>`;
     }).join('');
+  },
+
+  /** Marks one sub-step as the one the daemon is executing. Used both by the
+   * manual dispatch below and by `orchestration_task_started`, so a step the
+   * orchestrator started shows up here exactly like a hand-dispatched one. */
+  setInferenceSubtaskRunning(subSkill: string): void {
+    this.inferenceActiveSubSkill = this.inferenceSubSkills.includes(subSkill) ? subSkill : '';
+    // Re-running a finished step clears its DONE mark, otherwise the queue
+    // would claim it is both running and already done.
+    this.inferenceDoneSubSkills = this.inferenceDoneSubSkills.filter(s => s !== subSkill);
+    this.renderInferenceSubtasks(this.inferenceSubSkills);
   },
 
   async triggerInferenceSubtask(subSkill: string): Promise<void> {
     const s = this.activeSkill;
     if (!s) return;
-    
-    const skills = this.project?.skills || [];
-    const details = this.project?.skills_details || {};
-    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
-    
-    subSkills.forEach(sub => {
-      const row = document.getElementById(`infer-row-${sub}`);
-      if (row) {
-        row.style.borderColor = 'rgba(255,255,255,0.03)';
-        row.style.background = 'rgba(255,255,255,0.01)';
-        row.classList.remove('pulse-light-cyan');
-        const btn = row.querySelector('button');
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = 'Spustit';
-          btn.className = 'btn btn-xs btn-primary';
-        }
-      }
-    });
 
-    const activeRow = document.getElementById(`infer-row-${subSkill}`);
-    if (activeRow) {
-      activeRow.style.borderColor = 'var(--cyan)';
-      activeRow.style.background = 'rgba(0,255,242,0.02)';
-      activeRow.classList.add('pulse-light-cyan');
-      const btn = activeRow.querySelector('button');
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Běží...';
-        btn.className = 'btn btn-xs btn-success';
-      }
-    }
-
+    this.setInferenceSubtaskRunning(subSkill);
     this.updateInferenceDaemonStatus('RUNNING');
-    this.log('INFO', `Posílám příkaz ke spuštění fáze: '${subSkill}' přes stdin...`);
-    
+    this.log('INFO', this.t('log.dispatchSubtask', { sub: subSkill }));
+
     await this.api('POST', '/inference/command', {
       skill_slug: s,
       command: `SET_TASK:${s}__${subSkill}`
@@ -5544,59 +5674,44 @@ const App = {
   async sendInferenceStopSignal(): Promise<void> {
     const s = this.activeSkill;
     if (!s) return;
-    
+
     this.updateInferenceDaemonStatus('WAITING');
-    this.log('WARN', 'Nouzové zastavení: Posílám příkaz STOP přes stdin.');
-    
+    this.log('WARN', this.t('log.inferStopSignal'));
+
     await this.api('POST', '/inference/command', {
       skill_slug: s,
       command: 'STOP'
     });
 
-    const skills = this.project?.skills || [];
-    const details = this.project?.skills_details || {};
-    const subSkills = skills.filter(sub => details[sub]?.parent_slug === s);
-    subSkills.forEach(sub => {
-      const row = document.getElementById(`infer-row-${sub}`);
-      if (row) {
-        row.style.borderColor = 'rgba(255,255,255,0.03)';
-        row.style.background = 'rgba(255,255,255,0.01)';
-        row.classList.remove('pulse-light-cyan');
-        const btn = row.querySelector('button');
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = 'Spustit';
-          btn.className = 'btn btn-xs btn-primary';
-        }
-      }
-    });
+    // STOP ends the current sub-task but leaves the daemon up, so the rows go
+    // back to being dispatchable rather than disappearing.
+    this.setInferenceSubtaskRunning('');
   },
 
-  updateInferenceDaemonStatus(status: 'WAITING' | 'RUNNING'): void {
+  /** The daemon's own state badge. It deliberately does NOT touch the task
+   * latch banner: the latch belongs to the orchestrator and writing it from
+   * here made the same state read differently depending on which path got
+   * there last. */
+  updateInferenceDaemonStatus(status: 'OFF' | 'WAITING' | 'RUNNING'): void {
     const el = document.getElementById('infer-daemon-status');
     if (!el) return;
-    el.textContent = status;
-    if (status === 'RUNNING') {
-      el.className = 'tag bg-green-500/20 text-green';
-      const banner = document.getElementById('task-latch-card-banner');
-      if (banner) {
-        banner.className = 'task-latch-banner locked';
-        const title = document.getElementById('task-latch-title-text');
-        const desc = document.getElementById('task-latch-desc-text');
-        if (title) title.textContent = 'Task Latch: UZAMČENO';
-        if (desc) desc.textContent = 'Model autonomně provádí pohyby. Telemetrie aktivní.';
-      }
-    } else {
-      el.className = 'tag bg-yellow-500/20 text-yellow';
-      const banner = document.getElementById('task-latch-card-banner');
-      if (banner) {
-        banner.className = 'task-latch-banner unlocked';
-        const title = document.getElementById('task-latch-title-text');
-        const desc = document.getElementById('task-latch-desc-text');
-        if (title) title.textContent = 'Task Latch: ODEMČENO';
-        if (desc) desc.textContent = 'Motor dojel. VLM inspektor je aktivní na hranicích sub-tasků.';
-      }
-    }
+    const key = status === 'RUNNING' ? 'val.daemonRunning'
+      : status === 'WAITING' ? 'val.daemonWaiting' : 'val.daemonOff';
+    el.className = `mr-tag ${status === 'RUNNING' ? 'is-running' : status === 'WAITING' ? 'is-waiting' : 'is-off'}`;
+    el.setAttribute('data-i18n', key);
+    el.textContent = this.t(key);
+  },
+
+  /** VLM inspector verdict on the step that just finished. */
+  setVlmVerdict(state: 'idle' | 'verifying' | 'ok' | 'failed'): void {
+    const badge = document.getElementById('vlm-inspect-badge');
+    if (!badge) return;
+    const key = state === 'verifying' ? 'val.vlmVerifying'
+      : state === 'ok' ? 'val.vlmOk'
+      : state === 'failed' ? 'val.vlmFailed' : 'val.vlmIdle';
+    badge.className = `brain-badge is-${state}`;
+    badge.setAttribute('data-i18n', key);
+    badge.textContent = this.t(key);
   },
 
   handleInferenceTelemetry(line: string): void {
@@ -5714,24 +5829,17 @@ const App = {
         const parts = fullTask.split('__');
         const subSkill = parts.length > 1 ? parts[1] : parts[0];
         
-        const row = document.getElementById(`infer-row-${subSkill}`);
-        if (row) {
-          row.style.borderColor = 'var(--green)';
-          row.style.background = 'rgba(46,125,50,0.05)';
-          row.classList.remove('pulse-light-cyan');
-          const btn = row.querySelector('button');
-          if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'HOTOVO';
-            btn.className = 'btn btn-xs btn-success';
-            btn.style.background = 'rgba(46,125,50,0.2)';
-            btn.style.borderColor = 'var(--green)';
-            btn.style.color = 'var(--green)';
-          }
+        // Recorded in state, not painted onto the row: the queue is rebuilt on
+        // a language switch and on every dispatch, and a DOM-only mark would
+        // vanish there.
+        if (!this.inferenceDoneSubSkills.includes(subSkill)) {
+          this.inferenceDoneSubSkills.push(subSkill);
         }
-        
+        if (this.inferenceActiveSubSkill === subSkill) this.inferenceActiveSubSkill = '';
+        this.renderInferenceSubtasks(this.inferenceSubSkills);
+
         this.updateInferenceDaemonStatus('WAITING');
-        this.log('SUCCESS', `✓ Sub-task '${subSkill}' byl úspěšně dokončen (detekováno dynamické ukončení!).`);
+        this.log('SUCCESS', this.t('log.subtaskDone', { sub: subSkill }));
       }
     }
   },

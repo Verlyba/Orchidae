@@ -5876,10 +5876,11 @@ body { min-width: 320px; }
     color: var(--text-muted);
 }
 
+/* .modelrun-unified-grid was here: the orchestration page no longer uses a
+   two-column wrapper, it has its own .modelrun-grid (three columns) below. */
 .projects-unified-grid,
 .connect-unified-grid,
-.manage-unified-grid,
-.modelrun-unified-grid {
+.manage-unified-grid {
     flex: 1;
     display: grid;
     grid-template-columns: 1.2fr 0.8fr;
@@ -6036,7 +6037,6 @@ body { min-width: 320px; }
     .projects-unified-grid,
     .connect-unified-grid,
     .manage-unified-grid,
-    .modelrun-unified-grid,
     .settings-unified-grid {
         grid-template-columns: 1fr;
     }
@@ -6048,4 +6048,524 @@ body { min-width: 320px; }
     .adv-unified-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ORCHESTRATION / MODEL-RUN PAGE — three columns
+   ═══════════════════════════════════════════════════════════════════════
+   Same skeleton as the data-collection grid, but with its own class: the two
+   pages answer different questions and coupling their column widths would
+   make one of them wrong. Column 1 is a fixed-width reference list (what
+   WOULD run), columns 2 and 3 share the rest evenly — letting either take
+   the remainder is what stretched #orch-input to 1204 px at 1600x900.
+*/
+.modelrun-grid {
+    flex: 1;
+    display: flex;
+    gap: 14px;
+    min-height: 0;
+}
+
+.modelrun-block {
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.modelrun-grid > .modelrun-block:nth-child(1) {
+    width: 26%;
+    min-width: 230px;
+    flex-shrink: 0;
+}
+
+.modelrun-grid > .modelrun-block:nth-child(2),
+.modelrun-grid > .modelrun-block:nth-child(3) {
+    flex: 1 1 0;
+    min-width: 285px;
+}
+
+.modelrun-block-body {
+    padding: 10px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+/* A flex item shrinks below its content by default; in a scrolling flex
+   column that means the box reports less height than it paints and the
+   overflow escapes silently. Sections keep their height, the body scrolls. */
+.modelrun-block-body > * {
+    flex: 0 0 auto;
+}
+
+.modelrun-block > .block-actions {
+    margin-top: 0;
+    padding: 10px;
+    border-top: 1px solid var(--border-dark);
+}
+
+.mr-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Exactly one section per column absorbs the free height, and it is always
+   the one whose content actually grows (the plan / the sub-task queue) —
+   never a form, never a button row. */
+.modelrun-block-body > .mr-section-grow {
+    flex: 1 1 auto;
+    min-height: 90px;
+}
+
+.mr-section-grow > .pipeline-steps-container,
+.mr-section-grow > .mr-subtasks {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.mr-subhead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.mr-subhead > .sidebar-subtitle {
+    min-width: 0;
+}
+
+/* ── Column 1: resolved plan preview ─────────────────────────────────── */
+
+/* Two per row in this narrow column: three columns cut the longest label
+   ("Orchestrovaných") in half and left the fourth box alone on its own row. */
+.orch-preview-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 6px;
+}
+
+.orch-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 7px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-dark);
+}
+
+.orch-stat-label {
+    font-size: 8.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+.orch-stat-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.orch-stat-value.is-warn {
+    color: var(--yellow);
+}
+
+/* The task list is the element that earns the free height in this column. */
+.modelrun-block-body > .orch-preview-tasks {
+    flex: 1 1 auto;
+    min-height: 80px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.orch-task {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-muted);
+    background: var(--bg-inset);
+    padding: 7px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* Green edge = two or more executable steps, i.e. the run really is
+   orchestrated (a separate policy is hot-swapped at each boundary). */
+.orch-task.is-orchestrated {
+    border-left-color: var(--green);
+}
+
+.orch-task-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.orch-task-name {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-white);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.orch-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.orch-step {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 5px;
+    background: var(--bg-editor);
+    border: 1px solid var(--border-dark);
+}
+
+.orch-step-idx {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.orch-step-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.orch-step-name {
+    font-size: 10.5px;
+    color: var(--text-light);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The checkpoint directory the executor really resolves. Only its name is
+   shown — the absolute path is noise in a 350 px column and lives in the
+   title attribute, where it can be read without widening anything. */
+.orch-step-path {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.orch-step-flag {
+    font-size: 8.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 4px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+}
+
+.orch-step-flag.ready {
+    color: var(--green);
+}
+
+.orch-step-flag.missing {
+    color: var(--yellow);
+}
+
+.orch-empty {
+    padding: 10px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    text-align: center;
+}
+
+/* ── Column 2: CEO plan ──────────────────────────────────────────────── */
+
+.mr-card {
+    padding: 8px;
+    gap: 6px;
+}
+
+.mr-input-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.mr-input-row > input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 11px;
+}
+
+.latch-texts {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.latch-texts > span:first-child {
+    font-size: 9.5px;
+    font-weight: 700;
+}
+
+/* The description used to be written by four code paths into an element that
+   did not exist in the HTML at all — it exists now, so the banner says what
+   the state means instead of only naming it. */
+.latch-desc {
+    font-size: 9.5px;
+    line-height: 1.3;
+    color: var(--text-muted);
+}
+
+/* Grows with the column, but only ever as a 4:3 box sized by its height and
+   centred — so the free space becomes a readable frame instead of a control
+   pulled out of shape. */
+.modelrun-block-body > .mr-vlm-card {
+    flex: 1 1 auto;
+    min-height: 120px;
+}
+
+.mr-vlm-frame {
+    flex: 1 1 auto;
+    min-height: 0;
+    aspect-ratio: 4/3;
+    width: auto;
+    max-width: 100%;
+    margin: 0 auto;
+    background: #000;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.mr-vlm-frame > img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+}
+
+.mr-vlm-frame > div {
+    font-size: 8.5px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 2px;
+}
+
+.mr-vlm-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+
+/* ── Column 3: worker daemon ─────────────────────────────────────────── */
+
+/* Two columns wherever they fit, so a single long value cannot decide the
+   width of the whole form. Only the checkpoint path spans both. */
+.mr-config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+}
+
+.mr-config-grid > .form-group {
+    margin: 0;
+    min-width: 0;
+}
+
+.mr-span-2 {
+    grid-column: span 2;
+}
+
+.mr-daemon-state {
+    display: flex;
+    align-items: center;
+    min-height: 26px;
+}
+
+/* Hidden until a daemon is actually deployed; App.setInferencePanelVisible()
+   is the only thing that flips this and the idle hint together. */
+.mr-daemon-panel {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+
+.modelrun-block-body > .mr-daemon-panel.is-visible {
+    display: flex;
+    flex: 1 1 auto;
+}
+
+.mr-idle-hint {
+    padding: 10px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+}
+
+.mr-subtasks {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow-y: auto;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-dark);
+    padding: 4px;
+}
+
+.mr-subtask {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    background: var(--bg-editor);
+    border: 1px solid var(--border-dark);
+}
+
+.mr-subtask.is-running {
+    border-color: var(--accent);
+    background: var(--accent-light);
+}
+
+.mr-subtask-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 10px;
+    color: var(--text-light);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mr-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-dark);
+    padding: 5px 7px;
+}
+
+.mr-metric {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+}
+
+.mr-metric-label {
+    color: var(--text-muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mr-metric-value {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--text-light);
+    white-space: nowrap;
+}
+
+.mr-metric-value.is-cyan { color: var(--cyan); }
+.mr-metric-value.is-yellow { color: var(--yellow); }
+
+.mr-joints {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: 44px;
+    align-content: start;
+    gap: 4px;
+}
+
+.mr-joints .jt-name {
+    font-size: 8px;
+    color: var(--text-muted);
+}
+
+.mr-joints .jt-val {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-light);
+}
+
+.mr-joints .jt-tgt {
+    font-size: 8px;
+    color: var(--text-muted);
+}
+
+/* Below the global single-column breakpoint the three columns stack and the
+   page itself scrolls — same behaviour as the data-collection grid. */
+@media (max-width: 920px) {
+    .modelrun-grid {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .modelrun-grid > .modelrun-block:nth-child(1),
+    .modelrun-grid > .modelrun-block:nth-child(2),
+    .modelrun-grid > .modelrun-block:nth-child(3) {
+        width: 100%;
+        min-width: 0;
+        min-height: 300px;
+        flex: 0 0 auto;
+    }
+}
+
+/* Daemon state badge — its own class rather than the .tag styles, which are
+   scoped to .tagging-panel and would not apply here. */
+.mr-tag {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border: 1px solid currentColor;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.mr-tag.is-waiting { color: var(--yellow); }
+.mr-tag.is-running { color: var(--green); }
+
+/* VLM verdict on the step that just finished. Same badge, four states — the
+   colours used to be assigned as inline styles from three separate places. */
+.brain-badge.is-idle { background: var(--border-light); }
+.brain-badge.is-verifying { background: var(--yellow); }
+.brain-badge.is-ok { background: var(--green); }
+.brain-badge.is-failed { background: var(--red); color: var(--text-white); }
+
+.mr-subtask.is-done {
+    border-color: var(--green);
 }

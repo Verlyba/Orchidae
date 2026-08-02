@@ -7,8 +7,8 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.62.0">
-  <link rel="stylesheet" href="/static/styles.css?v=3.62.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.63.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.63.0">
 </head>
 <body>
 
@@ -1415,156 +1415,220 @@
           </div>
         </div>
 
-        <!-- PAGE 5.5: BĚH MODELU (BRAIN STACK & CEO EXECUTION) -->
+        <!-- PAGE 5.5: BĚH MODELU (BRAIN STACK & CEO EXECUTION)
+             Three columns, because the page has to answer three different
+             questions and they do not belong in one scrolling stack:
+             1. what WOULD run (resolved steps + the checkpoint of each),
+             2. what IS running (the CEO plan and the VLM verdict on it),
+             3. what the robot is doing right now (daemon + telemetry).
+             Column 1 is read straight out of the backend's own resolver, so it
+             states what the run does instead of guessing — see
+             GET /api/orchestration/plan_preview. -->
         <div id="page-modelrun" class="editor-area">
           <div class="page-header-row">
             <h2 data-i18n="page.modelrun.title">Spuštění & Běh Modelu (Orchestrace)</h2>
           </div>
 
-          <div class="setup-section" style="grid-template-columns: 1fr;">
-            <!-- Three-Model brain live controller -->
-            <div class="setup-block" style="display: flex; flex-direction: column;">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-3.12 3 3 0 0 1 0-4.88 2.5 2.5 0 0 1 0-3.12A2.5 2.5 0 0 1 9.5 2z"></path><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-3.12 3 3 0 0 0 0-4.88 2.5 2.5 0 0 0 0-3.12A2.5 2.5 0 0 0 14.5 2z"></path></svg> <span data-i18n="blk.run.brain">Live Hierarchické Řízení (Brain Stack)</span></h3>
-              
-              <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;">
-                <div class="three-model-container" style="flex-direction: column; gap: 8px;">
-                  
-                  <!-- CEO execute row -->
-                  <div class="brain-card" style="padding: 8px;">
-                    <div class="brain-card-header" style="margin-bottom:4px;">
-                      <span class="brain-card-title">LLM Planner (High-Level)</span>
-                      <span class="brain-badge ceo">CEO</span>
-                    </div>
-                    <div style="display:flex; gap:6px;">
-                      <input type="text" id="orch-input" aria-label="Instrukce pro CEO plánovač" placeholder="např. Uchop červenou kostku a polož ji..." style="flex:1; font-size:11px;" data-i18n-ph="ph.orchInput">
-                      <button class="btn btn-xs btn-primary" onclick="App.executeOrchestration()" data-i18n="btn.runPlan">Spustit Plán</button>
-                    </div>
-                    <div class="pipeline-steps-container" id="pipeline-steps" style="margin-top:6px; max-height: 80px; overflow-y: auto;">
-                      <div class="empty-state-text" data-i18n="hint.noPlan">Žádný běžící plán.</div>
-                    </div>
+          <div class="modelrun-grid">
+
+            <!-- ── Column 1: what an orchestration run would execute ────── -->
+            <div class="modelrun-block">
+              <div class="datacollection-block-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                <span data-i18n="blk.run.plan">Plán a modely</span>
+              </div>
+              <div class="modelrun-block-body">
+                <div class="orch-preview-stats">
+                  <div class="orch-stat">
+                    <span class="orch-stat-label" data-i18n="lbl.orchTasks">Úkolů</span>
+                    <span class="orch-stat-value" id="orch-stat-tasks">–</span>
                   </div>
-
-                  <!-- VLM inspect preview row -->
-                  <div class="brain-card" style="padding: 8px; display:flex; gap:8px; align-items:center;">
-                    <div id="vlm-frame-placeholder" style="width:80px; aspect-ratio: 4/3; background:#000; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; flex-shrink:0;">
-                      <img id="vlm-inspect-image" style="width:100%; height:100%; object-fit:cover; display:none;" />
-                      <div id="vlm-inspect-none" style="font-size:8px; color:var(--text-muted); text-align:center;">VLM offline</div>
-                    </div>
-                    <div style="flex:1; display:flex; flex-direction:column; gap:2px;">
-                      <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span class="brain-card-title" style="font-size: 10px;">VLM Inspector</span>
-                        <span id="vlm-inspect-badge" class="brain-badge">IDLE</span>
-                      </div>
-                      <div style="color:var(--text-muted); font-size:9.5px; line-height:1.2;" data-i18n="hint.vlmInspectDesc">Vizuální kontrola scény po každém kroku plánu.</div>
-                    </div>
+                  <div class="orch-stat">
+                    <span class="orch-stat-label" data-i18n="lbl.orchOrchestrated">Orchestrovaných</span>
+                    <span class="orch-stat-value" id="orch-stat-orchestrated">–</span>
                   </div>
-
-                  <!-- Worker policies deployment row -->
-                  <div class="brain-card" style="padding: 8px; display:flex; flex-direction:column; gap:4px;">
-                    <div class="brain-card-header" style="margin-bottom:2px;">
-                      <span class="brain-card-title">LeRobot Worker (Low-Level)</span>
-                      <span class="brain-badge worker">SVALY</span>
-                    </div>
-                    <div class="form-row" style="margin:0; gap:6px;">
-                      <div class="form-group">
-                        <label style="font-size:9px;" data-i18n="lbl.policyCkpt">Policy Checkpoint</label>
-                        <input type="text" id="eval-policy-path" placeholder="outputs/training/..." style="font-size:10px; font-family:var(--font-mono);">
-                      </div>
-                      <div class="form-group">
-                        <label style="font-size:9px;" data-i18n="lbl.activeSubtask">Aktivní sub-task</label>
-                        <input type="text" id="eval-task-name" placeholder="Aktivní pod-úkol" style="font-size:10px;" readonly>
-                      </div>
-                    </div>
-                    <div id="infer-persistent-panel" style="display:none; flex-direction:column; gap:4px; background:rgba(255,255,255,0.01); border:1px solid var(--border); padding:6px; margin-top:2px;">
-                      <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                        <span style="font-size:9px; font-weight:700; color:var(--cyan);">Inference Daemon</span>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                          <span id="infer-daemon-status" class="tag bg-yellow-500/20 text-yellow" style="font-size:8px; padding:1px 4px;">WAITING</span>
-                          <button class="btn btn-xs btn-danger" style="padding:1px 6px; min-height:auto; font-size:9px;" onclick="App.sendInferenceStopSignal()" data-i18n-title="tip.stopCurrentTask" title="Zastaví aktuálně běžící pod-úkol, daemon zůstane připravený na další." data-i18n="btn.stopTask">Stop úkolu</button>
-                        </div>
-                      </div>
-                      <div id="infer-subtasks-container" style="display:flex; flex-direction:column; gap:2px;"></div>
-
-                      <!-- Real-Time Telemetry Dashboard -->
-                      <div style="margin-top: 6px; padding: 6px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 4px;">
-                        <div style="display: flex; justify-content: space-between; font-size: 8px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
-                          <span>Metrika</span>
-                          <span>Hodnota</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 9.5px; align-items: center;">
-                          <span style="color: var(--text-muted);" data-i18n="hint.settleStatus">Settle Status (Uklidnění)</span>
-                          <span id="infer-settle-frames" style="font-family: var(--font-mono); font-weight: bold; color: var(--cyan);">0/5</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 9.5px; align-items: center;">
-                          <span style="color: var(--text-muted);">Proud gripperu (Load)</span>
-                          <span id="infer-gripper-load" style="font-family: var(--font-mono); font-weight: bold; color: var(--yellow);">0.0 mA</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 9.5px; align-items: center;">
-                          <span style="color: var(--text-muted);">Max odchylka kloubů</span>
-                          <span id="infer-max-delta" style="font-family: var(--font-mono); font-weight: bold; color: var(--text-light);">0.0000 rad</span>
-                        </div>
-                        
-                        <!-- Joint telemetry list -->
-                        <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
-                          <div style="font-size: 8px; color: var(--text-muted); font-weight: 700; margin-bottom: 2px; text-transform: uppercase;" data-i18n="hint.jointAngles">Úhly kloubů (Aktuální vs Cíl)</div>
-                          <div id="infer-joints-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
-                              <div style="color: var(--text-muted); font-size: 7px;">J1</div>
-                              <div id="joint-val-0" style="color: var(--text-light); font-weight:700;">0.0000</div>
-                              <div id="joint-tgt-0" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
-                            </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
-                              <div style="color: var(--text-muted); font-size: 7px;">J2</div>
-                              <div id="joint-val-1" style="color: var(--text-light); font-weight:700;">0.0000</div>
-                              <div id="joint-tgt-1" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
-                            </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
-                              <div style="color: var(--text-muted); font-size: 7px;">J3</div>
-                              <div id="joint-val-2" style="color: var(--text-light); font-weight:700;">0.0000</div>
-                              <div id="joint-tgt-2" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
-                            </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
-                              <div style="color: var(--text-muted); font-size: 7px;">J4</div>
-                              <div id="joint-val-3" style="color: var(--text-light); font-weight:700;">0.0000</div>
-                              <div id="joint-tgt-3" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
-                            </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
-                              <div style="color: var(--text-muted); font-size: 7px;">J5</div>
-                              <div id="joint-val-4" style="color: var(--text-light); font-weight:700;">0.0000</div>
-                              <div id="joint-tgt-4" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
-                            </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
-                              <div style="color: var(--text-muted); font-size: 7px;">J6 (Grip)</div>
-                              <div id="joint-val-5" style="color: var(--text-light); font-weight:700;">0.0000</div>
-                              <div id="joint-tgt-5" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <div class="orch-stat">
+                    <span class="orch-stat-label" data-i18n="lbl.orchCkptReady">Checkpointů</span>
+                    <span class="orch-stat-value" id="orch-stat-checkpoints">–</span>
+                  </div>
+                  <div class="orch-stat">
+                    <span class="orch-stat-label" data-i18n="lbl.orchArch">Architektura</span>
+                    <span class="orch-stat-value" id="orch-stat-arch">–</span>
                   </div>
                 </div>
-
-                <div class="task-latch-banner unlocked" id="task-latch-card-banner" style="margin-top: 4px; padding: 6px;">
-                  <span class="latch-status-icon" id="task-latch-visual-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg></span>
-                  <div style="display:flex; flex-direction:column; gap:1px;">
-                    <span id="task-latch-title-text" style="font-size:9px; font-weight:700;">Task Latch: Odemčeno</span>
-                  </div>
-                </div>
-
-                <div class="latch-status-indicator" id="orch-status-indicator" style="margin-top:4px; padding: 4px; font-size:10px;">
-                  Ready. Čekání na příkaz k rozkladu úkolu...
+                <div id="orch-preview-tasks" class="orch-preview-tasks">
+                  <!-- Populated by renderOrchPreview() from /api/orchestration/plan_preview -->
                 </div>
               </div>
-
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.deployScope">Nasadí checkpoint zadaný v řádku „LeRobot Worker" jako inferenční daemon; teprve pak lze spustit plán.</span>
-                <button class="btn btn-xs btn-primary" id="btn-deploy-policy" onclick="App.startWorkflowInference()" data-i18n="btn.deployPolicy">Nasadit Policy</button>
-                <button class="btn btn-xs btn-danger" id="btn-stop-inference" onclick="App.stopWorkflowInference()" disabled title="Inference neběží" data-i18n="btn.stop">Zastavit</button>
+                <span class="block-actions-hint" data-i18n="hint.orchPreviewScope">Kroky i cesty ke checkpointům počítá backend stejným kódem, kterým je pak spouští. Chybějící checkpoint znamená, že se běh na tom kroku zastaví.</span>
+                <button class="btn btn-xs btn-secondary" id="btn-orch-preview-refresh" onclick="App.loadOrchPreview()" data-i18n-title="tip.reloadPlanPreview" title="Znovu načte plán a přepočítá, které checkpointy existují na disku" data-i18n="btn.reload">Načíst znovu</button>
               </div>
             </div>
-          </div>
-        </div>
+
+            <!-- ── Column 2: the live CEO plan and the VLM verdict ──────── -->
+            <div class="modelrun-block">
+              <div class="datacollection-block-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-3.12 3 3 0 0 1 0-4.88 2.5 2.5 0 0 1 0-3.12A2.5 2.5 0 0 1 9.5 2z"></path><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-3.12 3 3 0 0 0 0-4.88 2.5 2.5 0 0 0 0-3.12A2.5 2.5 0 0 0 14.5 2z"></path></svg>
+                <span data-i18n="blk.run.ceo">Orchestrace (CEO → VLM)</span>
+              </div>
+              <div class="modelrun-block-body">
+
+                <div class="brain-card mr-card">
+                  <div class="brain-card-header">
+                    <span class="brain-card-title" data-i18n="lbl.llmPlanner">LLM plánovač (high-level)</span>
+                    <span class="brain-badge ceo">CEO</span>
+                  </div>
+                  <div class="mr-input-row">
+                    <input type="text" id="orch-input" aria-label="Instrukce pro CEO plánovač" placeholder="např. Uchop červenou kostku a polož ji..." data-i18n-ph="ph.orchInput">
+                    <button class="btn btn-xs btn-primary" id="btn-run-plan" onclick="App.executeOrchestration()" data-i18n-title="tip.runPlan" title="Odešle instrukci CEO plánovači (POST /api/orchestrate); ten ji rozloží na kroky vlevo" data-i18n="btn.runPlan">Spustit plán</button>
+                  </div>
+                </div>
+
+                <!-- The step list is the element that earns extra height here:
+                     it is the only one whose content grows with the plan. -->
+                <div class="mr-section mr-section-grow">
+                  <span class="sidebar-subtitle" data-i18n="hint.resolvedPlan">Rozložený plán (pořadí provádění)</span>
+                  <div class="pipeline-steps-container" id="pipeline-steps">
+                    <div class="empty-state-text" data-i18n="hint.noPlan">Žádný běžící plán.</div>
+                  </div>
+                </div>
+
+                <div class="latch-status-indicator" id="orch-status-indicator" data-i18n="hint.orchIdle">Nečinné — čeká se na instrukci pro CEO plánovač.</div>
+
+                <div class="task-latch-banner unlocked" id="task-latch-card-banner">
+                  <span class="latch-status-icon" id="task-latch-visual-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg></span>
+                  <div class="latch-texts">
+                    <span id="task-latch-title-text" data-i18n="latch.unlockedTitle">Task Latch: odemčeno</span>
+                    <span id="task-latch-desc-text" class="latch-desc" data-i18n="latch.unlockedDesc">Motor dojel krok. VLM inspektor kontroluje scénu na hranici pod-úkolů.</span>
+                  </div>
+                </div>
+
+                <!-- The snapshot the VLM judged is the second element in this
+                     column worth extra height: at thumbnail size a human cannot
+                     check the verdict against the scene. The frame scales by
+                     height and keeps 4:3, so it never stretches out of shape. -->
+                <div class="brain-card mr-card mr-vlm-card">
+                  <div class="brain-card-header">
+                    <span class="brain-card-title" data-i18n="lbl.vlmInspector">VLM inspektor</span>
+                    <span id="vlm-inspect-badge" class="brain-badge is-idle" data-i18n="val.vlmIdle">Nečinný</span>
+                  </div>
+                  <div class="mr-vlm-text" data-i18n="hint.vlmInspectDesc">Vizuální kontrola scény po každém kroku plánu.</div>
+                  <div id="vlm-frame-placeholder" class="mr-vlm-frame">
+                    <img id="vlm-inspect-image" alt="" />
+                    <div id="vlm-inspect-none" data-i18n="val.vlmNoFrame">Bez snímku</div>
+                  </div>
+                </div>
+
+              </div>
+              <div class="block-actions">
+                <span class="block-actions-hint" data-i18n="hint.orchRunScope">„Spustit plán" pošle instrukci CEO plánovači. Ten ji rozloží na pod-úkoly a daemon si ke každému sám přepne jeho checkpoint — cestu z pravého sloupce k tomu nepoužije.</span>
+              </div>
+            </div>
+
+            <!-- ── Column 3: the worker daemon and its live telemetry ───── -->
+            <div class="modelrun-block">
+              <div class="datacollection-block-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                <span data-i18n="blk.run.worker">Worker — inferenční daemon</span>
+              </div>
+              <div class="modelrun-block-body">
+
+                <div class="mr-section">
+                  <span class="sidebar-subtitle" data-i18n="hint.manualDeploy">Ruční nasazení jednoho checkpointu (ACT baseline)</span>
+                  <div class="mr-config-grid">
+                    <div class="form-group mr-span-2">
+                      <label data-i18n="lbl.policyCkpt">Policy Checkpoint</label>
+                      <input type="text" id="eval-policy-path" placeholder="outputs/training/..." class="is-mono">
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="lbl.activeSubtask">Aktivní pod-úkol</label>
+                      <input type="text" id="eval-task-name" placeholder="eval_…" readonly>
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="lbl.daemonState">Stav daemona</label>
+                      <div class="mr-daemon-state"><span id="infer-daemon-status" class="mr-tag is-off" data-i18n="val.daemonOff">NEBĚŽÍ</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Everything below only exists while a daemon is deployed. -->
+                <div id="infer-persistent-panel" class="mr-daemon-panel">
+                  <div class="mr-section mr-section-grow">
+                    <div class="mr-subhead">
+                      <span class="sidebar-subtitle" data-i18n="hint.dispatchSubtask">Odeslat pod-úkol daemonu (stdin SET_TASK)</span>
+                      <button class="btn btn-xs btn-danger" onclick="App.sendInferenceStopSignal()" data-i18n-title="tip.stopCurrentTask" title="Zastaví aktuálně běžící pod-úkol, daemon zůstane připravený na další." data-i18n="btn.stopTask">Stop úkolu</button>
+                    </div>
+                    <div id="infer-subtasks-container" class="mr-subtasks"></div>
+                  </div>
+
+                  <div class="mr-section">
+                    <span class="sidebar-subtitle" data-i18n="hint.liveTelemetry">Telemetrie z daemona</span>
+                    <div class="mr-metrics">
+                      <div class="mr-metric">
+                        <span class="mr-metric-label" data-i18n="hint.settleStatus">Settle Status (Uklidnění)</span>
+                        <span id="infer-settle-frames" class="mr-metric-value is-cyan">0/5</span>
+                      </div>
+                      <div class="mr-metric">
+                        <span class="mr-metric-label" data-i18n="lbl.gripperLoad">Proud gripperu (Load)</span>
+                        <span id="infer-gripper-load" class="mr-metric-value is-yellow">0.0 mA</span>
+                      </div>
+                      <div class="mr-metric">
+                        <span class="mr-metric-label" data-i18n="lbl.maxJointDelta">Max odchylka kloubů</span>
+                        <span id="infer-max-delta" class="mr-metric-value">0.0000 rad</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mr-section">
+                    <span class="sidebar-subtitle" data-i18n="hint.jointAngles">Úhly kloubů (Aktuální vs Cíl)</span>
+                    <div id="infer-joints-grid" class="mr-joints">
+                      <div class="joint-telemetry-box">
+                        <div class="jt-name">J1</div>
+                        <div class="jt-val" id="joint-val-0">0.0000</div>
+                        <div class="jt-tgt" id="joint-tgt-0">0.0000</div>
+                      </div>
+                      <div class="joint-telemetry-box">
+                        <div class="jt-name">J2</div>
+                        <div class="jt-val" id="joint-val-1">0.0000</div>
+                        <div class="jt-tgt" id="joint-tgt-1">0.0000</div>
+                      </div>
+                      <div class="joint-telemetry-box">
+                        <div class="jt-name">J3</div>
+                        <div class="jt-val" id="joint-val-2">0.0000</div>
+                        <div class="jt-tgt" id="joint-tgt-2">0.0000</div>
+                      </div>
+                      <div class="joint-telemetry-box">
+                        <div class="jt-name">J4</div>
+                        <div class="jt-val" id="joint-val-3">0.0000</div>
+                        <div class="jt-tgt" id="joint-tgt-3">0.0000</div>
+                      </div>
+                      <div class="joint-telemetry-box">
+                        <div class="jt-name">J5</div>
+                        <div class="jt-val" id="joint-val-4">0.0000</div>
+                        <div class="jt-tgt" id="joint-tgt-4">0.0000</div>
+                      </div>
+                      <div class="joint-telemetry-box">
+                        <div class="jt-name">J6</div>
+                        <div class="jt-val" id="joint-val-5">0.0000</div>
+                        <div class="jt-tgt" id="joint-tgt-5">0.0000</div>
+                      </div>
+                    </div>
+                  </div>
+                </div><!-- /#infer-persistent-panel -->
+
+                <div id="infer-idle-hint" class="mr-idle-hint" data-i18n="hint.daemonIdle">Daemon neběží. Po nasazení se sem doplní pod-úkoly a živá telemetrie.</div>
+
+              </div>
+              <div class="block-actions">
+                <span class="block-actions-hint" data-i18n="hint.deployScope">Nasadí zadaný checkpoint jako trvalý inferenční daemon nad prvním ramenem projektu. Orchestrace tuhle cestu nepoužívá — ta si checkpoint každého kroku dohledá sama.</span>
+                <button class="btn btn-xs btn-primary" id="btn-deploy-policy" onclick="App.startWorkflowInference()" data-i18n="btn.deployPolicy">Nasadit Policy</button>
+                <button class="btn btn-xs btn-danger" id="btn-stop-inference" onclick="App.stopWorkflowInference()" disabled data-i18n="btn.stop">Zastavit</button>
+              </div>
+            </div>
+
+          </div><!-- /.modelrun-grid -->
+        </div><!-- /#page-modelrun -->
 
         <!-- PAGE 6: NASTAVENÍ (Global Application Settings) -->
         <div id="page-settings" class="editor-area">
@@ -2929,7 +2993,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.62.0" defer></script>
-  <script src="/static/app.js?v=3.62.0" defer></script>
+  <script src="/static/i18n.js?v=3.63.0" defer></script>
+  <script src="/static/app.js?v=3.63.0" defer></script>
 </body>
 </html>

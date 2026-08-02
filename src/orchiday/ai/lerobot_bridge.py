@@ -525,6 +525,15 @@ except Exception as e:
                 return True
         return False
 
+    def policy_exists(self, policy_path: str) -> bool:
+        """Public form of the checkpoint check `start_inference()` gates on.
+
+        The UI has to be able to ask the question *before* a run, and it must
+        get the same answer the bridge itself would give — otherwise the page
+        promises a step that will be refused at spawn time.
+        """
+        return self._verify_policy_exists(policy_path)
+
     def _has_rerun_sdk(self) -> bool:
         """Whether rerun-sdk is importable in the target Python environment.
 

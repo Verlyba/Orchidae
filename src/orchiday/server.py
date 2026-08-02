@@ -1676,6 +1676,20 @@ async def orchestrate(body: dict):
     return {"ok": True}
 
 
+@app.get("/api/orchestration/plan_preview")
+async def orchestration_plan_preview():
+    """The executable step list and per-step checkpoint of every task.
+
+    Read-only; it resolves through the same code an actual run uses, so the
+    page can state what will happen instead of guessing. With no project open
+    the answer is an empty task list, not an error — that is the normal state
+    right after the app starts.
+    """
+    if not pm.current_project:
+        return {"policy_architecture": "", "tasks": []}
+    return _get_controller().orchestration_plan_preview()
+
+
 # ── Terminal ─────────────────────────────────────────────────────────────
 
 @app.post("/api/terminal")

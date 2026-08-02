@@ -8,6 +8,7 @@ import threading
 import logging
 import asyncio
 from pathlib import Path
+from typing import Any
 from PySide6.QtCore import QObject, Slot
 
 from orchiday.core.events import event_bus
@@ -811,6 +812,54 @@ class OrchidayController(QObject):
                 "WARN", f"Plan contained unknown skills (dropped): {dropped}")
         # Collapse accidental consecutive duplicates
         return [s for i, s in enumerate(resolved) if i == 0 or s != resolved[i - 1]]
+
+    def orchestration_plan_preview(self) -> dict[str, Any]:
+        """What an orchestration run would really execute, per top-level task.
+
+        Everything here goes through the code the run itself uses, so the UI
+        cannot drift away from the backend: the step list comes from
+        `_resolve_orchestration_plan()` (the orchestrator's plan resolver), the
+        checkpoint of every step from `_policy_path_for()` (what
+        `_execute_motor_task` hands to the daemon), and its readiness from
+        `LeRobotBridge.policy_exists()` (the same check that refuses to spawn
+        the daemon). A step whose checkpoint is missing therefore means the run
+        WILL stop there — it is not a cosmetic warning.
+        """
+        project = self.pm.current_project or {}
+        skills = project.get("skills", [])
+        details = project.get("skills_details", {})
+
+        tasks: list[dict[str, Any]] = []
+        for slug in skills:
+            # Sub-steps are listed inside their parent, never on their own —
+            # the CEO plans in goals and the resolver expands them.
+            if details.get(slug, {}).get("parent_slug"):
+                continue
+
+            steps = []
+            for step_slug in self._resolve_orchestration_plan([slug]):
+                path = self._policy_path_for(step_slug)
+                steps.append({
+                    "slug": step_slug,
+                    "name": details.get(step_slug, {}).get("name") or step_slug,
+                    "policy_path": path,
+                    "policy_ready": self.lerobot_bridge.policy_exists(path),
+                })
+
+            tasks.append({
+                "slug": slug,
+                "name": details.get(slug, {}).get("name") or slug,
+                # Two or more executable steps is what makes the run
+                # orchestrated: the daemon hot-swaps a separate per-step policy
+                # at every boundary. One step is the plain ACT baseline.
+                "orchestrated": len(steps) >= 2,
+                "steps": steps,
+            })
+
+        return {
+            "policy_architecture": project.get("policy_architecture", "diffusion"),
+            "tasks": tasks,
+        }
 
     def _policy_path_for(self, task_name: str) -> str:
         """Resolve the trained policy checkpoint directory for a skill."""
