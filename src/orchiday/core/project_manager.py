@@ -198,23 +198,43 @@ class ProjectManager:
                     with open(pf, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     data["_path"] = str(child)
-                    
-                    # Parse actual readable skill names from skill.json files inside skills/ subdirs
-                    skills_names = []
+
+                    # Read every skill.json once and derive both the readable
+                    # names and the task/sub-step structure. The structure is
+                    # what tells a caller whether a project's recordings can
+                    # feed the orchestration branch at all: a task is only
+                    # splittable into sub-datasets if it has >= 2 ordered
+                    # sub-steps. Ordered by data["skills"], because that list
+                    # — not the alphabetical directory order — defines the
+                    # step order the dataset splitter uses.
+                    details: dict[str, dict[str, Any]] = {}
                     skills_dir = child / SKILLS_DIR
                     if skills_dir.exists():
                         for p in sorted(skills_dir.iterdir()):
                             if p.is_dir() and (p / "skill.json").exists():
                                 try:
                                     with open(p / "skill.json", "r", encoding="utf-8") as sf:
-                                        s_data = json.load(sf)
-                                        skills_names.append(s_data.get("name", p.name))
+                                        details[p.name] = json.load(sf)
                                 except Exception:
                                     pass
-                    if not skills_names and data.get("skills"):
-                        skills_names = data["skills"]
-                    data["skills_names"] = skills_names
-                    
+
+                    declared = [s for s in data.get("skills", []) if isinstance(s, str)]
+                    # Directories without a matching entry in project.json are
+                    # still real skills on disk; keep them rather than hiding
+                    # data the user recorded.
+                    ordered = declared + [s for s in details if s not in declared]
+
+                    summary = []
+                    for slug in ordered:
+                        d = details.get(slug, {})
+                        summary.append({
+                            "slug": slug,
+                            "name": d.get("name") or slug,
+                            "parent_slug": d.get("parent_slug") or None,
+                        })
+                    data["skills_summary"] = summary
+                    data["skills_names"] = [s["name"] for s in summary] or declared
+
                     projects.append(data)
                 except (json.JSONDecodeError, OSError):
                     pass

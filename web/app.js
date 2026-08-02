@@ -38,6 +38,11 @@ const App = {
     availableCameras: [],
     isProjectLoading: false,
     projectOpenInFlight: false,
+    // Projects page is master/detail: the list only *selects*, the detail panel
+    // opens. Kept as the path (stable identity) plus the last listing, so the
+    // detail panel survives a re-render triggered by an unrelated event.
+    selectedProjectPath: '',
+    knownProjects: [],
     wsConnectedOnce: false,
     collapsedFolders: new Set(),
     taggingStartTime: 0,
@@ -142,6 +147,11 @@ const App = {
     /** Rebuild all JS-rendered content so it reflects the current language. */
     rerenderDynamic() {
         try {
+            // The Projects page is entirely JS-rendered (row meta, counters, detail
+            // panel), and it is the landing page — so it must rebuild regardless of
+            // whether a project is open. Rendering from the cached listing avoids a
+            // refetch just to change the language.
+            this.renderProjectList(this.knownProjects, []);
             if (this.project) {
                 this.renderSkillsFull();
                 this.renderTrainingSkillsTree();
@@ -1390,84 +1400,109 @@ const App = {
         }
         catch (_) { }
     },
+    /** Human label + palette class for a robot type string, e.g. "so101_follower". */
+    robotTypeLabel(type) {
+        const t = (type || '').toLowerCase();
+        if (!t)
+            return { label: this.t('val.notConfigured'), cls: 'none' };
+        if (t.includes('soarm') || t.includes('so-arm'))
+            return { label: 'SO-ARM 101', cls: 'soarm101' };
+        if (t.includes('so101') || t.includes('so-101'))
+            return { label: 'SO-101', cls: 'soarm101' };
+        if (t.includes('so100') || t.includes('so-100'))
+            return { label: 'SO-100', cls: 'so100' };
+        if (t.includes('koch'))
+            return { label: 'Koch v1.1', cls: 'koch' };
+        if (t.includes('aloha'))
+            return { label: 'Aloha', cls: 'aloha' };
+        if (t.includes('moss'))
+            return { label: 'Moss v1', cls: 'moss' };
+        if (t.includes('stretch'))
+            return { label: 'Stretch', cls: 'stretch' };
+        if (t.includes('lekiwi'))
+            return { label: 'LeKiwi', cls: 'lekiwi' };
+        if (t.includes('openarm'))
+            return { label: 'OpenArm', cls: 'custom' };
+        return { label: type, cls: 'custom' };
+    },
+    /**
+     * Task structure of a project listing entry.
+     *
+     * A skill with no `parent_slug` is a top-level task; its children are the
+     * ordered sub-steps marked during recording. Only a task with >= 2 ordered
+     * sub-steps can be split into sub-datasets, i.e. only such a task can feed
+     * the orchestration branch — everything else is ACT-baseline only. That is
+     * the single most useful thing to know about a project before opening it,
+     * so it drives both the list row and the detail panel.
+     */
+    projectTaskTree(p) {
+        const summary = p?.skills_summary || [];
+        const roots = summary.filter(s => !s.parent_slug);
+        return roots.map(r => ({
+            slug: r.slug,
+            name: r.name || r.slug,
+            steps: summary.filter(s => s.parent_slug === r.slug),
+        }));
+    },
     renderProjectList(projects, recent) {
         const all = projects.length ? projects : recent.map(r => ({ name: r.name, _path: r.path, slug: r.slug, skills: [], robots: r.robots || [] }));
-        // Main project manager grid
+        this.knownProjects = all;
+        // Default the selection to the open project, else the first row, so the
+        // detail panel is never blank when there is something to show.
+        if (!all.some(p => p._path === this.selectedProjectPath)) {
+            this.selectedProjectPath = (this.project && this.project.path) || (all[0]?._path ?? '');
+        }
         const el = document.getElementById('project-list');
         if (el) {
-            let cardsHtml = all.map(p => {
-                const isActive = this.project && this.project.path === p._path;
-                // Determine robot type from config
-                const robot = (p.robots && p.robots.length > 0) ? p.robots[0] : null;
-                let robotLabel = this.t('val.notConfigured');
-                let robotClass = 'none';
-                if (robot) {
-                    const typeLower = (robot.type || robot.follower_type || '').toLowerCase();
-                    if (typeLower.includes('soarm') || typeLower.includes('so-arm')) {
-                        robotLabel = 'SO-ARM 101';
-                        robotClass = 'soarm101';
-                    }
-                    else if (typeLower.includes('so100') || typeLower.includes('so-100')) {
-                        robotLabel = 'SO-100';
-                        robotClass = 'so100';
-                    }
-                    else if (typeLower.includes('koch')) {
-                        robotLabel = 'Koch v1.1';
-                        robotClass = 'koch';
-                    }
-                    else if (typeLower.includes('aloha')) {
-                        robotLabel = 'Aloha';
-                        robotClass = 'aloha';
-                    }
-                    else if (typeLower.includes('moss')) {
-                        robotLabel = 'Moss v1';
-                        robotClass = 'moss';
-                    }
-                    else if (typeLower.includes('stretch')) {
-                        robotLabel = 'Stretch';
-                        robotClass = 'stretch';
-                    }
-                    else if (typeLower.includes('lekiwi')) {
-                        robotLabel = 'LeKiwi';
-                        robotClass = 'lekiwi';
-                    }
-                    else {
-                        robotLabel = robot.type || robot.follower_type || 'Custom';
-                        robotClass = 'custom';
-                    }
-                }
-                return `
-          <div class="project-card fade-in ${isActive ? 'active' : ''}" onclick="App.openProject(this.dataset.path)" data-path="${this.esc(p._path || '')}">
-            <button class="project-delete-btn" onclick="App.deleteProject(this.closest('.project-card').dataset.path, event)" title="Smazat projekt">✕</button>
-            ${isActive ? `
-              <div class="project-active-check">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            if (!all.length) {
+                el.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
+            <div class="empty-state-text">${this.esc(this.t('hint.noProjects'))}</div>
+          </div>`;
+            }
+            else {
+                el.innerHTML = all.map(p => {
+                    const isOpen = !!(this.project && this.project.path === p._path);
+                    const isSel = p._path === this.selectedProjectPath;
+                    const robot = (p.robots && p.robots.length) ? p.robots[0] : null;
+                    const rt = this.robotTypeLabel(robot ? (robot.type || robot.follower_type || '') : '');
+                    const tasks = this.projectTaskTree(p);
+                    const steps = tasks.reduce((n, t) => n + t.steps.length, 0);
+                    return `
+            <div class="project-row ${isSel ? 'selected' : ''} ${isOpen ? 'open' : ''}"
+                 role="option" aria-selected="${isSel}" tabindex="0"
+                 onclick="App.selectProject(this.dataset.path)"
+                 ondblclick="App.openProject(this.dataset.path)"
+                 onkeydown="if(event.key==='Enter'){App.openProject(this.dataset.path);}else if(event.key===' '){event.preventDefault();App.selectProject(this.dataset.path);}"
+                 data-path="${this.esc(p._path || '')}">
+              <div class="project-row-head">
+                <span class="project-row-name">${this.esc(p.name)}</span>
+                ${isOpen ? `<span class="project-row-flag">${this.esc(this.t('val.projectOpen'))}</span>` : ''}
               </div>
-            ` : ''}
-            <div class="project-name">${this.esc(p.name)}</div>
-            <div class="project-meta">${p.slug || ''} ${p.created_at ? '· ' + new Date(p.created_at).toLocaleDateString() : ''}</div>
-            
-            <div class="robot-badge ${robotClass}">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:2px;"><rect x="4" y="4" width="4" height="16" rx="1"></rect><rect x="12" y="10" width="8" height="10" rx="1"></rect><path d="M8 8h4v4H8z"></path></svg>
-              ${robotLabel}
-            </div>
-
-            <div class="project-skills">${(p.skills_names || p.skills || []).map((s) => `<span class="skill-tag">${s}</span>`).join('')}</div>
-          </div>
-        `;
-            }).join('');
-            // Append the empty placeholder card at the end
-            cardsHtml += `
-        <div class="project-card empty-project-card fade-in" onclick="App.showNewProjectModal()">
-          <div class="plus-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          </div>
-          <div class="empty-card-title">Nový Projekt</div>
-          <div class="empty-card-desc">Konfigurace s průvodcem nebo prostý projekt</div>
-        </div>
-      `;
-            el.innerHTML = cardsHtml;
+              <div class="project-row-meta">
+                <span class="mono">${this.esc(p.slug || '—')}</span>
+                <span class="robot-badge ${rt.cls}">${this.esc(rt.label)}</span>
+                <span>${tasks.length} ${this.esc(this.t('val.tasksShort'))}</span>
+                <span>${steps} ${this.esc(this.t('val.stepsShort'))}</span>
+                ${p.created_at ? `<span>${this.esc(new Date(p.created_at).toLocaleDateString())}</span>` : ''}
+              </div>
+            </div>`;
+                }).join('');
+            }
         }
+        const countEl = document.getElementById('project-list-count');
+        if (countEl)
+            countEl.textContent = `${all.length} ${this.t('val.projectsShort')}`;
+        // Where the listed projects live on disk. Derived from the paths already
+        // in the listing (no extra endpoint), and answers a question the UI could
+        // not answer at all before: "kam se to vlastně ukládá?".
+        const rootEl = document.getElementById('project-list-root');
+        if (rootEl) {
+            const dirs = new Set(all.map(p => String(p._path || '').replace(/[\\/][^\\/]*$/, '')).filter(Boolean));
+            rootEl.textContent = dirs.size === 1 ? [...dirs][0] : (dirs.size ? this.t('val.mixedLocations') : '—');
+        }
+        this.renderProjectDetail();
         // Sidebar small project shortcuts
         const sideEl = document.getElementById('sidebar-projects-list-container');
         if (sideEl) {
@@ -1486,6 +1521,163 @@ const App = {
                 }).join('');
             }
         }
+    },
+    selectProject(path) {
+        if (!path)
+            return;
+        this.selectedProjectPath = path;
+        document.querySelectorAll('#project-list .project-row').forEach(row => {
+            const on = row.dataset.path === path;
+            row.classList.toggle('selected', on);
+            row.setAttribute('aria-selected', String(on));
+        });
+        this.renderProjectDetail();
+    },
+    /** Small key/value row of the detail panel. */
+    _detailRow(label, value, mono = false) {
+        return `<div class="pd-row"><span class="pd-key">${this.esc(label)}</span>` +
+            `<span class="pd-val${mono ? ' mono' : ''}">${this.esc(value || '—')}</span></div>`;
+    },
+    /**
+     * Everything about the selected project that is knowable from its
+     * project.json and skills/ directory — i.e. without opening it.
+     */
+    renderProjectDetail() {
+        const host = document.getElementById('project-detail');
+        const stateEl = document.getElementById('project-detail-state');
+        const hintEl = document.getElementById('project-detail-hint');
+        const btnOpen = document.getElementById('btn-project-open');
+        const btnExport = document.getElementById('btn-project-export');
+        const btnDelete = document.getElementById('btn-project-delete');
+        if (!host)
+            return;
+        const p = this.knownProjects.find(x => x._path === this.selectedProjectPath);
+        if (!p) {
+            host.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M9 21V9"></path></svg></div>
+          <div class="empty-state-text">${this.esc(this.t('hint.projectDetailEmpty'))}</div>
+        </div>`;
+            if (stateEl)
+                stateEl.textContent = '';
+            if (hintEl)
+                hintEl.textContent = this.t('hint.projectDetail');
+            [btnOpen, btnExport, btnDelete].forEach(b => { if (b)
+                b.disabled = true; });
+            return;
+        }
+        const isOpen = !!(this.project && this.project.path === p._path);
+        if (btnOpen) {
+            btnOpen.disabled = isOpen;
+        }
+        if (btnExport) {
+            btnExport.disabled = !isOpen;
+        }
+        if (btnDelete) {
+            btnDelete.disabled = false;
+        }
+        if (stateEl)
+            stateEl.textContent = isOpen ? this.t('val.projectOpen') : this.t('val.projectClosed');
+        if (hintEl) {
+            // Export runs over the *open* project server-side, so say so instead of
+            // letting a disabled button look broken.
+            hintEl.textContent = isOpen ? this.t('hint.projectDetailOpen') : this.t('hint.projectDetailClosed');
+        }
+        const robots = p.robots || [];
+        const cameras = p.cameras || [];
+        const tasks = this.projectTaskTree(p);
+        const splittable = tasks.filter(t => t.steps.length >= 2);
+        const created = p.created_at ? new Date(p.created_at).toLocaleString() : '';
+        const stat = (v, label, warn = false) => `<div class="pd-stat${warn ? ' warn' : ''}"><span class="pd-stat-num">${this.esc(String(v))}</span>` +
+            `<span class="pd-stat-label">${this.esc(label)}</span></div>`;
+        const robotsHtml = robots.length
+            ? robots.map(r => {
+                const rt = this.robotTypeLabel(r.type || r.follower_type || '');
+                return `<tr><td><span class="robot-badge ${rt.cls}">${this.esc(rt.label)}</span></td>` +
+                    `<td class="mono">${this.esc(r.id || '—')}</td>` +
+                    `<td class="mono">${this.esc(r.port || r.device_id || '—')}</td></tr>`;
+            }).join('')
+            : `<tr><td colspan="3" class="pd-none">${this.esc(this.t('val.noRobots'))}</td></tr>`;
+        const camerasHtml = cameras.length
+            ? cameras.map(c => `<tr><td class="mono">${this.esc(c.id || '—')}</td>` +
+                `<td>${this.esc(c.role || '—')}</td>` +
+                `<td class="mono">${Array.isArray(c.resolution) ? c.resolution.join('×') : '—'} @ ${this.esc(String(c.fps ?? '—'))}</td></tr>`).join('')
+            : `<tr><td colspan="3" class="pd-none">${this.esc(this.t('val.noCameras'))}</td></tr>`;
+        const tasksHtml = tasks.length
+            ? tasks.map(t => {
+                const ok = t.steps.length >= 2;
+                return `
+            <div class="pd-task">
+              <div class="pd-task-head">
+                <span class="pd-task-name">${this.esc(t.name)}</span>
+                <span class="pd-task-mode ${ok ? 'ok' : 'baseline'}">${this.esc(this.t(ok ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
+              </div>
+              <div class="pd-task-steps">${t.steps.length
+                    ? t.steps.map((s, i) => `<span class="pd-step"><span class="pd-step-num">${i + 1}</span>${this.esc(s.name || s.slug)}</span>`).join('')
+                    : `<span class="pd-none">${this.esc(this.t('val.noSubSteps'))}</span>`}</div>
+            </div>`;
+            }).join('')
+            : `<div class="pd-none">${this.esc(this.t('val.noTasks'))}</div>`;
+        host.innerHTML = `
+      <div class="pd-ident">
+        <div class="pd-title">${this.esc(p.name)}</div>
+        <div class="pd-sub mono">${this.esc(p._path || '')}</div>
+      </div>
+
+      <div class="pd-stats">
+        ${stat(robots.length, this.t('val.robots'), robots.length === 0)}
+        ${stat(cameras.length, this.t('val.cameras'))}
+        ${stat(tasks.length, this.t('val.tasks'))}
+        ${stat(splittable.length, this.t('val.splittable'))}
+      </div>
+
+      <div class="pd-cols">
+        <div class="pd-col">
+          <section class="pd-sect">
+            <h4 class="pd-h">${this.esc(this.t('blk.pd.identity'))}</h4>
+            ${this._detailRow(this.t('lbl.slug'), p.slug || '', true)}
+            ${this._detailRow(this.t('lbl.created'), created)}
+            ${this._detailRow(this.t('lbl.policyArch'), p.policy_architecture || '')}
+          </section>
+
+          <section class="pd-sect">
+            <h4 class="pd-h">${this.esc(this.t('blk.pd.scene'))}</h4>
+            ${p.scene_description
+            ? `<p class="pd-scene">${this.esc(p.scene_description)}</p>`
+            : `<p class="pd-scene warn">${this.esc(this.t('warn.noSceneDesc'))}</p>`}
+          </section>
+        </div>
+
+        <section class="pd-sect">
+          <h4 class="pd-h">${this.esc(this.t('blk.pd.hardware'))}</h4>
+          <table class="pd-table">
+            <thead><tr><th>${this.esc(this.t('lbl.device'))}</th><th>${this.esc(this.t('lbl.id'))}</th><th>${this.esc(this.t('lbl.port'))}</th></tr></thead>
+            <tbody>${robotsHtml}</tbody>
+          </table>
+          <table class="pd-table">
+            <thead><tr><th>${this.esc(this.t('lbl.camera'))}</th><th>${this.esc(this.t('lbl.role'))}</th><th>${this.esc(this.t('lbl.resFps'))}</th></tr></thead>
+            <tbody>${camerasHtml}</tbody>
+          </table>
+        </section>
+      </div>
+
+      <section class="pd-sect">
+        <h4 class="pd-h">${this.esc(this.t('blk.pd.tasks'))}</h4>
+        <p class="pd-note">${this.esc(this.t('hint.splitRule'))}</p>
+        ${tasksHtml}
+      </section>`;
+    },
+    openSelectedProject() {
+        if (this.selectedProjectPath)
+            this.openProject(this.selectedProjectPath);
+    },
+    deleteSelectedProject() {
+        if (!this.selectedProjectPath)
+            return;
+        const p = this.knownProjects.find(x => x._path === this.selectedProjectPath);
+        if (!confirm(`${this.t('confirm.deleteProject')}\n\n${p ? p.name : ''}\n${this.selectedProjectPath}`))
+            return;
+        this.deleteProjectAt(this.selectedProjectPath);
     },
     showNewProjectModal() {
         this.showNewProjectModeSelection();
@@ -1563,31 +1755,49 @@ const App = {
             return;
         if (this.project && this.project.path === path)
             return; // already the active project — nothing to do
+        this.selectedProjectPath = path;
         this.projectOpenInFlight = true;
-        const cards = document.querySelectorAll(`[data-path="${CSS.escape(path)}"]`);
-        cards.forEach(c => c.classList.add('opening'));
+        // Opening runs hardware auto-detection and deploys the project's
+        // calibration files into LeRobot's cache server-side, so it is not
+        // instant — mark the row and the button as busy for the whole round trip.
+        const rows = document.querySelectorAll(`[data-path="${CSS.escape(path)}"]`);
+        rows.forEach(c => c.classList.add('opening'));
+        const btn = document.getElementById('btn-project-open');
+        const btnText = btn?.textContent || '';
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = this.t('btn.opening');
+        }
         try {
-            await this.api('POST', '/projects/open', { path });
+            const r = await this.api('POST', '/projects/open', { path });
+            if (r && r.ok === false) {
+                alert(this.t('alert.openProjectFailed') + ' ' + (r.error || ''));
+            }
         }
         finally {
             this.projectOpenInFlight = false;
-            cards.forEach(c => c.classList.remove('opening'));
+            rows.forEach(c => c.classList.remove('opening'));
+            if (btn) {
+                btn.textContent = btnText;
+            }
+            // Do not rely on the project_opened socket event for the refresh: the
+            // page must settle into the right state even when /ws is unavailable.
+            await this.loadProjects();
         }
     },
-    async deleteProject(path, event) {
-        event.stopPropagation();
-        if (!confirm(this.t('confirm.deleteProject'))) {
-            return;
-        }
+    /** Delete a project directory. Caller is responsible for confirming. */
+    async deleteProjectAt(path) {
         const r = await this.api('POST', '/projects/delete', { path });
         if (r.ok) {
             if (this.project && this.project.path === path) {
                 this.onProjectClosed();
             }
+            if (this.selectedProjectPath === path)
+                this.selectedProjectPath = '';
             this.loadProjects();
         }
         else {
-            alert('Chyba při mazání projektu: ' + (r.error || 'neznámá chyba'));
+            alert(this.t('alert.deleteProjectFailed') + ' ' + (r.error || ''));
         }
     },
     onProjectOpened(data) {
@@ -1649,24 +1859,21 @@ const App = {
         this.changeTab('projects');
         this.loadProjects();
     },
-    /** Update active/checked state on existing project cards without refetching from server. */
+    /** Mark which row is the open project, without refetching from the server. */
     updateProjectCardsActiveState() {
         const activePath = this.project?.path || '';
-        // Update main project grid cards
-        document.querySelectorAll('#project-list .project-card:not(.empty-project-card)').forEach(card => {
-            const cardPath = card.dataset.path || '';
-            const isActive = !!(activePath && cardPath === activePath);
-            card.classList.toggle('active', isActive);
-            // Add or remove checkmark badge
-            let check = card.querySelector('.project-active-check');
-            if (isActive && !check) {
-                const div = document.createElement('div');
-                div.className = 'project-active-check';
-                div.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                card.insertBefore(div, card.children[1]); // after delete button
+        document.querySelectorAll('#project-list .project-row').forEach(row => {
+            const isOpen = !!(activePath && (row.dataset.path || '') === activePath);
+            row.classList.toggle('open', isOpen);
+            const flag = row.querySelector('.project-row-flag');
+            if (isOpen && !flag) {
+                const span = document.createElement('span');
+                span.className = 'project-row-flag';
+                span.textContent = this.t('val.projectOpen');
+                row.querySelector('.project-row-head')?.appendChild(span);
             }
-            else if (!isActive && check) {
-                check.remove();
+            else if (!isOpen && flag) {
+                flag.remove();
             }
         });
         // Update sidebar project shortcuts
@@ -1674,6 +1881,8 @@ const App = {
             const itemPath = item.dataset.path || '';
             item.classList.toggle('active', !!(activePath && itemPath === activePath));
         });
+        // The detail panel's Open/Export buttons are keyed off the open project.
+        this.renderProjectDetail();
     },
     async refreshProject() {
         try {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.60.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.61.0">
 </head>
 <body>
 
@@ -118,27 +118,54 @@
             <h2 data-i18n="page.projects.title">Správa Projektů</h2>
           </div>
 
-          <div class="setup-section" style="grid-template-columns: 1fr;">
+          <!-- Master/detail: the list picks a project, the right panel says
+               everything about it that can be known without opening it. Both
+               panels own their own actions in .block-actions footers. -->
+          <div class="setup-section projects-section">
+
             <div class="setup-block">
-              <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span data-i18n="blk.projects">Projekty</span></h3>
+              <div class="block-head-row">
+                <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span data-i18n="blk.projects">Projekty</span></h3>
+                <span class="block-head-sub" id="project-list-count"></span>
+              </div>
               <div class="setup-block-content">
-                <div class="project-grid" id="project-list">
+                <div class="project-list" id="project-list">
                   <div class="empty-state">
                     <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
                     <div class="empty-state-text" data-i18n="hint.loadingProjects">Načítání seznamu projektů...</div>
                   </div>
                 </div>
               </div>
+              <div class="project-list-foot">
+                <span class="pd-key" data-i18n="lbl.projectsRoot">Umístění projektů</span>
+                <span class="mono" id="project-list-root">—</span>
+              </div>
               <div class="block-actions">
-                <span class="block-actions-hint" data-i18n="hint.projectList">Vyberte existující projekt nebo vytvořte nový pro zahájení práce.</span>
+                <span class="block-actions-hint" data-i18n="hint.projectList">Kliknutím vyberete projekt, detail se ukáže vpravo. Otevírá se tlačítkem v pravém panelu.</span>
                 <button class="btn btn-xs btn-secondary" data-i18n="btn.importBundle" onclick="App.importProjectBundle()" data-i18n-title="tip.importBundle" title="Importovat .orchiday balíček (projekt + datasety + modely)">Importovat balíček</button>
-                <button class="btn btn-xs btn-secondary" data-i18n="btn.exportBundle" onclick="App.showExportModal()" data-i18n-title="tip.exportBundle" title="Exportovat aktuální projekt jako přenositelný .orchiday balíček">Exportovat balíček</button>
                 <button class="btn btn-xs btn-secondary" data-i18n="btn.runWizard" onclick="App.startSetupWizard()" data-i18n-title="tip.runWizard" title="Otevře průvodce: nový projekt, instalace LeRobotu, připojení ramen a kamer">Spustit průvodce setupem</button>
                 <button class="btn btn-xs btn-primary" data-i18n="btn.newProject" onclick="App.showNewProjectModal()" data-i18n-title="tip.newProject" title="Vytvoří nový projekt a přepne na něj">+ Nový Projekt</button>
               </div>
-            </div>
+            </div><!-- /left: project list -->
+
+            <div class="setup-block">
+              <div class="block-head-row">
+                <h3 style="margin:0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M9 21V9"></path></svg> <span data-i18n="blk.projectDetail">Detail projektu</span></h3>
+                <span class="block-head-sub" id="project-detail-state"></span>
+              </div>
+              <div class="setup-block-content">
+                <div class="project-detail" id="project-detail"></div>
+              </div>
+              <div class="block-actions">
+                <span class="block-actions-hint" id="project-detail-hint" data-i18n="hint.projectDetail">Vyberte projekt v seznamu vlevo.</span>
+                <button class="btn btn-xs btn-danger" id="btn-project-delete" data-i18n="btn.deleteProject" onclick="App.deleteSelectedProject()" data-i18n-title="tip.deleteProject" title="Nevratně smaže adresář vybraného projektu včetně dovedností a kalibrací" disabled>Smazat projekt</button>
+                <button class="btn btn-xs btn-secondary" id="btn-project-export" data-i18n="btn.exportBundle" onclick="App.showExportModal()" data-i18n-title="tip.exportBundle" title="Exportovat aktuální projekt jako přenositelný .orchiday balíček" disabled>Exportovat balíček</button>
+                <button class="btn btn-xs btn-primary" id="btn-project-open" data-i18n="btn.openProject" onclick="App.openSelectedProject()" data-i18n-title="tip.openProject" title="Načte projekt: nasadí jeho kalibrační soubory do cache LeRobotu a odemkne ostatní stránky" disabled>Otevřít projekt</button>
+              </div>
+            </div><!-- /right: project detail -->
+
           </div>
-        </div>
+        </div><!-- /#page-projects -->
 
         <!-- PAGE 2: HARDWARE CONFIGURATION -->
         <div id="page-setup" class="editor-area">
@@ -2859,7 +2886,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.60.0" defer></script>
-  <script src="/static/app.js?v=3.60.0" defer></script>
+  <script src="/static/i18n.js?v=3.61.0" defer></script>
+  <script src="/static/app.js?v=3.61.0" defer></script>
 </body>
 </html>

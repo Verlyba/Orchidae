@@ -68,3 +68,7 @@ data/
 # Claude config
 .claude/
 
+# Optional dev-only tooling for scripts/measure-layout.sh (playwright).
+# Nothing in the app depends on it, so the lockfile is not tracked.
+/package.json
+/package-lock.json

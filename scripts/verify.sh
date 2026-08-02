@@ -67,10 +67,27 @@ if command -v node >/dev/null 2>&1; then
       [...html.matchAll(/data-i18n(?:-ph|-title|-tooltip|-html)?="([^"]+)"/g)].map(m => m[1])
     );
     const missing = [...used].filter(k => !cs.has(k));
+
+    // A repeated key inside one object literal is NOT an error in JS — the
+    // last definition silently wins. So Object.keys() can never reveal it,
+    // and a key added in one place quietly changes a label somewhere else
+    // on the other side of the file. Scan the source text instead.
+    const src = fs.readFileSync("web/i18n.js", "utf8");
+    const csAt = src.indexOf("cs: {"), enAt = src.indexOf("en: {");
+    const dupes = [];
+    for (const [lang, body] of [["cs", src.slice(csAt, enAt)], ["en", src.slice(enAt)]]) {
+      const seen = new Set();
+      for (const m of body.matchAll(/^\s*"([^"]+)":/gm)) {
+        if (seen.has(m[1])) dupes.push(`${lang}:${m[1]}`);
+        seen.add(m[1]);
+      }
+    }
+
     let bad = false;
     if (onlyCs.length) { console.log("cs-only keys:", onlyCs); bad = true; }
     if (onlyEn.length) { console.log("en-only keys:", onlyEn); bad = true; }
     if (missing.length) { console.log("used in HTML but undefined:", missing); bad = true; }
+    if (dupes.length) { console.log("duplicate keys (later one silently wins):", dupes); bad = true; }
     console.log(`cs=${cs.size} en=${en.size} usedInHtml=${used.size}`);
     process.exit(bad ? 1 : 0);
   ' || fail "i18n problems"

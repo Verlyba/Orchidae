@@ -1021,151 +1021,421 @@ input[readonly] {
    PROJECT CARDS
    ═══════════════════════════════════════════════════════════════════ */
 
-.project-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 18px;
-    flex: 1;
-    overflow-y: auto;
+/* Monospace utility — used wherever a value is an identifier the user
+   will retype elsewhere (slug, device id, port, filesystem path). */
+.mono {
+    font-family: var(--font-mono);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PROJECTS PAGE — master/detail
+   Left: a dense list that only *selects*. Right: everything knowable
+   about the selection without opening it. The list deliberately uses
+   short rows instead of large cards: cards forced a sparse grid that
+   left most of the page empty, and a row carries the same facts.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Two panels, list narrower than detail — the detail is where the
+   content actually is, so it gets the space. */
+/* The list needs only enough width for a name plus a meta line; the detail
+   panel is where the content actually is, so it takes the rest. A wider
+   list would just be empty space next to short rows. */
+.projects-section {
+    grid-template-columns: minmax(260px, 0.6fr) minmax(0, 1.4fr);
+}
+
+.project-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     align-content: start;
 }
 
-.project-card {
-    background: var(--bg-sidebar);
+.project-row {
+    background: var(--bg-inset);
     border: 1px solid var(--border);
-    padding: 24px 22px;
+    border-left: 3px solid var(--border);
+    padding: 9px 12px;
     cursor: pointer;
-    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-height: 200px;
-    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    overflow: hidden;
+    gap: 5px;
+    flex: 0 0 auto;      /* rows keep their height; the column scrolls */
+    transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-/* Brief feedback while a project-open request is in flight — opening a
-   project runs hardware auto-detection + calibration deploy server-side,
-   which can take a noticeable moment. */
-.project-card.opening,
+.project-row:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-light);
+}
+
+.project-row.selected {
+    border-color: var(--accent);
+    border-left-color: var(--accent);
+    background: rgba(14, 99, 156, 0.10);
+}
+
+/* The open project is marked on the left edge, so "selected" (cursor)
+   and "open" (application state) never look like the same thing. */
+.project-row.open {
+    border-left-color: var(--green);
+}
+
+.project-row:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Feedback while an open request is in flight — opening runs hardware
+   auto-detection + calibration deploy server-side and is not instant. */
+.project-row.opening,
 .sidebar-project-item.opening {
     opacity: 0.55;
     pointer-events: none;
     animation: pulse-dot 1s ease-in-out infinite;
 }
 
-.project-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: var(--accent);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.project-card:hover {
-    /* border-color hover removed */
-    /* transform removed */
-}
-
-.project-card:hover::before {
-    opacity: 0;
-}
-
-.project-card.active {
-    border-color: var(--accent) !important;
-    border-width: 1.5px;
-    background: rgba(14, 99, 156, 0.08) !important;
-}
-
-.project-card.active::before {
-    opacity: 1 !important;
-    height: 3px;
-    background: var(--accent) !important;
-}
-
-.project-active-check {
-    position: absolute;
-    top: 14px;
-    right: 40px;
-    width: 24px;
-    height: 24px;
-    background: var(--accent);
-    color: var(--text-white);
+.project-row-head {
     display: flex;
     align-items: center;
-    justify-content: center;
-    z-index: 10;
-    /* animation removed */
+    justify-content: space-between;
+    gap: 8px;
 }
 
-.project-delete-btn {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    width: 20px;
-    height: 20px;
-    background: transparent;
-    border: none;
+.project-row-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-white);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-row-flag {
+    flex: 0 0 auto;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--green);
+    border: 1px solid var(--green);
+    padding: 1px 5px;
+}
+
+.project-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    font-size: 10.5px;
     color: var(--text-muted);
-    font-size: 10px;
+}
+
+.project-row-meta .robot-badge {
+    margin-top: 0;
+}
+
+/* Sits between the scrolling list and the action footer: the storage
+   location applies to the whole list, not to any one row. */
+.project-list-foot {
+    flex-shrink: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: var(--transition);
-    z-index: 10;
-    opacity: 0;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-dark);
+    font-size: 10.5px;
+    color: var(--text-light);
+    min-width: 0;
 }
 
-.project-card:hover .project-delete-btn {
-    opacity: 1;
+.project-list-foot .mono {
+    flex: 1 1 auto;
+    min-width: 0;
+    word-break: break-all;
+    color: var(--text-main);
 }
 
-.project-delete-btn:hover {
-    background-color: var(--red);
-    color: var(--text-white);
-    /* transform removed */
+.project-list-foot .pd-key {
+    flex: 0 0 auto;
 }
 
-.project-card .project-name {
+/* ── Detail panel ────────────────────────────────────────────────── */
+
+.project-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Direct children must not shrink. This panel lives inside a scrolling
+   flex column, where a flex item shrinks below its own content by default:
+   the box then reports a height smaller than what it paints, the excess
+   escapes through overflow:visible, and the scrollport never learns about
+   it. That is how the task list ended up measuring 0 px tall while still
+   drawing two tasks. (Same failure as .settings-pane, see PROGRESS run 6.) */
+.project-detail > * {
+    flex: 0 0 auto;
+}
+
+.pd-ident {
+    border-bottom: 1px solid var(--border-dark);
+    padding-bottom: 8px;
+}
+
+.pd-title {
+    font-size: 17px;
     font-weight: 700;
     color: var(--text-white);
-    font-size: 16px;
-    padding-right: 56px;
     letter-spacing: -0.2px;
 }
 
-.project-card .project-meta {
-    font-size: 11.5px;
+.pd-sub {
+    font-size: 10.5px;
     color: var(--text-muted);
-    font-family: var(--font-mono);
+    word-break: break-all;
+    margin-top: 2px;
 }
 
-.project-card .project-skills {
+/* Four counters across the panel width: fills the top of the panel with
+   the numbers that decide what can be done with the project, instead of
+   stretching a single field across it. */
+.pd-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.pd-stat {
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    padding: 7px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.pd-stat.warn {
+    border-color: var(--yellow);
+}
+
+.pd-stat-num {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-white);
+    line-height: 1.1;
+}
+
+.pd-stat.warn .pd-stat-num {
+    color: var(--yellow);
+}
+
+.pd-stat-label {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pd-sect {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.pd-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+/* The task tree is the only part that benefits from extra height, so it
+   absorbs the free space rather than the rows above being stretched. */
+/* Above this width the middle sections sit side by side, which lifts the
+   task tree — the section that answers "can this project drive the
+   orchestration branch?" — above the fold instead of leaving it to be
+   found by scrolling. Below it they stack, because two ~230 px columns
+   would squeeze the hardware tables. */
+@media (min-width: 1200px) {
+    .pd-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px 14px;
+        align-items: start;
+    }
+}
+
+.pd-h {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-light);
+    border-bottom: 1px solid var(--border-dark);
+    padding-bottom: 4px;
+    margin: 0;
+}
+
+.pd-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 11.5px;
+}
+
+.pd-key {
+    flex: 0 0 130px;
+    color: var(--text-muted);
+}
+
+.pd-val {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text-light);
+    word-break: break-word;
+}
+
+.pd-scene {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-light);
+    border-left: 2px solid var(--border-light);
+    padding-left: 9px;
+}
+
+.pd-scene.warn {
+    border-left-color: var(--yellow);
+    color: var(--yellow);
+}
+
+.pd-note {
+    margin: 0;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.pd-none {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: normal;
+}
+
+.pd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.pd-table th {
+    text-align: left;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-dark);
+    padding: 3px 6px 3px 0;
+}
+
+.pd-table td {
+    padding: 4px 6px 4px 0;
+    border-bottom: 1px solid var(--border-dark);
+    color: var(--text-light);
+    vertical-align: middle;
+}
+
+.pd-table td.pd-none {
+    text-align: left;
+}
+
+.pd-task {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    background: var(--bg-inset);
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+/* Green edge = the task has >= 2 ordered sub-steps, so its recording can
+   be split into sub-datasets and drive the orchestration branch too. */
+.pd-task:has(.pd-task-mode.ok) {
+    border-left-color: var(--green);
+}
+
+.pd-task-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.pd-task-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-white);
+}
+
+.pd-task-mode {
+    flex: 0 0 auto;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border: 1px solid currentColor;
+}
+
+.pd-task-mode.ok {
+    color: var(--green);
+}
+
+.pd-task-mode.baseline {
+    color: var(--text-muted);
+}
+
+.pd-task-steps {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: auto;
 }
 
-.skill-tag {
+.pd-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    color: var(--text-light);
+    border: 1px solid var(--border);
+    padding: 1px 6px 1px 1px;
+}
+
+.pd-step-num {
+    font-family: var(--font-mono);
     font-size: 9.5px;
-    background: rgba(78, 201, 176, 0.05);
-    color: var(--cyan);
-    padding: 2px 7px;
-    border: 1px solid rgba(78, 201, 176, 0.12);
-    transition: var(--transition);
+    font-weight: 700;
+    color: var(--bg-editor);
+    background: var(--text-muted);
+    padding: 1px 4px;
 }
 
-.project-card:hover .skill-tag {
-    background: rgba(78, 201, 176, 0.10);
-    border-color: rgba(78, 201, 176, 0.20);
-    color: var(--text-white);
-}
+/* No responsive override here on purpose: the app-wide rule at
+   max-width:920px already stacks every .setup-section into one column
+   (with `grid-template-columns: 1fr !important`), so a second rule for
+   this page would be dead code that only looks like it does something. */
 
 /* ── Redesigned Robot Badge & Empty Card Styles ── */
 .robot-badge {
@@ -1224,51 +1494,6 @@ input[readonly] {
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-muted);
     border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.empty-project-card {
-    background: rgba(255, 255, 255, 0.01) !important;
-    border: 2px dashed rgba(255, 255, 255, 0.08) !important;
-    justify-content: center;
-    align-items: center;
-    min-height: 160px;
-    gap: 8px;
-    text-align: center;
-    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.empty-project-card::before {
-    display: none !important;
-}
-.empty-project-card:hover {
-    background: rgba(255, 255, 255, 0.02) !important;
-    border-color: var(--accent) !important;
-    /* transform removed */
-}
-.empty-project-card .plus-icon {
-    width: 32px;
-    height: 32px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    transition: all 0.3s ease;
-}
-.empty-project-card:hover .plus-icon {
-    background: var(--accent);
-    color: var(--text-white);
-    border-color: var(--accent);
-    /* transform removed */
-}
-.empty-project-card .empty-card-title {
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--text-light);
-}
-.empty-project-card .empty-card-desc {
-    font-size: 11px;
-    color: var(--text-muted);
 }
 
 .empty-state {
@@ -5296,7 +5521,7 @@ body { min-width: 320px; }
     width: 100%;
     padding: 5px 8px;
     font-size: 11px;
-    background: var(--bg-input);
+    background: var(--bg-inset);
     border: 1px solid var(--border);
     color: var(--text-light);
 }

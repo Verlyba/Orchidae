@@ -8,6 +8,158 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (8) — Projekty: z 8 % nejprázdnější stránky aplikace pracovní
+plocha master/detail + **měřicí skript konečně v repu**
+
+**Výchozí stav.** `bash scripts/verify.sh` na čerstvém klonu spadl na dvou
+testech (`websockets` nešel naimportovat) — ale nebyla to chyba kódu, jen
+nepřipravený kontejner: `bash scripts/setup-dev.sh` závislost doinstaloval
+a gate prošel celý (141 pytestů). Priorita A tedy prázdná. Podle měření
+z běhu (7) byla nejhorší stránka `projects` (5–8 % obsazenosti) a zároveň je
+to úvodní obrazovka aplikace.
+
+**Nejdřív měřicí skript — protože běh (5)–(7) ho psal počtvrté**
+
+- **`scripts/measure_layout.mjs` + `scripts/measure-layout.sh`** (nové).
+  Wrapper nastartuje uvicorn, počká na `/api/info`, spustí měření a server
+  zase složí; skript sám si přes API **založí a otevře fixture projekt**,
+  jinak je většina stránek prázdná a čísla lžou. Měří obsazenost plochy,
+  vodorovný přetok, ořezané prvky, roztažené ovládací prvky a chyby v konzoli
+  na 8 stránkách × 3 velikostech.
+  Všechny pasti z deníku jsou v něm už ošetřené a okomentované: cesta
+  k předinstalovanému Chromiu (hledá se `chromium-*`, ne natvrdo verze),
+  `ignoreDefaultArgs: ['--hide-scrollbars']`, skrytí `#setup-wizard-overlay`,
+  a **zabíjení serveru podle PID, ne `pkill -f`** (ten vzorec sedí i na vlastní
+  shell a shodí ho).
+  **Nová past, na kterou narazil tenhle běh:** `waitUntil: 'networkidle'`
+  vyprší — aplikace drží živý WebSocket na `/ws` a dokola zkouší import fontů
+  z Googlu, takže síť nikdy neztichne. Nutno `domcontentloaded`
+  + `waitForFunction(() => !!window.App)`.
+
+**Hlavní změna — stránka Projekty je master/detail**
+
+Předtím: jeden panel, mřížka velkých karet a pod ní prázdno. Karta nesla
+jméno, slug, typ ramene a štítky dovedností — nic z toho neodpovídalo na
+otázku, kvůli které se projekt otevírá.
+
+- **Levý panel = seznam.** Místo karet 320×200 px jsou to řádky (57 px)
+  s názvem, slugem, typem ramene, počtem úkolů, počtem pod-kroků a datem
+  vzniku. Kliknutí **vybírá**, neotevírá; otevírá se tlačítkem v pravém
+  panelu, dvojklikem nebo Enterem na zaměřeném řádku. „Vybraný" (modrý rám)
+  a „otevřený" (zelená levá hrana + štítek OTEVŘENÝ) jsou dva různé stavy,
+  což u karet nešlo rozlišit.
+- **Pravý panel = detail.** Vše, co jde o projektu zjistit, **aniž by se
+  otevřel**: cesta na disku, čtyři počítadla (ramena / kamery / úkoly /
+  rozdělitelné), identifikace, **popis scény** (povinné pole, které dostává
+  CEO plánovač i VLM inspektor — do teď nebylo vidět nikde než v Nastavení),
+  tabulka ramen (typ / id / port), tabulka kamer (id / role / rozlišení @ fps)
+  a **strom úkolů a pod-kroků**.
+- **Strom úkolů je jádro téhle změny.** U každého úkolu se ukazují jeho
+  seřazené pod-kroky a štítek `ACT + ORCHESTRACE` (≥ 2 pod-kroky, dataset
+  jde rozřezat na pod-datasety) vs `JEN ACT BASELINE`. Přesně ta otázka,
+  kvůli které projekt existuje, je teď vidět na úvodní obrazovce u každého
+  projektu — dřív se nedala zodpovědět jinak než otevřít projekt a proklikat
+  Datasety.
+- Tlačítka jsou v patičkách panelů, kterých se týkají (`.block-actions`):
+  vlevo Importovat balíček / Průvodce / + Nový projekt, vpravo Smazat /
+  Exportovat / Otevřít. **Otevřít je disabled, když je projekt už otevřený;
+  Exportovat je disabled, když otevřený není** (export běží serverside nad
+  otevřeným projektem) a hint v patičce to říká slovy místo aby tlačítko jen
+  nešlo zmáčknout.
+- Otevírání ukazuje průběh: řádek zešedne a pulzuje, tlačítko přepne na
+  „Otevírám…" po celou dobu round tripu (server při otevření dělá
+  autodetekci hardwaru a nasazuje kalibrace do cache LeRobotu).
+- Umístění projektů na disku je v patičce seznamu — odvozeno z cest, které
+  už v listingu jsou, žádný nový endpoint. Do teď to appka neřekla vůbec.
+
+**Backend — `list_projects()` vrací strukturu, kterou už stejně četl**
+
+`skill.json` každé dovednosti se otvíral jen kvůli `name`. Nově z něj vzniká
+`skills_summary` (`slug`, `name`, `parent_slug`) — **žádné další I/O**.
+Pořadí se bere z `project.json["skills"]`, protože **to** je pořadí, podle
+kterého řeže splitter, ne abecední pořadí adresářů. Adresář dovednosti, který
+v `project.json` chybí, se do výpisu přidá na konec místo aby zmizel —
+jsou v něm nahrané epizody.
+
+**Opravené chyby (nalezené při práci, ne plánované)**
+
+1. **Přepnutí jazyka nepřekládalo stránku Projekty.** `renderProjectList()`
+   zapéká `t()` do HTML, ale `rerenderDynamic()` ji nevolal — a její ostatní
+   větve běží jen `if (this.project)`, takže úvodní stránka bez otevřeného
+   projektu se nepřekreslila nikdy. Naměřeno: po přepnutí do angličtiny
+   zůstalo 7 českých řádků („2 projektů", „OTEVŘENÝ", „4 pod-kroků",
+   „NEKONFIGUROVÁN"…). Nově se překresluje z nacachovaného listingu.
+2. **Čtyři i18n klíče existovaly v `i18n.js` dvakrát** — `lbl.id`, `lbl.slug`,
+   `lbl.policyArch`, `lbl.device` (a `btn.calibrateLeader`/`Follower` už
+   předtím). V objektovém literálu to **není chyba JS**, poslední definice
+   tiše vyhraje — takže `Object.keys()` to nikdy neukáže a klíč přidaný na
+   jednom místě mlčky změní popisek na druhém konci souboru. Zjištěno tím, že
+   nový `lbl.id: "ID"` se v UI vykreslil jako „Identifikátor (ID)".
+   → duplicity odstraněny (u těch starších se maže **dřívější** definice, aby
+   se hodnota, která je dnes v provozu, nezměnila) a **`verify.sh` je nově
+   hlídá** nad zdrojovým textem. Ověřeno, že to chytá: po vložení druhého
+   `btn.newProject` krok spadne s `duplicate keys: [ 'cs:btn.newProject' ]`.
+3. **Sekce úkolů se smrskla na 0 px.** `.pd-sect-grow { flex: 1 1 auto }`
+   uvnitř scrollujícího flex sloupce — přesně past zapsaná v běhu (6):
+   položka se zmenší pod svůj obsah, přebytek uteče přes `overflow: visible`
+   a box hlásí výšku menší, než co kreslí. Naměřeno `pd-sect-grow: 0` se
+   dvěma vykreslenými úkoly uvnitř. Opraveno `.project-detail > * { flex: 0 0 auto }`.
+4. **Vlastní `@media (max-width: 900px)` byl mrtvý kód.** Aplikace už má
+   globální pravidlo na 920 px, které každou `.setup-section` skládá do
+   jednoho sloupce přes `grid-template-columns: 1fr !important`. Naměřeno:
+   `grid-template-rows: none`, blokům se aplikovaly flex vlastnosti — moje
+   pravidlo nedělalo nic. Smazáno, na jeho místě komentář proč.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **150 pytestů** (bylo 141),
+  compileall, i18n parita cs=en=835 **+ nová kontrola duplicitních klíčů**,
+  žádná duplicitní id, 9 panelů pod `#workspace-main`, flat design tokens,
+  104 `App.*` odkazů.
+- **Nové testy — `tests/test_project_listing.py` (9 testů)**: pořadí kroků
+  z `project.json` (ne abecední), dovednost chybějící v `project.json`,
+  rozlišení úkol/pod-krok přes `parent_slug`, `parent_slug: ""` → `None`,
+  rozbitý `skill.json` degraduje na slug místo aby shodil projekt, rozbitý
+  `project.json` vyhodí jen ten jeden projekt, zpětná kompatibilita
+  `skills_names`.
+- **Obsazenost plochy proti běžícímu backendu** (uvicorn + projekt se dvěma
+  rameny, dvěma kamerami, jedním rozdělitelným a jedním nerozdělitelným
+  úkolem), stejný fixture pro obě měření — **výchozí stav změřen znovu přes
+  `git stash`**, aby srovnání nelhalo:
+  `projects` **8 / 10 / 15 % → 31 / 38 / 45 %** (1600×900 / 1280×800 /
+  1024×760). **Všech sedm ostatních stránek má čísla na jednotku stejná jako
+  před změnou** — žádná regrese. Žádný vodorovný přetok, žádný ořezaný prvek,
+  nejširší ovládací prvek 165 px.
+- **Průchod stavy proti běžícímu backendu**: kliknutí vybírá a *neotevírá*;
+  „Otevřít projekt" otevře (řádek dostane štítek, titulková lišta se změní,
+  Otevřít se disabluje, Exportovat enabluje); výběr jiného řádku nechá
+  „otevřený" na tom původním; dvojklik i Enter otevírají; stav přežije odchod
+  na jinou stránku a návrat. V konzoli nezůstala jediná chyba kromě
+  `ERR_CONNECTION_RESET` z importu fontů (kontejner bez internetu, viz fronta).
+- **Anglický režim**: v celém `page-projects` **nezůstal jediný řádek s českou
+  diakritikou** (před opravou 7).
+- **Prázdný projekt** (žádný hardware, žádný úkol): počítadlo „Ramena 0" se
+  označí žlutě, obě tabulky hlásí „Žádné rameno/kamera není nakonfigurován…",
+  strom úkolů „Projekt zatím nemá žádný úkol." — žádná prázdná tabulka.
+- **Chování při 860×700** (pod globálním zlomem 920 px): stránka scrolluje
+  (`overflow-y: auto`) a **poslední patička je dosažitelná** —
+  změřeno i na ostatních stránkách, kde je to úplně stejné (datasety má
+  2 patičky mimo první pohled, učení a setup po jedné). Není to tedy nic,
+  co by zaváděla tahle změna.
+
+**Zbývá vyzkoušet na fyzickém robotu / reálném desktopu** (v cloudu nelze)
+
+- Že „Otevřít projekt" na reálném stroji opravdu proběhne včetně autodetekce
+  portů a nasazení kalibrací do cache LeRobotu, a že indikace „Otevírám…"
+  trvá po celou tu dobu. V kontejneru nejsou sériové porty, takže round trip
+  je řádově rychlejší než na hardwaru.
+- Že počty pod-kroků v seznamu sedí s tím, co se opravdu naznačkuje během
+  `lerobot-record`, a že úkol označený `ACT + ORCHESTRACE` skutečně projde
+  `POST /api/datasets/split_steps`. Struktura se čte ze `skill.json`, shoda
+  s nahranými značkami ověřená není.
+- Vzhled mimo Chromium (dvousloupcové `.pd-cols` nad 1200 px, tabulky detailu)
+  na macOS/WebKitu a ve Firefoxu.
+
 ## 2026-08-02 (7) — Plochý technický vzhled napříč celou aplikací + **`/ws` na
 čerstvém klonu vůbec nefungoval**
 
@@ -746,11 +898,16 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   i18n klíče) a se ztrátou popisu scény i přepínače jazyka. Od (6) verify.sh
   navíc kontroluje párování značek a zanoření stránek — f494000 kvůli tomu
   sedmkrát po sobě prošel s nedostupnou Nápovědou a neviditelnou konzolí.
-- **Prázdná plocha v panelech.** Teleoperace hotová 2026-08-01 (4); Setup,
-  Orchestrace a Učení zbývají (viz měření výše). Vyplnit rozvržením nebo
+- **Prázdná plocha v panelech.** Teleoperace hotová (4), Kalibrace (5),
+  Projekty (8). Zbývají **`datasety`**, **`setup/connect`**, **`modelrun`**
+  a **`uceni`**; čísla si přeměř `scripts/measure-layout.sh` — tabulka výše je
+  z prázdného fixture projektu a některé stránky podhodnocuje. Vyplnit rozvržením nebo
   grafickým prvkem, NE roztažením polí. Tohle je věc, kterou zadání označuje
   za hlavní problém.
-- **Měřicí skripty se vyplatí mít v repu.** Běh 2026-08-01 (5) je psal potřetí.
+- ~~**Měřicí skripty se vyplatí mít v repu.**~~ — hotovo 2026-08-02 (8):
+  `bash scripts/measure-layout.sh [--pages a,b] [--json]`. Pasti níže platí dál,
+  jsou v něm ošetřené a okomentované. Původní zápis:
+  **Měřicí skripty se vyplatí mít v repu.** Běh 2026-08-01 (5) je psal potřetí.
   Recept, který funguje a stojí za zapsání do `scripts/`: nastartovat
   `python3 -m uvicorn orchiday.server:app --port 8100` (s `PYTHONPATH=src`
   a `QT_QPA_PLATFORM=offscreen`), přes API si založit a otevřít projekt
@@ -823,7 +980,7 @@ Počítáno jen na prvcích, které opravdu kreslí; 1600×900 / 1280×800 / 102
 
 | stránka | obsazenost | poznámka |
 |---|---|---|
-| `projects` | **5 / 6 / 8 %** | nejhorší v aplikaci, pod kartami je prázdno |
+| ~~`projects`~~ | ~~5 / 6 / 8 %~~ → **31 / 38 / 45 %** | hotovo 2026-08-02 (8), master/detail |
 | `datasety` | **7 / 8 / 11 %** | druhá nejhorší |
 | `setup` | 11 / 13 / 23 % | tab Connect (Kalibrace hotová v (5)) |
 | `uceni` | 16 / 24 / 43 % | + jeden ořezaný prvek, viz níže |
@@ -840,12 +997,33 @@ Počítáno jen na prvcích, které opravdu kreslí; 1600×900 / 1280×800 / 102
   dokonce `INPUT:1204x29` při 1600×900 — pole roztažené přes celou šířku okna,
   přesně to, co zadání zakazuje. Kandidát na příští běh.
 
-**Měřicí skript** (pořád není v repu, tenhle běh ho psal počtvrté). Kromě pastí
+**Měřicí skript** je od 2026-08-02 (8) v repu: `scripts/measure-layout.sh`
+(wrapper: server + fixture projekt) a `scripts/measure_layout.mjs` (měření).
+Vyžaduje `npm i playwright`; `verify.sh` ho nevolá. Nová past z běhu (8):
+`waitUntil: 'networkidle'` vyprší — živý `/ws` a retry importu fontů síť nikdy
+neutiší, nutno `domcontentloaded` + `waitForFunction(() => !!window.App)`.
+Kromě pastí
 zapsaných v (4)–(6) platí: `changeTab()` funguje jen s **otevřeným projektem**
 (vytvořit přes `POST /api/projects` + `/api/projects/open`), první spuštění
 zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
 `localStorage.orchiday_setup_completed`), a `pkill -f "uvicorn orchiday.server"`
 **zabije i vlastní shell** — vzorec se shoduje s příkazovou řádkou toho pkillu.
+
+- **Roztažená pole přes celou šířku okna** — `scripts/measure-layout.sh` je hlásí
+  ve sloupci `wide`: `modelrun` má `#orch-input` 1204 px při 1600×900 plus
+  `#eval-policy-path` a `#eval-task-name` po 646 px, `datasety`
+  `#rec-dataset-storage-dir` a `#rec-extra-args` po 990 px, `uceni`
+  `#train-extra-args` 884 px, `settings` `#settings-scene-desc` 726 px.
+  Přesně to, co zadání zakazuje. Nejsilnější kandidát na příští běh.
+- **`uceni` má na všech třech velikostech `clipped=1`**:
+  `DIV.chart-container-docked` má `overflow: hidden` a `scrollHeight` o 4 px
+  větší než `clientHeight` (512>508 / 262>258 / 454>450). Malé, ale stejná
+  třída chyby jako ořezaná diagnostika z (6).
+- **Pod globálním zlomem 920 px končí patičky panelů mimo první pohled** na
+  `datasety` (2), `setup` (1), `uceni` (1) i `projects` (1). Stránka scrolluje
+  a všechny jsou dosažitelné (ověřeno hit-testem), takže rozbité to není —
+  ale pokud má appka cílit i na malá okna, stojí za rozmyšlenou, jestli
+  primární akce nemá být přišpendlená ke spodní hraně stránky místo panelu.
 
 **Backend / LeRobot**
 - Nedá se ověřit chování na LeRobotu ≥ 0.5 — PyPI index v cloudu má maximum
