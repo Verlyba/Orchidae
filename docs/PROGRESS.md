@@ -8,6 +8,109 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (11) — LeRobot ≥ 0.6 přejmenovává dataset za zády aplikace
+(`stamp_repo_id`) — sběr dat by tím přišel o značky pod-úkolů
+
+**Výchozí stav.** `bash scripts/setup-dev.sh` + `bash scripts/verify.sh` prošly
+celé (161 pytestů), priorita A tedy prázdná. Šel jsem na prioritu B podle
+doporučení z fronty: přečíst si chování příkazů ze **zdrojáků LeRobotu**.
+
+**Nejdřív dobrá zpráva k prostředí: `git clone` LeRobotu v cloudu FUNGUJE.**
+Fronta z běhů (7)–(10) tvrdila, že je dostupná jen 0.4.4 z PyPI. To platí pro
+`pip download`, ale ne pro GitHub:
+
+```
+git clone --depth 1 https://github.com/huggingface/lerobot /tmp/lerobot-src   # 0.6.1
+pip download lerobot --no-deps --no-binary :all: -d /tmp/lrsrc               # 0.4.4
+```
+
+Mít obě verze vedle sebe je to, co tenhle nález umožnilo — rozdíl mezi nimi je
+přesně ta chyba. **Tohle dělat na začátku každého běhu s prioritou B.**
+
+**Nález — `DatasetRecordConfig.stamp_repo_id()` (nové v 0.6, v 0.4.4 neexistuje)**
+
+`lerobot_record.record()` volá těsně před `LeRobotDataset.create()`:
+
+```python
+cfg.dataset.stamp_repo_id()      # repo_id -> "{repo_id}_20260802_120000"
+dataset = LeRobotDataset.create(cfg.dataset.repo_id, ...)
+```
+
+Upstream to dělá proto, aby si dva ad-hoc CLI běhy nepřepsaly data, a nabízí
+`--dataset.no_stamp`. Pro Orchiday je to ale tichá ztráta dat, protože
+**`repo_id` je u nás identita datasetu napříč celou aplikací**:
+
+| co z `repo_id` vychází | kde |
+|---|---|
+| adresář na disku | `_get_dataset_dir()` = `HF_HOME/lerobot/<repo_id>` |
+| sidecar se značkami pod-úkolů | `<dataset_dir>.step_marks.json` |
+| pod-datasety pro orchestraci | `dataset_splitter.py`, `home / step["repo_id"]` |
+| cíl trénování | `start_training()` |
+
+Kdyby LeRobot nahrával do `local/pick_place_20260802_120000`, aplikace by psala
+značky vedle `local/pick_place`, **který by nikdy nevznikl** — a rozdělení na
+pod-datasety, tedy celá orchestrační větev projektu, by nemělo co dělit.
+Nespadlo by to, jen by z toho vylezl prázdný split. Přesně ta třída chyby,
+kterou tenhle projekt nesmí mít.
+
+**Oprava — jedna cesta kódu pro všechny verze LeRobotu**
+
+Ve `_RECORD_WRAPPER_SRC` (běží uvnitř prostředí uživatele) se
+`stamp_repo_id()` neutralizuje na no-op. **Proč patch metody, a ne
+`--dataset.no_stamp=true`:** ten přepínač ve verzích < 0.6 neexistuje a draccus
+neznámý klíč odmítne — musel by se detekovat verze. Chybějící metoda naproti
+tomu znamená jednoduše „není co neutralizovat", takže 0.4.4 i 0.6.1 jedou
+stejným kódem bez jediného `if version`. Třída se hledá přes
+`_find_dataset_record_config()`: 0.4.x ji definuje přímo v `lerobot_record`,
+0.6.x v `lerobot.configs.dataset` (ale re-exportuje ji), fallback je přímý
+import.
+
+**Druhá polovina: ověřovat, ne věřit.** Neutralizace řeší dnešní LeRobot;
+příští verze může dataset přejmenovat jinudy. Wrapper proto v `episode_begin`
+hlásí `repo_id` a `root`, které **objekt datasetu opravdu nese**, a
+`_verify_dataset_identity()` je porovná s tím, co si aplikace vyžádala. Když
+sedí, nic se neděje. Když ne, vypíše se hlasitá chyba a sidecar se
+**přesměruje k adresáři, který skutečně existuje** — osiřelé značky jsou horší
+než hlášku. Kontrola běží jednou za relaci, ne u každé epizody.
+
+Ověřeno i to, na čem to celé stojí: `HF_LEROBOT_HOME` v 0.6.1 pořád defaultuje
+na `HF_HOME/lerobot` (`lerobot/utils/constants.py:69`), takže cestová půlka
+řetězce sedí a chyběla opravdu jen ta jmenná.
+
+**Ještě dvě nepřesné poznámky v kódu, opravené proti zdrojáku**
+- Wrapper citoval `lerobot.utils.control_utils.init_keyboard_listener`. V 0.6
+  se to přestěhovalo do `lerobot.utils.keyboard_input.apply_recording_control`.
+  Doplněné obě umístění — a hlavně, **0.6 přijímá i písmena `n` / `r` / `q`**
+  vedle šipek a Esc (spolehlivější přes SSH/VNC, kde se escape sekvence šipek
+  rozpadají).
+- Komentář mluvil o `create_key_listener()`, funkce toho jména v LeRobotu není
+  ani v jedné verzi; ve skutečnosti `init_keyboard_listener()` vrátí
+  `(None, events)`.
+
+**Ověřeno**
+- `bash scripts/verify.sh` prochází celý, **170 pytestů** (161 → +9 nových).
+- **Negativní kontrola:** nové testy pouštěné proti kódu před opravou
+  (`git stash` na `lerobot_bridge.py`) **4× padnou** a po opravě projdou —
+  testují tedy opravdu tu změnu, ne samy sebe.
+- Wrapper se spouští proti falešným modulům `lerobot` (zavedený vzor
+  z `test_lerobot_wrappers.py`), pokryté jsou obě větve: verze se stampováním
+  (patch drží i pro nově vytvořené instance, protože se patchuje třída)
+  i verze bez něj (0.4.x — wrapper musí normálně nastartovat).
+- Frontend se tenhle běh **neměnil** (žádný soubor ve `web/`), takže `?v=`
+  u assetů se nezvedalo. Kontroly `verify.sh` na duplicitní ID, mrtvé odkazy
+  a ploché tokeny prošly na začátku i na konci.
+
+**Zbývá na fyzickém robotu (v cloudu ověřit NELZE)**
+- Skutečný `lerobot-record` na LeRobotu 0.6.x: že dataset opravdu vznikne pod
+  nestampovaným jménem a že `episode_begin` hlásí `repo_id` shodné se
+  zadaným (tedy že se hláška o přejmenování **neobjeví**).
+- Že `--resume=true` na takto pojmenovaný dataset navazuje (`LeRobotDataset.resume`
+  bere `repo_id` beze změny, ale ověřeno to je jen ze zdrojáku).
+- Že sidecar `.step_marks.json` po reálném sběru leží vedle adresáře datasetu
+  a `dataset_splitter.py` z něj vyrobí neprázdné pod-datasety.
+
+---
+
 ## 2026-08-02 (10) — Orchestrace: stránka konečně říká, co běh **opravdu**
 udělá (rozložený plán + checkpoint každého kroku z backendu)
 
@@ -1354,11 +1457,35 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
   chybí `websockets`. Není to chyba kódu (`pyproject.toml` ji deklaruje od (7))
   — je to nepřipravené prostředí. **Nediagnostikovat to znovu, rovnou pustit
   setup a měřit až potom.**
-- **Doporučení pro další běhy — stáhnout si zdrojáky LeRobotu.** Priorita B
-  zadání chce ověřovat chování příkazů proti zdrojáku, a v cloudu je z PyPI
-  dostupná jen 0.4.4 (viz níž). Vyplatí se `pip download lerobot` /
-  `git clone https://github.com/huggingface/lerobot` do `/tmp` na začátku běhu
-  a číst `record.py` / `calibrate.py` přímo, ne z `lerobot_cheatsheet.md`.
+- ~~**Doporučení pro další běhy — stáhnout si zdrojáky LeRobotu.**~~ — ověřeno
+  2026-08-02 (11) a **funguje to**: `git clone --depth 1
+  https://github.com/huggingface/lerobot /tmp/lerobot-src` dá **0.6.1**,
+  `pip download lerobot --no-deps --no-binary :all:` dá **0.4.4**. Mít obě
+  vedle sebe je nejsilnější nástroj priority B, jaký v cloudu je — rozdíl mezi
+  verzemi je přesně to, co appce tiše rozbíjí chování. Dělat to na začátku
+  každého běhu s prioritou B a číst `src/lerobot/scripts/lerobot_*.py` přímo,
+  ne `lerobot_cheatsheet.md`.
+- **Rozdíly 0.4.4 → 0.6.1, které ještě NEJSOU prověřené proti našemu kódu**
+  (nalezeno při (11), mimo rozsah té změny — nezapomenout):
+  - `lerobot-record` v 0.6.1 **odmítá `repo_id` začínající `eval_`** (ta jsou
+    rezervovaná pro `lerobot-rollout`). Zkontrolovat, že si appka takové jméno
+    nikdy nevygeneruje ze slugu dovednosti.
+  - Přibyly příkazy `lerobot-rollout` a `lerobot-annotate`, skripty se jmenují
+    `lerobot_*.py` (v 0.4.4 taky) — ale `predict_action` z `control_utils`
+    v 0.6 zmizel, což `orchiday_inference.py` už řeší vlastní implementací.
+  - `DatasetRecordConfig` má nová pole (`streaming_encoding`, `encoder_threads`,
+    `rgb_encoder`/`depth_encoder`, `no_stamp`). **`--dataset.streaming_encoding`
+    a `--dataset.encoder_threads` posíláme natvrdo** — v 0.4.4 ta pole
+    neexistují a draccus neznámý klíč odmítne. Prověřit, jestli sběr dat na
+    0.4.x vůbec nastartuje; pokud ne, je to stejná třída problému jako (11)
+    a řeší se to stejně (schopnostní detekce, ne verze).
+  - `RecordConfig` má `display_mode` (`rerun` / `foxglove`) a `display_ip` /
+    `display_port` — appka umí jen implicitní rerun.
+- **Vzor z (11), který se vyplatí opakovat:** neutralizovat rozdíl verzí
+  **patchem uvnitř wrapperu** (chybějící symbol = není co dělat) je odolnější
+  než posílat nový přepínač na příkazové řádce (starší verze ho odmítne).
+  A ke každé takové neutralizaci přidat **hlášení skutečného stavu zpátky do
+  appky** — wrapper vidí pravdu, appka jen to, co si vyžádala.
 - **`orchestration_plan_preview()` je od (10) jediné místo, kde UI zjišťuje,
   co běh udělá.** Když se změní `_policy_path_for()`, `_resolve_orchestration_plan()`
   nebo `_verify_policy_exists()`, změní se s nimi automaticky i stránka —

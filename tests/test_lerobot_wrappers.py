@@ -234,3 +234,70 @@ def test_record_wrapper_refuses_an_unsupported_lerobot(monkeypatch, capsys, pres
     assert exc.value.code == 3
     out = capsys.readouterr().out
     assert '"ev": "fatal"' in out
+
+
+# ── Record wrapper: keeping the dataset name Orchiday chose ──────────────────
+#
+# LeRobot >= 0.6 appends a "_YYYYmmdd_HHMMSS" tag to repo_id in
+# DatasetRecordConfig.stamp_repo_id(), called from record() right before
+# LeRobotDataset.create(). Orchiday derives the marks sidecar, the split
+# sub-datasets and the training target from the repo_id it passed, so a
+# silently renamed dataset orphans all three.
+
+class _StampingConfig:
+    """Stand-in for LeRobot >= 0.6's DatasetRecordConfig."""
+
+    def __init__(self, repo_id="local/pick_place"):
+        self.repo_id = repo_id
+
+    def stamp_repo_id(self):
+        self.repo_id = f"{self.repo_id}_20260802_120000"
+
+
+def _base_record_attrs(**extra):
+    return dict(record_loop=lambda **k: None,
+                init_keyboard_listener=lambda: (None, {}),
+                main=lambda: None, **extra)
+
+
+def test_record_wrapper_disables_repo_id_stamping(monkeypatch, capsys):
+    """The dataset must keep the name passed on the command line."""
+    _install_fake_record_module(
+        monkeypatch, **_base_record_attrs(DatasetRecordConfig=_StampingConfig))
+    _run_record_wrapper()
+
+    cfg = _StampingConfig("local/pick_place")
+    cfg.stamp_repo_id()
+    assert cfg.repo_id == "local/pick_place"
+    assert '"ev": "no_stamp"' in capsys.readouterr().out
+
+
+def test_record_wrapper_finds_the_config_in_its_own_module(monkeypatch):
+    """0.6.x re-exports DatasetRecordConfig from lerobot.configs.dataset, but
+    older layouts define it in lerobot_record itself — both must be patched."""
+    _install_fake_record_module(
+        monkeypatch, **_base_record_attrs(DatasetRecordConfig=_StampingConfig))
+    ns = _run_record_wrapper()
+
+    assert ns["_find_dataset_record_config"]() is _StampingConfig
+
+
+def test_record_wrapper_accepts_a_lerobot_that_never_stamps(monkeypatch, capsys):
+    """LeRobot 0.4.x has no stamp_repo_id() — there is nothing to neutralize
+    and the wrapper must still start."""
+    _install_fake_record_module(monkeypatch, **_base_record_attrs())
+    _run_record_wrapper()
+
+    assert '"ev": "no_stamp"' not in capsys.readouterr().out
+
+
+def test_record_wrapper_ignores_a_config_without_stamping(monkeypatch, capsys):
+    """A DatasetRecordConfig that simply lacks the method is not an error."""
+    class _PlainConfig:
+        repo_id = "local/pick_place"
+
+    _install_fake_record_module(
+        monkeypatch, **_base_record_attrs(DatasetRecordConfig=_PlainConfig))
+    _run_record_wrapper()
+
+    assert '"ev": "no_stamp"' not in capsys.readouterr().out

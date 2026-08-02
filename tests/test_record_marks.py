@@ -394,3 +394,71 @@ def test_mark_step_requires_a_running_recording(bridge):
     assert bridge.mark_step("pick_place", label="x")["ok"] is False
     assert bridge.undo_step_mark("pick_place")["ok"] is False
     assert bridge.mark_step("unknown_skill")["ok"] is False
+
+
+# ── Dataset identity: marks must land next to the data they annotate ─────────
+#
+# The marks sidecar is addressed by repo_id, and so are the split sub-datasets
+# and the training target. LeRobot >= 0.6 can rename the dataset on creation,
+# so the wrapper reports the name the dataset object really carries and the
+# bridge checks it instead of assuming.
+
+def test_episode_begin_reports_the_datasets_real_identity(wrapper, capsys):
+    dataset = _FakeDataset(fps=30)
+    dataset.repo_id = "local/pick_place"
+    dataset.root = "/data/lerobot/local/pick_place"
+
+    wrapper["_rec"].record_loop(dataset=dataset, fps=30)
+
+    begin = next(e for e in _emitted(capsys) if e["ev"] == "episode_begin")
+    assert begin["repo_id"] == "local/pick_place"
+    assert begin["root"] == "/data/lerobot/local/pick_place"
+
+
+def test_matching_repo_id_leaves_the_marks_path_alone(bridge):
+    original = bridge._record_marks["pick_place"]["marks_path"]
+    _feed(bridge, "pick_place", ev="episode_begin", episode=0, fps=30,
+          repo_id="local/pick_place", root="/data/local/pick_place")
+
+    assert bridge._record_marks["pick_place"]["marks_path"] == original
+    assert bridge._record_marks["pick_place"]["dataset"] == "local/pick_place"
+
+
+def test_renamed_dataset_re_points_the_marks_sidecar(bridge, tmp_path):
+    """If LeRobot records elsewhere, the marks follow the real directory —
+    orphaned marks would silently yield an empty orchestration split."""
+    real_root = tmp_path / "lerobot" / "local" / "pick_place_20260802_120000"
+    _feed(bridge, "pick_place", ev="episode_begin", episode=0, fps=30,
+          repo_id="local/pick_place_20260802_120000", root=str(real_root))
+    _feed(bridge, "pick_place", ev="mark", episode=0, t=1.0, frame=30, label="a")
+
+    state = bridge._record_marks["pick_place"]
+    assert state["dataset"] == "local/pick_place_20260802_120000"
+    assert Path(state["marks_path"]) == real_root.parent / f"{real_root.name}.step_marks.json"
+    written = json.loads(Path(state["marks_path"]).read_text(encoding="utf-8"))
+    assert written["dataset"] == "local/pick_place_20260802_120000"
+    assert written["episodes"]["0"] == [{"t": 1.0, "step": 1, "label": "a"}]
+
+
+def test_identity_is_checked_once_not_every_episode(bridge, tmp_path):
+    real_root = tmp_path / "stamped"
+    _feed(bridge, "pick_place", ev="episode_begin", episode=0, fps=30,
+          repo_id="local/stamped", root=str(real_root))
+    relocated = bridge._record_marks["pick_place"]["marks_path"]
+
+    # A later episode reporting the same (already accepted) name must not
+    # re-trigger the relocation machinery.
+    _feed(bridge, "pick_place", ev="episode_begin", episode=1, fps=30,
+          repo_id="local/stamped", root=str(real_root))
+
+    assert bridge._record_marks["pick_place"]["marks_path"] == relocated
+
+
+def test_older_wrapper_without_identity_fields_is_accepted(bridge):
+    """episode_begin from a wrapper that reports no repo_id must not be read
+    as 'renamed to empty string'."""
+    original = bridge._record_marks["pick_place"]["marks_path"]
+    _feed(bridge, "pick_place", ev="episode_begin", episode=0, fps=30)
+
+    assert bridge._record_marks["pick_place"]["marks_path"] == original
+    assert bridge._record_marks["pick_place"]["dataset"] == "local/pick_place"

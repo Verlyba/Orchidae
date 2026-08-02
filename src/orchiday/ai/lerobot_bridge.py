@@ -932,6 +932,9 @@ except Exception as e:
                 "phase": "idle",
                 # Set once the wrapper's structured protocol has been seen.
                 "wrapper": False,
+                # Set once the first episode has confirmed which dataset LeRobot
+                # actually writes into (see _verify_dataset_identity).
+                "identity_checked": False,
             }
             if resume and marks_path.exists():
                 try:
@@ -1496,9 +1499,10 @@ if __name__ == "__main__":
     # init_keyboard_listener(), which needs EITHER pynput (a global OS-level
     # hook) OR a real TTY on stdin. Under a QProcess neither holds: stdin is a
     # pipe (isatty() False) and pynput is not a hard dependency, so
-    # create_key_listener() returns None and the events dict stays False
-    # forever — the buttons in the UI are then physically incapable of ending
-    # an episode, and only the episode/reset TIMERS advance the recording.
+    # init_keyboard_listener() returns (None, events) and those flags stay
+    # False forever — the buttons in the UI are then physically incapable of
+    # ending an episode, and only the episode/reset TIMERS advance the
+    # recording.
     # Simulating a global keypress instead (the previous approach) cannot work
     # either: with no listener running there is nothing to receive the key.
     # This wrapper swaps in a listener that watches sentinel files, which is
@@ -1511,15 +1515,17 @@ if __name__ == "__main__":
 """Orchiday wrapper around lerobot-record.
 
 Runs INSIDE the user's LeRobot environment (Orchiday itself never imports it)
-and adds the two things lerobot-record has no notion of:
+and adds the three things lerobot-record has no notion of:
 
 1. Episode control without a keyboard hook. lerobot's own listener needs either
    pynput (a global OS hook) or a controlling TTY; a QProcess started by the app
    has neither, so the three control flags are driven by sentinel files instead.
-   The mapping mirrors the on_press() handler of
-   lerobot.utils.control_utils.init_keyboard_listener: next -> exit_early,
-   rerecord -> rerecord_episode + exit_early,
-   stop -> stop_recording + exit_early.
+   The mapping mirrors LeRobot's own key handler — apply_recording_control() in
+   lerobot.utils.keyboard_input since 0.6, the on_press() closure inside
+   lerobot.utils.control_utils.init_keyboard_listener before that; both set the
+   same flags: next (Right / "n") -> exit_early,
+   rerecord (Left / "r") -> rerecord_episode + exit_early,
+   stop (Esc / "q") -> stop_recording + exit_early.
 
 2. Sub-task boundary marks. A mark is only useful if it is comparable with the
    dataset's per-frame `timestamp` column, and LeRobot computes that column as
@@ -1530,6 +1536,14 @@ and adds the two things lerobot-record has no notion of:
    when the control loop runs slower than the target FPS (lerobot warns about
    this but keeps recording), and it is immune to UI/IPC latency, which a mark
    timestamped by the app never could be.
+
+3. A stable dataset name. LeRobot >= 0.6 renames the dataset behind the
+   caller's back — DatasetRecordConfig.stamp_repo_id() appends
+   "_YYYYmmdd_HHMMSS" to repo_id right before LeRobotDataset.create(). For
+   Orchiday the repo_id IS the identity of the dataset (on-disk directory,
+   sibling .step_marks.json, split sub-datasets, training target), so the
+   wrapper neutralizes the stamping and then REPORTS the repo_id the dataset
+   object really carries, letting the app verify rather than assume.
 
 Episode boundaries are taken from record_loop() calls rather than from log text:
 record() calls it WITH a dataset while recording an episode and WITHOUT one
@@ -1694,6 +1708,49 @@ _rec.init_keyboard_listener = _orchiday_init_keyboard_listener
 _ORIGINAL_RECORD_LOOP = _rec.record_loop
 
 
+def _find_dataset_record_config():
+    """Locate DatasetRecordConfig wherever this LeRobot keeps it.
+
+    0.4.x defines the dataclass in lerobot_record itself; 0.6.x moved it to
+    lerobot.configs.dataset but imports it back, so the record module's
+    namespace covers both. The direct import is the fallback for a layout that
+    stops re-exporting it.
+    """
+    config_cls = getattr(_rec, "DatasetRecordConfig", None)
+    if config_cls is not None:
+        return config_cls
+    try:
+        from lerobot.configs.dataset import DatasetRecordConfig
+        return DatasetRecordConfig
+    except Exception:
+        return None
+
+
+# Keep the dataset name the app chose. In LeRobot >= 0.6 record() calls
+# cfg.dataset.stamp_repo_id() just before LeRobotDataset.create(), which
+# appends a "_YYYYmmdd_HHMMSS" tag so two ad-hoc CLI runs cannot overwrite each
+# other. Orchiday does not need that (it owns the name, deletes a stale
+# directory itself and has an explicit --resume path) and cannot survive it:
+# the marks sidecar, the orchestration split and the training target are all
+# derived from the repo_id passed on the command line, so a silently renamed
+# dataset leaves the sub-task boundaries pointing at a directory that does not
+# exist — the split then has nothing to split.
+#
+# Patching the method instead of passing --dataset.no_stamp keeps ONE code path
+# for every LeRobot: that flag does not exist before 0.6 and draccus rejects
+# unknown keys, whereas a missing method simply means there is nothing to
+# neutralize here.
+_DATASET_CONFIG = _find_dataset_record_config()
+if _DATASET_CONFIG is not None and callable(getattr(_DATASET_CONFIG, "stamp_repo_id", None)):
+    def _orchiday_keep_repo_id(self):
+        """Replacement for stamp_repo_id() — Orchiday owns the dataset name."""
+        return None
+
+    _DATASET_CONFIG.stamp_repo_id = _orchiday_keep_repo_id
+    _emit("no_stamp", message="repo_id timestamp stamping disabled — the dataset "
+                              "keeps the name Orchiday passed on the command line.")
+
+
 def _install_frame_counter(dataset):
     """Count every frame written to the episode buffer (the mark time base).
 
@@ -1736,7 +1793,15 @@ def _orchiday_record_loop(*args, **kwargs):
             _STATE["counted"] = counted
             _STATE["recording"] = True
             episode, fps = _STATE["episode"], _STATE["fps"]
-        _emit("episode_begin", episode=episode, fps=fps, counted=counted)
+        # Report the identity the dataset OBJECT carries, not the one asked for
+        # on the command line. Neutralizing stamp_repo_id() above should keep
+        # the two equal, but only this side can see the truth — if some future
+        # LeRobot renames the dataset by another route, the app finds out here
+        # instead of writing the sub-task marks next to a directory that was
+        # never created.
+        _emit("episode_begin", episode=episode, fps=fps, counted=counted,
+              repo_id=str(getattr(dataset, "repo_id", "") or ""),
+              root=str(getattr(dataset, "root", "") or ""))
     try:
         return _ORIGINAL_RECORD_LOOP(*args, **kwargs)
     finally:
@@ -2366,6 +2431,7 @@ if __name__ == "__main__":
 
         if ev == "episode_begin":
             episode = int(payload.get("episode", -1))
+            self._verify_dataset_identity(skill_slug, state, payload)
             state["current_episode"] = episode
             state["phase"] = "record"
             # A re-recorded episode reuses its index, so anything already marked
@@ -2405,6 +2471,13 @@ if __name__ == "__main__":
                 "WARN", "Step mark ignored — no episode is being recorded right now "
                         "(environment reset or episode being saved).")
 
+        elif ev == "no_stamp":
+            # Informational: this LeRobot would have renamed the dataset and the
+            # wrapper stopped it. Worth a console line, because the difference
+            # between "kept the name" and "silently stamped it" decides whether
+            # the sub-task marks and the split find the data later.
+            log.info("Record wrapper: %s", payload.get("message", ""))
+
         elif ev == "warning":
             event_bus.log_message.emit("WARN", f"Recorder: {payload.get('message', '')}")
 
@@ -2413,6 +2486,45 @@ if __name__ == "__main__":
             # right after this line, so surface it as an error rather than
             # letting the process just disappear with a non-zero code.
             event_bus.log_message.emit("ERROR", f"Recorder: {payload.get('message', '')}")
+
+    def _verify_dataset_identity(self, skill_slug: str, state: dict, payload: dict) -> None:
+        """Check that LeRobot records into the dataset the app asked for.
+
+        The sub-task marks are stored as a sidecar file NEXT TO the dataset
+        directory, and every later step (the orchestration split, training)
+        addresses the data by that same repo_id. LeRobot >= 0.6 can rename the
+        dataset on creation (DatasetRecordConfig.stamp_repo_id); the record
+        wrapper neutralizes that, and this is the check that the neutralization
+        actually held. If it did not, the marks are re-pointed at the directory
+        that really exists — orphaned marks would silently produce an empty
+        orchestration split, which is far worse than a loud message.
+        """
+        if state.get("identity_checked"):
+            return
+        state["identity_checked"] = True
+
+        actual_repo_id = str(payload.get("repo_id", "") or "").strip()
+        actual_root = str(payload.get("root", "") or "").strip()
+        expected = str(state.get("dataset", "") or "").strip()
+        # An older wrapper (or a dataset object without the attribute) reports
+        # nothing — then there is nothing to compare and the old behaviour of
+        # trusting the requested name stands.
+        if not actual_repo_id or not expected or actual_repo_id == expected:
+            return
+
+        msg = (f"LeRobot is recording into '{actual_repo_id}', not the requested "
+               f"'{expected}' — the dataset name was rewritten by LeRobot itself. "
+               f"Sub-task marks follow the real dataset.")
+        log.error(msg)
+        event_bus.log_message.emit("ERROR", msg)
+
+        try:
+            dataset_dir = Path(actual_root) if actual_root else self._get_dataset_dir(actual_repo_id)
+            state["dataset"] = actual_repo_id
+            state["marks_path"] = str(dataset_dir.parent / f"{dataset_dir.name}.step_marks.json")
+            self._persist_step_marks(skill_slug)
+        except Exception as e:
+            log.error("Could not re-point step marks to '%s': %s", actual_repo_id, e)
 
     def _append_step_mark(self, skill_slug: str, state: dict, payload: dict) -> None:
         """Store a boundary mark reported by the recording process."""
