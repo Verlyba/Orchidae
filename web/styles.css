@@ -1785,8 +1785,6 @@ input[readonly] {
     color: var(--yellow);
 }
 
-/* Removed setup card actions footer */
-
 /* Compact hardware list */
 .compact-row {
     display: flex;
@@ -1799,10 +1797,6 @@ input[readonly] {
     transition: var(--transition);
 }
 
-.compact-row:hover {
-    /* border-color hover removed */
-}
-
 .camera-card {
     background: var(--bg-inset);
     border: 1px solid var(--border);
@@ -1811,10 +1805,6 @@ input[readonly] {
     flex-direction: column;
     gap: 6px;
     transition: var(--transition);
-}
-
-.camera-card:hover {
-    /* border-color hover removed */
 }
 
 .camera-feed-container {
@@ -1864,12 +1854,6 @@ input[readonly] {
     overflow: hidden;
     transition: border-color 0.3s ease;
 }
-
-.datacollection-block:hover {
-    /* border-color hover removed */
-}
-
-/* Removed datacollection action paddings & footer */
 
 .datacollection-grid > .datacollection-block:nth-child(1) {
     width: 22%;
@@ -1941,9 +1925,6 @@ input[readonly] {
     transition: var(--transition);
 }
 
-.cam-box:hover {
-    /* border-color hover removed */
-}
 
 .cam-tag {
     position: absolute;
@@ -2590,7 +2571,6 @@ input[readonly] {
 
 .cameras-toggle-bar:hover .camera-bar-btn {
     color: var(--text-white);
-    /* transform removed */
 }
 
 .cameras-drag-handle {
@@ -3115,7 +3095,6 @@ body.modal-open {
 
 .btn-white-pill:hover {
     background-color: rgba(255, 255, 255, 0.04);
-    /* border-color hover removed */
 }
 
 .wizard-actions-row {
@@ -3189,7 +3168,7 @@ body.modal-open {
 
 .dots-indicator .dot.active {
     background-color: var(--accent);
-    /* transform removed */
+
 }
 
 /* Skip Setup Morphing Button (Bottom Right) */
@@ -3235,7 +3214,7 @@ body.modal-open {
 .skip-setup-container:hover .arrow-circle {
     background-color: var(--accent);
     color: var(--text-white);
-    /* transform removed */
+
 }
 
 #wizard-camera-list::-webkit-scrollbar {
@@ -3304,6 +3283,7 @@ input[type="checkbox"]:hover {
 
 /* Number input spinner */
 input[type="number"] {
+    appearance: textfield;
     -moz-appearance: textfield;
 }
 

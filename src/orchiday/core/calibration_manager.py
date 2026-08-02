@@ -123,7 +123,7 @@ class CalibrationManager:
         if display_name is not None:
             entry["display_name"] = display_name.strip()
         if favorite is not None:
-            entry["favorite"] = bool(favorite)
+            entry["favorite"] = favorite
         self._save_meta(meta)
         event_bus.calibration_list_changed.emit()
         return True

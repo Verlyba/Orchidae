@@ -780,7 +780,7 @@ class OrchidayController(QObject):
         resolved: list[str] = []
         dropped: list[str] = []
         for item in raw_plan:
-            slug = item if item in skills else by_name.get(str(item).strip().lower(), "")
+            slug = item if item in skills else by_name.get(item.strip().lower(), "")
             if not slug:
                 dropped.append(item)
                 continue

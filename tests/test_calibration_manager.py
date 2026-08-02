@@ -200,7 +200,9 @@ def test_arm_visual_config_no_project():
         current_project = None
         current_path = None
 
-    cm = CalibrationManager(EmptyPM())
+    from typing import cast, Any
+
+    cm = CalibrationManager(cast(Any, EmptyPM()))
     result = cm.get_arm_visual_config()
     assert result["ok"] is False
 
