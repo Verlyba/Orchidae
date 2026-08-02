@@ -121,6 +121,14 @@ async def _lifespan(_app: FastAPI):
     # Give the WebSocket bridge the REAL running loop so broadcasts emitted
     # from Qt callbacks and background threads are marshalled correctly.
     web_bridge.set_loop(loop)
+    # Wiring the Qt signals belongs here, not in main(): the app object is also
+    # started directly by an ASGI runner (`uvicorn orchiday.server:app`) and by
+    # the packaged entry point, and those paths never call main(). Without this
+    # the socket connects and answers pings, but nothing is ever pushed to it —
+    # an empty console and dead button states that look exactly like a hung
+    # backend. connect_event_bus() is idempotent-by-placement: lifespan runs
+    # once per process, so no signal is ever connected twice.
+    web_bridge.connect_event_bus()
     pump_task = asyncio.create_task(_qt_event_pump())
     log.info("Qt event pump attached to the uvicorn asyncio loop.")
     yield
@@ -2517,8 +2525,9 @@ def main():
     (DATA_DIR / "outputs" / "training").mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "huggingface").mkdir(parents=True, exist_ok=True)
 
-    # Connect event bridge (the asyncio loop is attached in the lifespan hook)
-    web_bridge.connect_event_bus()
+    # The event bridge is wired in the lifespan hook, which runs for every
+    # entry point — including `uvicorn orchiday.server:app`, which never gets
+    # here. Connecting it a second time would duplicate every broadcast.
 
     log.info("Starting %s Web Server...", APP_DISPLAY_NAME)
     log.info("Data directory: %s", DATA_DIR)

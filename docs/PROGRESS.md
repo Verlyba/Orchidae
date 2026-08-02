@@ -8,6 +8,135 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (7) — Plochý technický vzhled napříč celou aplikací + **`/ws` na
+čerstvém klonu vůbec nefungoval**
+
+**Priorita A, nalezená během měření.** `scripts/verify.sh` na výchozím stavu
+prošel celý (136 pytestů), ale při auditu v headless Chromiu byla v konzoli
+prohlížeče tahle chyba na **každé** stránce:
+
+```
+WebSocket connection to 'ws://127.0.0.1:8100/ws' failed:
+  Error during WebSocket handshake: Unexpected response code: 404
+```
+
+a v logu serveru:
+
+```
+WARNING:  No supported WebSocket library detected. Please use
+          "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+```
+
+**Byly to dvě nezávislé příčiny, obě fatální pro živý provoz:**
+
+1. **Chybějící závislost.** `pyproject.toml` deklaroval holý `uvicorn>=0.27`.
+   Uvicorn *nemá* vlastní implementaci WebSocketu (`Requires: click, h11`),
+   takže po `pip install .` na čistém stroji server odpovídá na upgrade `/ws`
+   čtyřistačtyřkou. Stránka se přitom normálně načte a všechna REST volání
+   fungují — takže to nevypadá rozbitě. Nefunguje ale **všechno živé**:
+   konzolový dok zůstane prázdný, `process_started`/`process_finished` nikdy
+   nepřijde (tlačítka se nepřepnou do běžícího stavu), a nedorazí ani jediná
+   událost nahrávání, kalibrace nebo značky pod-úkolů. Frontend se navíc
+   znovu připojuje každé 3 s, takže log serveru zaplaví to varování donekonečna.
+   → přidáno `websockets>=12.0` (jeden čistě pythonový balíček dostupný na
+   Linuxu, Windows i macOS — na rozdíl od extra `uvicorn[standard]`, které
+   táhne uvloop/httptools/watchfiles).
+2. **Most událostí se nedrátoval mimo `main()`.** `web_bridge.connect_event_bus()`
+   se volalo **jen** v `server.main()`. Jakýkoli jiný vstupní bod, který
+   startuje ASGI app přímo (`uvicorn orchiday.server:app`, balíčkovaný runner),
+   nabootoval se socketem, který **klienty přijme a odpoví na ping, ale nikdy
+   nic nepošle**. Ověřeno: `{"action":"ping"}` → `{"event":"pong"}` prošlo,
+   ale `POST /api/emergency-stop` (emituje `log_message`) nedoručil nic.
+   → volání přesunuto do `_lifespan`, hned vedle `web_bridge.set_loop(loop)`.
+   Lifespan běží právě jednou za proces, takže se signály nepřipojí dvakrát
+   (dvakrát = každý řádek logu a každá událost průběhu duplicitně).
+
+**Hlavní změna běhu — jednotný plochý technický vzhled**
+
+Pravidla zadání („ostré rohy, ohraničení, tlumené výplně; žádný blur, glow,
+stíny") se v CSS dlouhodobě nedodržovala; dekorace se vracela s každým ručně
+stylovaným panelem. Naměřený stav před změnou: **98 deklarací `border-radius`**
+v `styles.css` + 30 v inline stylech `index.html` + 17 v HTML generovaném
+z `app.ts`, k tomu `--overlay-blur: blur(8px)` a `backdrop-filter: blur(4px)`,
+tři glow/drop stíny (E-STOP, modál, wizard), `text-shadow` glow na aktivní
+položce nav lišty a 6 gradientů.
+
+- **Všech 145 `border-radius` odstraněno** (i proměnné `--radius` /
+  `--radius-lg`), včetně `50%` — kolečka jsou teď čtverce, což je pro
+  technický nástroj konzistentnější než míchání obojího. Místo nich je
+  **jediné pravidlo `*, *::before, *::after { border-radius: 0 }`** v základní
+  sekci. Není to jen úklid: prohlížeče zaoblují formulářové prvky samy
+  (WebKit na macOS ano, Chromium a Firefox ne) a doteď to přebíjelo právě to
+  explicitní `border-radius: var(--radius)` na inputech. Bez náhrady by
+  aplikace vypadala na každé platformě jinak.
+- **Veškerý blur pryč** — `backdrop-filter` i proměnná. Zatemněné pozadí
+  modálu zůstává (`--overlay-bg`), rozmazání ne.
+- **Všechny stíny a glow pryč**, včetně 30 mrtvých `box-shadow: none`
+  a keyframe `checkPulse`, který animoval `none` → `none`.
+- **Modál a wizard mají místo stínu 2px `--border-light`.** Bez stínu byl
+  okraj jediné, co je odděluje od ztmavené stránky pod nimi — 1px na to
+  nestačilo.
+- 6 gradientů nahrazeno plochými výplněmi; `translateY(-1px)` a `scale(1.05)`
+  na E-STOPu (efekty, které patřily ke stínům) odstraněny.
+- `.estop-btn-circle` → `.estop-btn` — element už kolečko není.
+- Bump assetů na `?v=3.60.0`.
+
+**Nový krok ve `verify.sh`: „flat design tokens"**
+
+Kontroluje `styles.css`, `index.html` **i `app.ts`** (odtud většina dekorace
+pocházela — inline `style=""`) na `border-radius` != 0, `backdrop-filter`,
+`filter: blur()`, `box-shadow` a `text-shadow` != `none`. Vypisuje soubor,
+řádek a nalezenou deklaraci. Ověřeno, že to chytá: po dočasném vložení
+`.test-regression { border-radius: 8px; backdrop-filter: blur(3px); filter: blur(2px); }`
+krok spadne se všemi třemi nálezy a `verify.sh` skončí chybou.
+
+**Nové testy — `tests/test_runtime_dependencies.py` (5 testů)**
+
+Žádná stávající kontrola server nespouštěla, takže obě chyby výše byly pro
+`verify.sh` neviditelné. Testy hlídají invarianty, ne symptomy:
+implementace WebSocketu je **deklarovaná** v `pyproject.toml` (to je ta, na
+které záleží čerstvému klonu) i **importovatelná**; každá deklarovaná závislost
+jde naimportovat; `_lifespan` zavolá `connect_event_bus()` **právě jednou**
+(měřeno přes `TestClient`); a `/ws` v `server.py` odpovídá cestě, na kterou se
+`app.ts` připojuje.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **141 pytestů** (bylo 136),
+  compileall, i18n parita cs=en=795, žádná duplicitní id, 9 panelů pod
+  `#workspace-main`, **flat design tokens**, 102 `App.*` odkazů.
+- `bash scripts/setup-dev.sh` doběhne a nová řádka hlásí `websockets OK`.
+- **WebSocket proti běžícímu backendu**: handshake projde, `ping` → `pong`,
+  a `POST /api/emergency-stop` doručí do socketu
+  `log_message {"level":"WARN","message":"EMERGENCY STOP — All processes killed"}`.
+  Před opravou: 404 na handshake; po opravě jen závislosti (bez opravy
+  lifespanu) handshake prošel, ale server nikdy nic nepushnul.
+  V prohlížeči je na screenshotech vidět „✓ Connected to Orchiday server"
+  v konzolovém doku — před opravou tam nebylo nic.
+- **Audit vypočtených stylů** (ne zdrojáku) v headless Chromiu proti běžícímu
+  backendu s otevřeným projektem, **8 stránek × 3 velikosti (1600×900,
+  1280×800, 1024×760) + modál + celoobrazovkový wizard**: prošel každý
+  viditelný element a četl `borderRadius`, `boxShadow`, `textShadow`,
+  `backdropFilter`, `filter` a `backgroundImage`. **0 nálezů.** Modál i wizard:
+  `radius: 0px`, `shadow: none`, `backdrop: none`, `border: 2px`.
+- Žádný vodorovný přetok na žádné stránce v žádné velikosti; žádné roztažené
+  tlačítko (nejširší 225 px); v konzoli prohlížeče nezůstala **jediná
+  WebSocket chyba** (zbývají jen `ERR_CONNECTION_RESET` z importu fontů
+  z `fonts.googleapis.com` — kontejner je bez internetu, viz fronta).
+
+**Zbývá vyzkoušet na fyzickém robotu / reálném desktopu** (v cloudu nelze)
+
+- Že se přes opravený socket opravdu propisuje **výstup LeRobotu** do
+  konzolového doku a že dorazí události nahrávání (`recording_episode`,
+  `step_marked`) a kalibrace (`calibration_progress`). Ověřený je jen
+  transport a jedna serverem pushnutá událost, ne reálný proces.
+- Že tlačítka přepínaná přes `process_started` / `process_finished` se
+  s běžícím podprocesem chovají správně — do teď ta událost nikdy nedorazila,
+  takže tenhle kód reálně **nikdy neběžel**.
+- Vzhled mimo Chromium: globální `* { border-radius: 0 }` má systémové
+  zaoblení formulářových prvků přebít, ale ověřené je to jen v Chromiu na
+  Linuxu. Na macOS (WebKit) a ve Firefoxu se to musí prohlédnout očima.
+
 ## 2026-08-01 (6) — Chybějící `</div>`: Nápověda byla nedostupná a konzole
 neviditelná na všech stránkách kromě Nastavení
 
@@ -663,9 +792,10 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   kamer), ale v HTML jsou jen 2 bloky — kamerový sloupec ze sběru dat zmizel
   (souvisí s mrtvými id `cam-feed-placeholder-1/2` níže). Rozhodnout: vrátit,
   nebo pravidla smazat.
-- `:root` má `--radius: 6px`, `--radius-lg: 10px` a `--overlay-blur: blur(8px)`,
-  plus `backdrop-filter: blur(4px)` na styles.css:1498 — zadání chce ostré rohy
-  a žádný blur. Stíny/glow už jsou vynulované.
+- ~~`:root` má `--radius`, `--radius-lg`, `--overlay-blur` a `backdrop-filter`~~
+  — hotovo 2026-08-02 (7). Všechno pryč, nahrazeno jedním
+  `* { border-radius: 0 }`, a `verify.sh` krok „flat design tokens" hlídá
+  `styles.css`, `index.html` i `app.ts`, aby se to nevrátilo.
 - `styles.css` importuje fonty z `fonts.googleapis.com` — bez internetu appka
   spadne na fallback. Zvážit zabalení fontů lokálně.
 - Mrtvé odkazy na id v `app.ts` (jsou null-guardované, takže nic nepadá, ale je to
@@ -686,6 +816,43 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   dynamické hodnoty odebrat, nebo ho spolu s textem přenastavit na klíč, který
   právě platí — obojí je v kódu použité, hledat `setAttribute('data-i18n'`.
 
+**Naměřená obsazenost plochy (2026-08-02, headless Chromium, otevřený projekt)**
+
+Fronta na vyplnění prázdné plochy, seřazená podle toho, kde je jí nejvíc.
+Počítáno jen na prvcích, které opravdu kreslí; 1600×900 / 1280×800 / 1024×760:
+
+| stránka | obsazenost | poznámka |
+|---|---|---|
+| `projects` | **5 / 6 / 8 %** | nejhorší v aplikaci, pod kartami je prázdno |
+| `datasety` | **7 / 8 / 11 %** | druhá nejhorší |
+| `setup` | 11 / 13 / 23 % | tab Connect (Kalibrace hotová v (5)) |
+| `uceni` | 16 / 24 / 43 % | + jeden ořezaný prvek, viz níže |
+| `teleoperation` | 18 / 23 / 27 % | po (4) |
+| `modelrun` | 20 / 23 / 25 % | |
+| `settings` | 23 / 35 / 45 % | po (6) |
+| `help` | 77 / 111 / 132 % | scrolluje, v pořádku |
+
+- **`uceni` má na všech třech velikostech `clipped=1`** — jeden prvek
+  s `overflow: hidden`, jehož `scrollHeight` přesahuje `clientHeight`. Nešahal
+  na to tenhle běh, ale je to stejná třída chyby jako ořezaná diagnostika
+  z (6). Najít ho lze měřicím skriptem níže.
+- Na `uceni` je při 1024×760 nejširší prvek `INPUT:884x30` a na `modelrun`
+  dokonce `INPUT:1204x29` při 1600×900 — pole roztažené přes celou šířku okna,
+  přesně to, co zadání zakazuje. Kandidát na příští běh.
+
+**Měřicí skript** (pořád není v repu, tenhle běh ho psal počtvrté). Kromě pastí
+zapsaných v (4)–(6) platí: `changeTab()` funguje jen s **otevřeným projektem**
+(vytvořit přes `POST /api/projects` + `/api/projects/open`), první spuštění
+zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
+`localStorage.orchiday_setup_completed`), a `pkill -f "uvicorn orchiday.server"`
+**zabije i vlastní shell** — vzorec se shoduje s příkazovou řádkou toho pkillu.
+
 **Backend / LeRobot**
 - Nedá se ověřit chování na LeRobotu ≥ 0.5 — PyPI index v cloudu má maximum
   0.4.4. Nové wrappery aspoň spadnou nahlas místo tichého no-opu.
+- **Kontroly, které nespouští server, neuvidí celou třídu chyb.** Běh (7)
+  našel dvě (chybějící `websockets`, nezadrátovaný most událostí) až tím, že
+  spustil backend a připojil se na `/ws`. `verify.sh` to nedělá a dělat nemusí,
+  ale `tests/test_runtime_dependencies.py` teď aspoň hlídá invarianty
+  (deklarovaná závislost, `_lifespan` volá `connect_event_bus()` právě jednou).
+  Zvážit, jestli podobný smoke test nemá dostat i sběr dat a kalibrace.

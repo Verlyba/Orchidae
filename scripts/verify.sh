@@ -172,7 +172,48 @@ else
   echo "skipped (node unavailable)"
 fi
 
-# ── 8. Every App.<fn>() referenced from HTML actually exists ──────────────
+# ── 8. Flat technical look: no rounded corners, blur, shadows or glow ─────
+# The design language is a deliberate constraint, not a taste: sharp corners,
+# visible borders, muted fills. Decoration crept back in every time a new panel
+# was hand-styled (98 border-radius declarations, a blurred overlay backdrop and
+# several glows had accumulated), so it is checked instead of remembered.
+# Inline style="" attributes count too — that is where most of it came from.
+step "flat design tokens"
+if command -v node >/dev/null 2>&1; then
+  node -e '
+    const fs = require("fs");
+    const FILES = ["web/styles.css", "web/index.html", "web/app.ts"];
+    // Property name -> what is allowed. Anything else is a finding.
+    const RULES = [
+      [/border-radius\s*:\s*([^;"\x27}`\n]+)/gi, v => /^0(?:px|%)?$/.test(v.trim()),
+       "rounded corner (sharp corners only)"],
+      [/(?:^|[^-\w])(?:-webkit-)?backdrop-filter\s*:\s*([^;"\x27}`\n]+)/gi, v => /^none$/i.test(v.trim()),
+       "backdrop-filter (no blur)"],
+      [/(?:box|text)-shadow\s*:\s*([^;"\x27}`\n]+)/gi, v => /^none$/i.test(v.trim()),
+       "shadow / glow"],
+      // The leading guard keeps this from re-reporting `backdrop-filter`.
+      [/(?:^|[^-\w])filter\s*:\s*([^;"\x27}`\n]*blur\([^)]*\))/gi, () => false, "blur() filter"],
+    ];
+    let bad = false;
+    for (const file of FILES) {
+      const text = fs.readFileSync(file, "utf8");
+      for (const [re, ok, what] of RULES) {
+        for (const m of text.matchAll(re)) {
+          if (ok(m[1])) continue;
+          const line = text.slice(0, m.index).split("\n").length;
+          console.log(`${file}:${line}: ${what} -> ${m[0].trim()}`);
+          bad = true;
+        }
+      }
+    }
+    if (bad) process.exit(1);
+    console.log("no rounded corners, blur, shadows or glow in web/");
+  ' || fail "decorative styling found (see above) — the UI is deliberately flat"
+else
+  echo "skipped (node unavailable)"
+fi
+
+# ── 9. Every App.<fn>() referenced from HTML actually exists ──────────────
 # An onclick pointing at a missing method fails silently at runtime.
 step "HTML -> App method references"
 if command -v node >/dev/null 2>&1; then

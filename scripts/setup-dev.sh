@@ -89,6 +89,14 @@ QT_QPA_PLATFORM=offscreen "$PY" -c "from PySide6.QtCore import QCoreApplication"
   && echo "    pytest       OK" || { echo "    pytest       MISSING"; WARN=1; }
 "$PY" -c "import fastapi, uvicorn, pydantic, httpx" >/dev/null 2>&1 \
   && echo "    web stack    OK" || echo "    web stack    MISSING"
+# Uvicorn has no built-in WebSocket implementation. Without one the /ws route
+# answers 404 and the whole live event stream (console output, process state,
+# recording and calibration events) silently never arrives.
+if "$PY" -c "import websockets" >/dev/null 2>&1 || "$PY" -c "import wsproto" >/dev/null 2>&1; then
+  echo "    websockets   OK"
+else
+  echo "    websockets   MISSING (live events would not work)"; WARN=1
+fi
 "$PY" -c "import cv2" >/dev/null 2>&1 \
   && echo "    opencv       OK" || echo "    opencv       MISSING (camera code paths only)"
 command -v npm >/dev/null 2>&1 \

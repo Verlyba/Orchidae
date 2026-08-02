@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.59.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.60.0">
 </head>
 <body>
 
@@ -99,7 +99,7 @@
         </div>
         <div class="activitybar-bottom">
           <div class="estop-container">
-            <button class="estop-btn-circle" onclick="App.emergencyStop()" aria-label="EMERGENCY E-STOP" data-i18n-title="estop.title" title="EMERGENCY E-STOP — okamžitě ukončí všechny LeRobot procesy">
+            <button class="estop-btn" onclick="App.emergencyStop()" aria-label="EMERGENCY E-STOP" data-i18n-title="estop.title" title="EMERGENCY E-STOP — okamžitě ukončí všechny LeRobot procesy">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>
             </button>
             <span class="estop-label" aria-hidden="true" data-i18n="estop">E-STOP</span>
@@ -275,7 +275,7 @@
                         <!-- Preview Box -->
                         <div style="flex: 1.2; display: flex; flex-direction: column; gap: 4px; min-height: 0;">
                           <span style="font-size: 11px; font-weight: bold; color: var(--text-muted);" data-i18n="hint.livePreview">Live náhled</span>
-                          <div id="hw-camera-preview-box" style="flex: 1; min-height: 150px; background: #000; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+                          <div id="hw-camera-preview-box" style="flex: 1; min-height: 150px; background: #000; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
                             <img id="hw-camera-preview-img" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
                             <span id="hw-camera-preview-placeholder" style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 10px;" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
                           </div>
@@ -290,7 +290,7 @@
 
                           <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; flex: 1; overflow: hidden;">
                             <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;" data-i18n="hint.configuredCams">Nakonfigurované kamery:</span>
-                            <div id="hw-camera-list" style="flex: 1; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; display: flex; flex-direction: column; gap: 2px;">
+                            <div id="hw-camera-list" style="flex: 1; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); padding: 4px; display: flex; flex-direction: column; gap: 2px;">
                               <div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
                             </div>
                           </div>
@@ -809,7 +809,7 @@
 
                 <div id="rec-active-panel" style="display:none; flex-direction:column; gap:10px; flex:1;">
                   <!-- hardware setup warnings -->
-                  <div id="rec-hw-warning" style="display:none; background:rgba(218, 55, 60, 0.12); border:1px solid var(--red); color:var(--red); padding:8px 10px; border-radius:4px; font-size:11px;">
+                  <div id="rec-hw-warning" style="display:none; background:rgba(218, 55, 60, 0.12); border:1px solid var(--red); color:var(--red); padding:8px 10px; font-size:11px;">
                     <strong style="display:flex; align-items:center; gap:4px; margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Chyba hardwaru</strong>
                     <span id="rec-hw-warning-text" data-i18n="rec.warnDefault">Zkontrolujte porty a přiřazení kamer.</span>
                   </div>
@@ -1376,7 +1376,7 @@
 
                   <!-- VLM inspect preview row -->
                   <div class="brain-card" style="padding: 8px; display:flex; gap:8px; align-items:center;">
-                    <div id="vlm-frame-placeholder" style="width:80px; aspect-ratio: 4/3; background:#000; border-radius:4px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; flex-shrink:0;">
+                    <div id="vlm-frame-placeholder" style="width:80px; aspect-ratio: 4/3; background:#000; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; flex-shrink:0;">
                       <img id="vlm-inspect-image" style="width:100%; height:100%; object-fit:cover; display:none;" />
                       <div id="vlm-inspect-none" style="font-size:8px; color:var(--text-muted); text-align:center;">VLM offline</div>
                     </div>
@@ -1405,7 +1405,7 @@
                         <input type="text" id="eval-task-name" placeholder="Aktivní pod-úkol" style="font-size:10px;" readonly>
                       </div>
                     </div>
-                    <div id="infer-persistent-panel" style="display:none; flex-direction:column; gap:4px; background:rgba(255,255,255,0.01); border:1px solid var(--border); padding:6px; border-radius:4px; margin-top:2px;">
+                    <div id="infer-persistent-panel" style="display:none; flex-direction:column; gap:4px; background:rgba(255,255,255,0.01); border:1px solid var(--border); padding:6px; margin-top:2px;">
                       <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
                         <span style="font-size:9px; font-weight:700; color:var(--cyan);">Inference Daemon</span>
                         <div style="display:flex; align-items:center; gap:6px;">
@@ -1416,7 +1416,7 @@
                       <div id="infer-subtasks-container" style="display:flex; flex-direction:column; gap:2px;"></div>
 
                       <!-- Real-Time Telemetry Dashboard -->
-                      <div style="margin-top: 6px; padding: 6px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: 4px; display: flex; flex-direction: column; gap: 4px;">
+                      <div style="margin-top: 6px; padding: 6px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 4px;">
                         <div style="display: flex; justify-content: space-between; font-size: 8px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
                           <span>Metrika</span>
                           <span>Hodnota</span>
@@ -1438,32 +1438,32 @@
                         <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
                           <div style="font-size: 8px; color: var(--text-muted); font-weight: 700; margin-bottom: 2px; text-transform: uppercase;" data-i18n="hint.jointAngles">Úhly kloubů (Aktuální vs Cíl)</div>
                           <div id="infer-joints-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 2px; padding: 2px; text-align: center;">
+                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
                               <div style="color: var(--text-muted); font-size: 7px;">J1</div>
                               <div id="joint-val-0" style="color: var(--text-light); font-weight:700;">0.0000</div>
                               <div id="joint-tgt-0" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
                             </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 2px; padding: 2px; text-align: center;">
+                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
                               <div style="color: var(--text-muted); font-size: 7px;">J2</div>
                               <div id="joint-val-1" style="color: var(--text-light); font-weight:700;">0.0000</div>
                               <div id="joint-tgt-1" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
                             </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 2px; padding: 2px; text-align: center;">
+                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
                               <div style="color: var(--text-muted); font-size: 7px;">J3</div>
                               <div id="joint-val-2" style="color: var(--text-light); font-weight:700;">0.0000</div>
                               <div id="joint-tgt-2" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
                             </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 2px; padding: 2px; text-align: center;">
+                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
                               <div style="color: var(--text-muted); font-size: 7px;">J4</div>
                               <div id="joint-val-3" style="color: var(--text-light); font-weight:700;">0.0000</div>
                               <div id="joint-tgt-3" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
                             </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 2px; padding: 2px; text-align: center;">
+                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
                               <div style="color: var(--text-muted); font-size: 7px;">J5</div>
                               <div id="joint-val-4" style="color: var(--text-light); font-weight:700;">0.0000</div>
                               <div id="joint-tgt-4" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
                             </div>
-                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); border-radius: 2px; padding: 2px; text-align: center;">
+                            <div class="joint-telemetry-box" style="font-size: 8.5px; font-family: var(--font-mono); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.03); padding: 2px; text-align: center;">
                               <div style="color: var(--text-muted); font-size: 7px;">J6 (Grip)</div>
                               <div id="joint-val-5" style="color: var(--text-light); font-weight:700;">0.0000</div>
                               <div id="joint-tgt-5" style="color: var(--text-muted); font-size: 7px;">0.0000</div>
@@ -2056,7 +2056,7 @@
               </div>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="font-size: 9px; color: var(--text-muted); font-weight: bold; letter-spacing: 0.5px;" data-i18n="dock.layout">ROZLOŽENÍ:</span>
-                <select id="camera-layout-select" aria-label="Rozložení kamer" onchange="App.onCameraLayoutChange()" style="background: rgba(30,30,32,0.8); border: 1px solid var(--border); color: var(--text-white); font-size: 10px; padding: 2px 4px; border-radius: 4px; font-weight: bold; cursor: pointer; outline: none;">
+                <select id="camera-layout-select" aria-label="Rozložení kamer" onchange="App.onCameraLayoutChange()" style="background: rgba(30,30,32,0.8); border: 1px solid var(--border); color: var(--text-white); font-size: 10px; padding: 2px 4px; font-weight: bold; cursor: pointer; outline: none;">
                   <option value="auto">Auto</option>
                   <option value="1">1 kamera</option>
                   <option value="2" selected>2 kamery</option>
@@ -2067,15 +2067,15 @@
             </div>
             <div class="cameras-dock-body">
               <!-- Camera 1 -->
-              <div class="cam-box" style="aspect-ratio: 4/3 !important; width: 48% !important; flex: 1 1 48% !important; max-width: calc(50% - 4px) !important; max-height: 100% !important; position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important;">
-                <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-light);" data-i18n="cam.globalScene">Globální (Scéna)</span>
+              <div class="cam-box" style="aspect-ratio: 4/3 !important; width: 48% !important; flex: 1 1 48% !important; max-width: calc(50% - 4px) !important; max-height: 100% !important; position: relative; background: #000; overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important;">
+                <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; font-size: 9px; font-weight: bold; color: var(--text-light);" data-i18n="cam.globalScene">Globální (Scéna)</span>
                 <div id="tele-cam-feed-placeholder-1" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
                   <span style="font-size: 9px; color: var(--text-muted);">Kamera 1 offline</span>
                 </div>
               </div>
               <!-- Camera 2 -->
-              <div class="cam-box" style="aspect-ratio: 4/3 !important; width: 48% !important; flex: 1 1 48% !important; max-width: calc(50% - 4px) !important; max-height: 100% !important; position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important;">
-                <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-light);">Wrist (Kleště)</span>
+              <div class="cam-box" style="aspect-ratio: 4/3 !important; width: 48% !important; flex: 1 1 48% !important; max-width: calc(50% - 4px) !important; max-height: 100% !important; position: relative; background: #000; overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important;">
+                <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; font-size: 9px; font-weight: bold; color: var(--text-light);">Wrist (Kleště)</span>
                 <div id="tele-cam-feed-placeholder-2" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
                   <span style="font-size: 9px; color: var(--text-muted);">Kamera 2 offline</span>
                 </div>
@@ -2111,7 +2111,7 @@
           <div style="display: flex; gap: 16px;">
             <!-- Quick Setup Mode Card -->
             <div id="new-proj-card-quick" class="setup-block active" style="flex: 1; padding: 20px 16px; cursor: pointer; transition: all 0.2s; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 140px;" onclick="App.selectNewProjectModeDirect('quick')">
-              <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(220, 220, 170, 0.08); display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+              <div style="width: 40px; height: 40px; background: rgba(220, 220, 170, 0.08); display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
               </div>
               <div style="font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 6px;" data-i18n="wiz.quickSetup">Rychlý Setup</div>
@@ -2120,7 +2120,7 @@
             
             <!-- Plain Project Mode Card -->
             <div id="new-proj-card-plain" class="setup-block" style="flex: 1; padding: 20px 16px; cursor: pointer; transition: all 0.2s; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 140px;" onclick="App.selectNewProjectModeDirect('plain')">
-              <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.03); display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+              <div style="width: 40px; height: 40px; background: rgba(255, 255, 255, 0.03); display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-light)" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg>
               </div>
               <div style="font-weight: 700; font-size: 13px; color: var(--text-light); margin-bottom: 6px;" data-i18n="wiz.plainProject">Prostý projekt</div>
@@ -2336,7 +2336,7 @@
           <textarea id="new-skill-desc" rows="5" placeholder="Zde zadejte podrobný popis..." style="width: 100%;"></textarea>
         </div>
 
-        <div id="new-skill-warning-box" style="display: none; background: rgba(220, 220, 170, 0.04); border: 1px solid rgba(220, 220, 170, 0.2); padding: 10px 14px; border-radius: var(--radius); color: var(--yellow); font-size: 11.5px; line-height: 1.45; margin-bottom: 16px;">
+        <div id="new-skill-warning-box" style="display: none; background: rgba(220, 220, 170, 0.04); border: 1px solid rgba(220, 220, 170, 0.2); padding: 10px 14px; color: var(--yellow); font-size: 11.5px; line-height: 1.45; margin-bottom: 16px;">
           <strong>Pozor:</strong> Změna nadřazené dovednosti u kroku s nahranými daty vyžaduje ruční přesunutí datové složky na disku do nového umístění.
         </div>
 
@@ -2356,7 +2356,7 @@
         <button class="modal-close-btn" onclick="App.closeModal('modal-manage-episodes')">✕</button>
       </div>
       <div class="modal-body">
-        <div id="manage-episodes-stats" style="margin-bottom: 12px; font-size: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 8px 12px; border-radius: var(--radius); display: flex; justify-content: space-between;">
+        <div id="manage-episodes-stats" style="margin-bottom: 12px; font-size: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 8px 12px; display: flex; justify-content: space-between;">
           <span>Dataset: <strong id="manage-episodes-path" style="color:var(--cyan); font-family:var(--font-mono);">-</strong></span>
           <span>Velikost: <strong id="manage-episodes-size" style="color:var(--text-light);">-</strong></span>
         </div>
@@ -2408,12 +2408,12 @@
         <!-- Progressive Steps indicator -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding: 0 10px;">
           <div id="detect-step-indicator-leader" style="font-size: 11px; font-weight: bold; color: var(--cyan); display: flex; align-items: center; gap: 6px; transition: var(--transition);">
-            <span id="detect-step-badge-leader" style="background: rgba(0, 188, 212, 0.15); border: 1px solid var(--cyan); border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;">1</span>
+            <span id="detect-step-badge-leader" style="background: rgba(0, 188, 212, 0.15); border: 1px solid var(--cyan); width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;">1</span>
             <span data-i18n="wiz.leaderArm">Leader Rameno</span>
           </div>
           <div style="flex-grow: 1; border-bottom: 1px dashed var(--border); margin: 0 12px;"></div>
           <div id="detect-step-indicator-follower" style="font-size: 11px; font-weight: bold; color: var(--text-muted); display: flex; align-items: center; gap: 6px; transition: var(--transition);">
-            <span id="detect-step-badge-follower" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;">2</span>
+            <span id="detect-step-badge-follower" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;">2</span>
             <span data-i18n="wiz.followerArm">Follower Rameno</span>
           </div>
         </div>
@@ -2434,7 +2434,7 @@
 
           <!-- Step 2: Unplug -->
           <div id="detect-leader-step-2" class="detect-sub-step" style="display: none;">
-            <div style="background: rgba(233, 30, 99, 0.05); border: 1px solid rgba(233, 30, 99, 0.2); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+            <div style="background: rgba(233, 30, 99, 0.05); border: 1px solid rgba(233, 30, 99, 0.2); padding: 12px; margin-bottom: 16px;">
               <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin: 0; display: flex; align-items: center; gap: 8px;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                 <span data-i18n-html="wiz.unplugLeader">Nyní <strong>ODPOJTE</strong> USB kabel Leader ramene od počítače.</span>
@@ -2452,7 +2452,7 @@
 
           <!-- Step 3: Success -->
           <div id="detect-leader-step-3" class="detect-sub-step" style="display: none;">
-            <div style="background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.2); border-radius: 6px; padding: 16px; text-align: center; margin-bottom: 20px;">
+            <div style="background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.2); padding: 16px; text-align: center; margin-bottom: 20px;">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" style="margin-bottom: 8px; display: inline-block;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
               <h5 style="color: var(--green); margin: 0 0 8px 0; font-size: 13px; font-weight: bold;" data-i18n="wiz.leaderDetected">Leader rameno úspěšně detekováno!</h5>
               <p style="font-size: 12px; color: var(--text-light); margin: 0;" id="detect-leader-detected-text">
@@ -2484,7 +2484,7 @@
 
           <!-- Step 2: Unplug -->
           <div id="detect-follower-step-2" class="detect-sub-step" style="display: none;">
-            <div style="background: rgba(233, 30, 99, 0.05); border: 1px solid rgba(233, 30, 99, 0.2); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+            <div style="background: rgba(233, 30, 99, 0.05); border: 1px solid rgba(233, 30, 99, 0.2); padding: 12px; margin-bottom: 16px;">
               <p style="font-size: 12px; line-height: 1.5; color: var(--text-light); margin: 0; display: flex; align-items: center; gap: 8px;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                 <span data-i18n-html="wiz.unplugFollower">Nyní <strong>ODPOJTE</strong> USB kabel Follower ramene od počítače.</span>
@@ -2502,7 +2502,7 @@
 
           <!-- Step 3: Success -->
           <div id="detect-follower-step-3" class="detect-sub-step" style="display: none;">
-            <div style="background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.2); border-radius: 6px; padding: 16px; text-align: center; margin-bottom: 20px;">
+            <div style="background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.2); padding: 16px; text-align: center; margin-bottom: 20px;">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" style="margin-bottom: 8px; display: inline-block;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
               <h5 style="color: var(--green); margin: 0 0 8px 0; font-size: 13px; font-weight: bold;" data-i18n="wiz.followerDetected">Follower rameno úspěšně detekováno!</h5>
               <p style="font-size: 12px; color: var(--text-light); margin: 0;" id="detect-follower-detected-text">
@@ -2618,7 +2618,7 @@
         </div>
         <p class="wizard-description-text" id="wizard-page-2-desc">Would you like us to perform a new installation, or would you prefer to connect it yourself?</p>
         
-        <div id="wizard-requirements-checklist" style="margin: 0 auto 12px auto; font-size: 11.5px; display: none; flex-direction: column; gap: 6px; background: rgba(255,255,255,0.02); padding: 10px; border-radius: var(--radius); border: 1px solid var(--border); max-width: 400px; width: 100%; text-align: left;">
+        <div id="wizard-requirements-checklist" style="margin: 0 auto 12px auto; font-size: 11.5px; display: none; flex-direction: column; gap: 6px; background: rgba(255,255,255,0.02); padding: 10px; border: 1px solid var(--border); max-width: 400px; width: 100%; text-align: left;">
           <!-- Populated dynamically via JS -->
         </div>
 
@@ -2770,7 +2770,7 @@
             <!-- Preview Box -->
             <div style="flex: 1.2; display: flex; flex-direction: column; gap: 6px;">
               <span style="font-size: 12px; font-weight: bold; color: var(--text-light);">Preview</span>
-              <div id="wizard-camera-preview-box" style="aspect-ratio: 4/3; background: #000; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+              <div id="wizard-camera-preview-box" style="aspect-ratio: 4/3; background: #000; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
                 <img id="wizard-camera-preview-img" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
                 <span id="wizard-camera-preview-placeholder" style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 10px;">Select a port to show live feed</span>
               </div>
@@ -2802,7 +2802,7 @@
           <!-- List of Added Cameras -->
           <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px; width: 100%;">
             <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;" data-i18n="hint.configuredCams">Nakonfigurované kamery:</span>
-            <div id="wizard-camera-list" style="max-height: 80px; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+            <div id="wizard-camera-list" style="max-height: 80px; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); padding: 6px; display: flex; flex-direction: column; gap: 4px;">
               <div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 4px;" data-i18n="hint.noCamsAdded">Žádné přidané kamery.</div>
             </div>
           </div>
@@ -2859,7 +2859,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.59.0" defer></script>
-  <script src="/static/app.js?v=3.59.0" defer></script>
+  <script src="/static/i18n.js?v=3.60.0" defer></script>
+  <script src="/static/app.js?v=3.60.0" defer></script>
 </body>
 </html>

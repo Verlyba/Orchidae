@@ -26,6 +26,16 @@ authors = [
 dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    # Uvicorn ships NO WebSocket implementation of its own — bare `uvicorn`
+    # requires only click and h11. Without one of `websockets` / `wsproto`
+    # installed it answers the /ws upgrade with 404 ("No supported WebSocket
+    # library detected") and every live channel in Orchiday goes dead: the
+    # console dock stays empty, process start/stop never registers, and
+    # recording, calibration and step-mark events never reach the UI. The page
+    # still loads, so it looks like the app works. `websockets` (rather than
+    # the uvicorn[standard] extra) keeps this to one pure-Python wheel that
+    # installs on Linux, Windows and macOS alike.
+    "websockets>=12.0",
     "pydantic>=2.0",
     "httpx>=0.26",
     "PySide6>=6.6",

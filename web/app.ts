@@ -2617,8 +2617,8 @@ const App = {
         if (c) {
           const isActive = (this.activeCameras || []).includes(c.id);
           dockHtml += `
-            <div class="cam-box" style="position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; border: 1px solid var(--border); box-sizing: border-box;">
-              <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-light); text-transform: uppercase;">
+            <div class="cam-box" style="position: relative; background: #000; overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; border: 1px solid var(--border); box-sizing: border-box;">
+              <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.6); padding: 2px 6px; font-size: 9px; font-weight: bold; color: var(--text-light); text-transform: uppercase;">
                 ${this.esc(c.id)} (${this.esc(c.role)})
               </span>
               <div id="tele-cam-feed-placeholder-${i + 1}" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
@@ -2631,8 +2631,8 @@ const App = {
           `;
         } else {
           dockHtml += `
-            <div class="cam-box" style="position: relative; background: #000; border-radius: var(--radius); overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; border: 1px dashed var(--border-dark); box-sizing: border-box;">
-              <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; color: var(--text-muted); text-transform: uppercase;">
+            <div class="cam-box" style="position: relative; background: #000; overflow: hidden; display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; border: 1px dashed var(--border-dark); box-sizing: border-box;">
+              <span class="cam-tag" style="position: absolute; top: 4px; left: 4px; z-index: 10; background: rgba(0,0,0,0.4); padding: 2px 6px; font-size: 9px; font-weight: bold; color: var(--text-muted); text-transform: uppercase;">
                 Nenastaveno
               </span>
               <div id="tele-cam-feed-placeholder-${i + 1}" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
@@ -3523,13 +3523,13 @@ const App = {
         
         // Render a premium milestone container instead of file folders!
         html += `
-          <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-lg); padding: 6px; margin-bottom: 12px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+          <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); padding: 6px; margin-bottom: 12px; transition: all 0.2s;">
             <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 6px; margin-bottom: 4px;">
               <button class="skills-tree-folder ${isCollapsed ? 'collapsed' : ''}" data-folder="${m}" onclick="App.toggleSkillsFolder('${m}')" style="flex: 1; display: flex; align-items: center; border: none; background: none; color: var(--text-light); text-align: left; padding: 4px; gap: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;">
                 <span class="chevron-icon" style="display: inline-flex; align-items: center; justify-content: center; transform: rotate(${isCollapsed ? '0deg' : '90deg'}); transition: transform 0.2s; color: var(--text-muted);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 10px; height: 10px;"><path d="M9 5l7 7-7 7"></path></svg></span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; color: var(--cyan); flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg>
                 <span>${details[m]?.name || m}</span>
-                <span class="count-badge" style="background: rgba(0, 188, 212, 0.1); color: var(--cyan); border-radius: 10px; font-size: 9px; padding: 1px 6px; font-weight: 600; margin-left: auto;">${subSkills.length}</span>
+                <span class="count-badge" style="background: rgba(0, 188, 212, 0.1); color: var(--cyan); font-size: 9px; padding: 1px 6px; font-weight: 600; margin-left: auto;">${subSkills.length}</span>
               </button>
               <div style="display: flex; align-items: center; gap: 4px;">
                 <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="${App.t('tip.editSkill')}">
@@ -3555,7 +3555,7 @@ const App = {
             const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
             html += `
               <li style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                <button class="skills-tree-item ${isActive ? 'active' : ''}" onclick="App.selectSkill('${s}')" style="margin: 3px 0; flex: 1; display: flex; align-items: center; gap: 8px; border: none; background: transparent; padding: 6px 10px; border-radius: var(--radius); cursor: pointer; text-align: left; transition: all 0.2s;">
+                <button class="skills-tree-item ${isActive ? 'active' : ''}" onclick="App.selectSkill('${s}')" style="margin: 3px 0; flex: 1; display: flex; align-items: center; gap: 8px; border: none; background: transparent; padding: 6px 10px; cursor: pointer; text-align: left; transition: all 0.2s;">
                   ${isActive ? 
                     `<span class="step-check-indicator active">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -3641,7 +3641,7 @@ const App = {
       const isCollapsed = this.collapsedFolders.has('train_' + parent);
 
       html += `
-        <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-lg); padding: 8px; margin-bottom: 10px; transition: all 0.2s;">
+        <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); padding: 8px; margin-bottom: 10px; transition: all 0.2s;">
           <div style="display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.02); margin-bottom: 6px;">
             <button onclick="App.toggleTrainSkillsFolder('${parent}')" style="background: none; border: none; padding: 0; color: var(--text-muted); display: flex; align-items: center; cursor: pointer; transition: transform 0.2s; transform: rotate(${isCollapsed ? '0deg' : '90deg'});">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 10px; height: 10px;"><path d="M9 5l7 7-7 7"></path></svg>
@@ -3666,7 +3666,7 @@ const App = {
           if (meta) {
             const formattedParams = meta.param_count ? (meta.param_count >= 1000000 ? (meta.param_count / 1000000).toFixed(1) + 'M' : (meta.param_count / 1000).toFixed(0) + 'k') : 'N/A';
             metaHtml = `
-              <span class="meta-badge" style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.15); color: var(--cyan); border-radius: 4px; padding: 1px 4px; font-size: 9px; font-weight: 600;">
+              <span class="meta-badge" style="background: rgba(0, 188, 212, 0.08); border: 1px solid rgba(0, 188, 212, 0.15); color: var(--cyan); padding: 1px 4px; font-size: 9px; font-weight: 600;">
                 ${meta.policy_type || 'diffusion'} | ${meta.epochs || 0} ep | ${formattedParams} param
               </span>
             `;
@@ -3700,7 +3700,7 @@ const App = {
               </div>
               
               <div class="train-step-progress-wrapper" id="train-progress-wrapper-${sub}" style="${progressStyle} margin-top: 6px; padding-left: 22px;">
-                <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; position: relative;">
+                <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.05); overflow: hidden; position: relative;">
                   <div class="progress-bar-fill" id="train-progress-fill-${sub}" style="width: ${progressVal}%; height: 100%; background: linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end)); transition: width 0.3s ease;"></div>
                 </div>
                 <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 2px;">
@@ -3813,7 +3813,7 @@ const App = {
               let listHtml = '';
               for (let idx = 0; idx < info.num_episodes; idx++) {
                 listHtml += `
-                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 5px 8px; border-radius: 4px; font-size: 11px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 5px 8px; font-size: 11px;">
                     <span style="font-weight:700; color:var(--text-muted);">Epizoda ${idx}</span>
                     <div style="display:flex; gap:4px;">
                       <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">Přehrát</button>
@@ -4397,7 +4397,7 @@ const App = {
           let listHtml = '';
           for (let idx = 0; idx < info.num_episodes; idx++) {
             listHtml += `
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 8px 12px; border-radius: var(--radius); font-size: 12px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)';" onmouseout="this.style.background='rgba(255,255,255,0.02)';">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 8px 12px; font-size: 12px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)';" onmouseout="this.style.background='rgba(255,255,255,0.02)';">
                 <span style="font-weight:700; color:var(--text-light);">Epizoda #${idx}</span>
                 <div style="display:flex; gap:6px;">
                   <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx}, '${datasetSlug}')" style="padding: 4px 10px; font-size:11px;">Přehrát</button>
@@ -5178,7 +5178,7 @@ const App = {
 
     if (subSkills.length === 0) {
       container.innerHTML = `
-        <div style="font-size:10px; color:var(--text-muted); text-align:center; padding:6px; border:1px dashed var(--border); border-radius:4px;">
+        <div style="font-size:10px; color:var(--text-muted); text-align:center; padding:6px; border:1px dashed var(--border);">
           Tento úkol nemá žádné definované sub-skilly (fáze).
         </div>
       `;
@@ -5190,11 +5190,11 @@ const App = {
     container.innerHTML = subSkills.map((sub, idx) => {
       const name = details[sub]?.name || sub;
       return `
-        <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px;" id="infer-row-${sub}">
+        <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.01); border:1px solid rgba(255,255,255,0.03); padding:4px 8px;" id="infer-row-${sub}">
           <span style="font-size:10px; color:var(--text-light); flex:1;">
             ${idx + 1}. ${this.esc(name)}
           </span>
-          <button class="btn btn-xs btn-primary" onclick="App.triggerInferenceSubtask('${sub}')" style="padding:2px 8px; font-size:9.5px; font-weight:700; border-radius:3px;">
+          <button class="btn btn-xs btn-primary" onclick="App.triggerInferenceSubtask('${sub}')" style="padding:2px 8px; font-size:9.5px; font-weight:700;">
             Spustit
           </button>
         </div>
@@ -5891,7 +5891,7 @@ const App = {
         if (pathInput) pathInput.value = res.lerobot_path;
         
         titleEl.innerHTML = 'Nalezli jsme repozitář <span class="highlight-yellow">LeRobot</span>!';
-        descEl.innerHTML = `V systému byl detekován existující repozitář v:<br><code class="highlight-path" style="display:inline-block; margin-top:6px; padding:2px 6px; background:var(--bg-sidebar); border:1px solid var(--border); border-radius:4px; font-size:11px; word-break:break-all;">${res.lerobot_path}</code>.<br><br>Chcete použít tuto složku, vybrat jinou, nebo provést novou instalaci?`;
+        descEl.innerHTML = `V systému byl detekován existující repozitář v:<br><code class="highlight-path" style="display:inline-block; margin-top:6px; padding:2px 6px; background:var(--bg-sidebar); border:1px solid var(--border); font-size:11px; word-break:break-all;">${res.lerobot_path}</code>.<br><br>Chcete použít tuto složku, vybrat jinou, nebo provést novou instalaci?`;
         
         optionsContainer.innerHTML = `
           <button id="wizard-opt-found-confirm" class="btn-white-pill active" onclick="App.wizardSelectOption('found-confirm')">Použít detekovanou složku</button>
@@ -6517,7 +6517,6 @@ const App = {
       item.style.alignItems = 'center';
       item.style.background = 'rgba(255, 255, 255, 0.02)';
       item.style.padding = '6px 10px';
-      item.style.borderRadius = 'var(--radius)';
       item.style.border = '1px solid var(--border)';
       item.style.fontSize = '11px';
       item.style.marginBottom = '4px';
