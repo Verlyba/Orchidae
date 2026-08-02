@@ -143,3 +143,34 @@ def test_server_declares_the_websocket_route_the_frontend_connects_to():
     assert re.search(r"new WebSocket\(`\$\{proto\}://\$\{host\}/ws`\)", app_ts), (
         "app.ts no longer connects to /ws — keep this test and the server route in sync"
     )
+
+
+# ── "No project open" is a state, not an error ──
+
+def test_current_project_endpoint_answers_200_with_no_project_open():
+    """`GET /api/project` must not 404 just because nothing is open yet.
+
+    The frontend asks for the current project on every load, before the user has
+    opened one. Answering 404 made the browser log a console error on every
+    fresh start of the app — permanent noise that hides the errors that matter
+    (this is how the missing `</div>` and the dead `/ws` went unnoticed for
+    several releases). All three callers test for `project` being truthy, so a
+    null answer carries the same information without the error.
+    """
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+
+    import orchiday.server as server
+
+    opened = server.pm.current_project
+    server.pm.current_project = None
+    try:
+        with fastapi_testclient.TestClient(server.app) as client:
+            res = client.get("/api/project")
+    finally:
+        server.pm.current_project = opened
+
+    assert res.status_code == 200, (
+        f"GET /api/project answered {res.status_code} with no project open; "
+        "the frontend logs that as a console error on every load"
+    )
+    assert res.json().get("project") is None

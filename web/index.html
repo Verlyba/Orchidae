@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orchiday OS — Cross-platform platform for hierarchical robot control with LeRobot and LLM/VLM orchestration.">
   <title>Orchiday OS — Robot Control Workbench</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3.61.0">
+  <!-- Without this the browser asks for /favicon.ico, which the server does not
+       serve, and every single page load ends with a 404 in the console. -->
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.62.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.62.0">
 </head>
 <body>
 
@@ -823,7 +826,7 @@
             <div class="datacollection-block">
               <div class="datacollection-block-header">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="10"></circle></svg>
-                <span data-i18n="blk.dc.recording">Nahrávání & Přehrávání (Replay)</span>
+                <span data-i18n="blk.dc.recording">Nahrávání (lerobot-record)</span>
               </div>
               <div class="datacollection-block-body">
                 
@@ -844,103 +847,66 @@
                   <div class="active-skill-stats-row">
                     <span><span data-i18n="lbl.skillColon">Dovednost:</span> <strong id="active-sub-skill-title" style="color:var(--cyan);">pick_cube</strong></span>
                     <span><span data-i18n="lbl.demosColon">Demonstrace:</span> <strong id="active-skill-episodes" style="color:var(--green);">0 ep</strong></span>
+                    <span><span data-i18n="lbl.sizeColon">Velikost:</span> <strong id="active-skill-size">—</strong></span>
+                    <span><span data-i18n="lbl.policyColon">Policy:</span> <strong id="active-skill-training">—</strong></span>
                   </div>
 
-                  <div class="form-row" style="margin:0; gap:8px;">
-                    <div class="form-group">
+                  <!-- Two-column config grid. A single column stretched every
+                       input to the full width of the panel (~990 px at 1600×900),
+                       which is what the brief calls out as the main layout defect. -->
+                  <div class="rec-config-grid">
+                    <div class="form-group rec-cfg-wide">
                       <div class="label-with-tooltip">
                         <label for="rec-repo-id">Dataset Repo ID</label>
                         <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recRepoId">ⓘ</span>
                       </div>
                       <input type="text" id="rec-repo-id" style="font-size:12px; font-family:var(--font-mono);" readonly>
                     </div>
-                    <div class="form-group" style="width: 80px;">
+                    <div class="form-group">
                       <div class="label-with-tooltip">
                         <label for="rec-episodes" data-i18n="lbl.episodes">Epizody</label>
                         <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recEpisodes">ⓘ</span>
                       </div>
                       <input type="number" id="rec-episodes" value="50" min="1" style="font-size:12px; font-family:var(--font-mono);">
                     </div>
-                  </div>
-
-                  <div class="form-row" style="margin:0; gap:8px;">
                     <div class="form-group">
-                      <div class="label-with-tooltip">
-                        <label for="rec-task-desc" data-i18n="lbl.taskDesc">Popis úkolu — single_task anotace (povinné v LeRobot)</label>
-                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recTaskDesc">ⓘ</span>
-                      </div>
-                      <input type="text" id="rec-task-desc" value="Uchop kostku a zvedni ji" style="font-size:12px;">
-                    </div>
-                    <div class="form-group" style="width: 80px;">
                       <div class="label-with-tooltip">
                         <label for="rec-duration" data-i18n="lbl.maxEpTime">Max čas / ep. (s)</label>
                         <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recDuration">ⓘ</span>
                       </div>
                       <input type="number" id="rec-duration" value="15" min="1" style="font-size:12px; font-family:var(--font-mono);">
                     </div>
-                  </div>
-
-                  <div style="display:flex; justify-content:flex-start; gap:16px; align-items:center;">
-                    <div style="display:flex; align-items:center; gap:6px;">
-                      <input type="checkbox" id="rec-push-hub" style="width:14px; height:14px;">
-                      <label for="rec-push-hub" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;">PUSH TO HF HUB</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recPushHub">ⓘ</span>
+                    <div class="form-group rec-cfg-wide">
+                      <div class="label-with-tooltip">
+                        <label for="rec-task-desc" data-i18n="lbl.taskDesc">Popis úkolu — single_task anotace (povinné v LeRobot)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recTaskDesc">ⓘ</span>
+                      </div>
+                      <input type="text" id="rec-task-desc" value="Uchop kostku a zvedni ji" style="font-size:12px;">
                     </div>
-                    <div style="display:flex; align-items:center; gap:6px;" title="Pokračovat v nahrávání do existujícího datasetu (--resume=true)">
-                      <input type="checkbox" id="rec-resume" style="width:14px; height:14px;">
-                      <label for="rec-resume" style="font-size:11px; cursor:pointer; color:var(--text-muted); font-weight:700;" data-i18n="lbl.resume">POKRAČOVAT (RESUME)</label>
+                    <div class="form-group rec-cfg-wide">
+                      <div class="label-with-tooltip">
+                        <label for="rec-dataset-storage-dir" data-i18n="lbl.dataStorageFolder">Složka pro ukládání dat (HF Cache)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dataStorageFolder">ⓘ</span>
+                      </div>
+                      <input type="text" id="rec-dataset-storage-dir" placeholder="např. /home/verlyba/OrchidayProjects/data (volitelné)" style="font-size:12px;" onchange="App.syncDatasetStorageDir('rec-dataset-storage-dir')" data-i18n-ph="ph.dataDir">
                     </div>
-                  </div>
-                  
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label data-i18n="lbl.dataStorageFolder">Složka pro ukládání dat (HF Cache)</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.dataStorageFolder">ⓘ</span>
+                    <div class="form-group rec-cfg-wide">
+                      <div class="label-with-tooltip">
+                        <label for="rec-extra-args" data-i18n="lbl.extraArgsRecord">Vlastní LeRobot CLI argumenty (Sběr dat)</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recExtraArgs">ⓘ</span>
+                      </div>
+                      <input type="text" id="rec-extra-args" placeholder="např. --dataset.streaming_encoding=true" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.recExtra">
                     </div>
-                    <input type="text" id="rec-dataset-storage-dir" placeholder="např. /home/verlyba/OrchidayProjects/data (volitelné)" style="font-size:12px;" onchange="App.syncDatasetStorageDir('rec-dataset-storage-dir')" data-i18n-ph="ph.dataDir">
-                  </div>
-
-                  <div class="form-group">
-                    <div class="label-with-tooltip">
-                      <label data-i18n="lbl.extraArgsRecord">Vlastní LeRobot CLI argumenty (Sběr dat)</label>
-                      <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recExtraArgs">ⓘ</span>
-                    </div>
-                    <input type="text" id="rec-extra-args" placeholder="např. --dataset.streaming_encoding=true" style="font-size:12px; font-family:var(--font-mono);" data-i18n-ph="ph.recExtra">
-                  </div>
-
-                  <div class="recording-keys-guide" id="rec-keys-guide" style="display:none;" data-i18n="rec.keysGuide">
-                    KLÁVESY (jen když je toto okno aktivní): MEZERNÍK / M značka hranice · BACKSPACE / U zpět · → / N uložit epizodu · ← / R zahodit a opakovat · ESC / Q uložit epizodu a ukončit
-                  </div>
-
-                  <!-- Sub-task boundary marking during recording.
-                       Marks are timestamped inside the lerobot-record process from
-                       the frames already written to the episode (LeRobot stores a
-                       frame timestamp as frame_index / fps), so they line up with
-                       the column the dataset splitter cuts on. -->
-                  <div id="rec-tagging-wizard" class="tagging-panel" style="display:none;">
-                    <div class="tagging-header">
-                      <span class="sidebar-subtitle" data-i18n="hint.activeTagging">Aktivní fázování (Active Tagging)</span>
-                      <span class="tag tag-idle" id="rec-tagging-phase" data-i18n="rec.phaseIdle">Nenahrává se</span>
-                    </div>
-                    <div id="rec-tagging-steps" class="tagging-steps">
-                      <!-- Populated dynamically: steps list e.g. "1. najed_ke_kostce (Aktivní)" -->
-                    </div>
-                    <div class="tagging-actions">
-                      <button class="btn btn-xs btn-success-light" id="btn-tagging-next" onclick="App.taggingNextStep()"
-                              data-i18n-title="rec.markPhaseEndTip"
-                              title="Uloží hranici mezi aktuální a následující fází na aktuálním snímku epizody (klávesa mezerník / M)">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                        <span data-i18n="rec.markPhaseEnd">Označit konec fáze</span>
-                      </button>
-                      <button class="btn btn-xs btn-secondary" id="btn-tagging-undo" onclick="App.taggingUndoStep()" data-i18n-title="rec.undoMarkTip" title="Vrátit poslední značku (překlik) — klávesa Backspace / U">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
-                        <span data-i18n="rec.undoMark">Zpět</span>
-                      </button>
-                    </div>
-                    <div class="tagging-meta">
-                      <span><span data-i18n="rec.episodeLbl">Epizoda</span>: <strong id="rec-tagging-episode">–</strong></span>
-                      <span><span data-i18n="rec.timeLbl">Čas</span>: <strong id="rec-tagging-timer">0.0s</strong></span>
-                      <span><span data-i18n="rec.marksLbl">Značky</span>: <strong id="rec-tagging-points" class="is-count">0</strong></span>
+                    <div class="rec-cfg-flags">
+                      <div class="rec-cfg-flag">
+                        <input type="checkbox" id="rec-push-hub">
+                        <label for="rec-push-hub">PUSH TO HF HUB</label>
+                        <span class="info-tooltip-trigger" data-i18n-tooltip="tip.recPushHub">ⓘ</span>
+                      </div>
+                      <div class="rec-cfg-flag" title="Pokračovat v nahrávání do existujícího datasetu (--resume=true)">
+                        <input type="checkbox" id="rec-resume">
+                        <label for="rec-resume" data-i18n="lbl.resume">POKRAČOVAT (RESUME)</label>
+                      </div>
                     </div>
                   </div>
 
@@ -963,12 +929,31 @@
                     </div>
                   </div>
 
-                  <!-- episodes lists manager -->
-                  <div style="display:flex; flex-direction:column; flex:1; overflow:hidden; margin-top:8px;">
-                    <span class="sidebar-subtitle" style="margin-bottom:6px;" data-i18n="hint.recordedEps">Nahrané epizody (demonstrace)</span>
-                    <div id="rec-episodes-list-container" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
-                      <!-- Populated dynamically via JS -->
+                  <!-- Key map. Every row is a key the app really binds in its
+                       window keydown handler and the lerobot-record flag it ends
+                       up setting, so the table reads as documentation of the
+                       process, not as a promise the UI cannot keep. -->
+                  <div class="rec-keymap">
+                    <div class="rec-keymap-head">
+                      <span class="panel-toolbar-label" data-i18n="rec.keymapTitle">Klávesy během nahrávání</span>
+                      <span class="rec-keymap-note" data-i18n="rec.keymapNote">Fungují jen když je toto okno aplikace aktivní — Orchiday je převádí na řídicí příznaky procesu.</span>
                     </div>
+                    <table class="rec-keymap-table">
+                      <thead>
+                        <tr>
+                          <th data-i18n="rec.keymapColKeys">Klávesy</th>
+                          <th data-i18n="rec.keymapColAction">Co udělá</th>
+                          <th data-i18n="rec.keymapColFlag">LeRobot</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr><td><kbd>␣</kbd><kbd>M</kbd></td><td data-i18n="rec.keyMark">Označí hranici pod-úkolu</td><td>mark</td></tr>
+                        <tr><td><kbd>⌫</kbd><kbd>U</kbd></td><td data-i18n="rec.keyUnmark">Vrátí poslední značku</td><td>unmark</td></tr>
+                        <tr><td><kbd>→</kbd><kbd>N</kbd></td><td data-i18n="rec.keyNext">Uloží epizodu a pokračuje</td><td>exit_early</td></tr>
+                        <tr><td><kbd>←</kbd><kbd>R</kbd></td><td data-i18n="rec.keyRetry">Zahodí epizodu a opakuje ji</td><td>rerecord_episode</td></tr>
+                        <tr><td><kbd>Esc</kbd><kbd>Q</kbd></td><td data-i18n="rec.keyStop">Ukončí sběr a uloží dataset</td><td>stop_recording</td></tr>
+                      </tbody>
+                    </table>
                   </div>
 
               </div><!-- /#rec-active-panel -->
@@ -982,6 +967,64 @@
               <button class="btn btn-xs btn-danger" id="btn-stop-record" onclick="App.stopWorkflowRecord()" disabled title="Nahrávání neběží" data-i18n="btn.stopRecording">Zastavit nahrávání</button>
             </div>
           </div><!-- /.datacollection-block -->
+
+            <!-- Column 3 — sub-task boundary marking, the thing this whole
+                 project is about. Marks are timestamped inside the
+                 lerobot-record process from the frames already written to the
+                 episode (LeRobot stores a frame timestamp as frame_index / fps),
+                 so they line up with the column the dataset splitter cuts on.
+                 The panel is visible before recording too: whether a skill can
+                 feed the orchestration branch at all is decided by its sub-step
+                 list, and that has to be readable BEFORE the take, not during. -->
+            <div class="datacollection-block">
+              <div class="datacollection-block-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"></path><path d="M5 7h14"></path><path d="M5 17h14"></path></svg>
+                <span data-i18n="blk.dc.marking">Značkování pod-úkolů</span>
+              </div>
+              <div class="datacollection-block-body">
+                <div id="rec-tagging-wizard" class="tagging-panel">
+                  <div class="tagging-header">
+                    <span class="sidebar-subtitle" data-i18n="hint.activeTagging">Aktivní fázování (Active Tagging)</span>
+                    <span class="tag tag-idle" id="rec-tagging-phase" data-i18n="rec.phaseIdle">Nenahrává se</span>
+                  </div>
+                  <div id="rec-step-verdict" class="rec-verdict">
+                    <!-- Populated by renderStepPlan(): ACT + orchestrace vs jen ACT baseline -->
+                  </div>
+                  <div id="rec-tagging-steps" class="tagging-steps">
+                    <!-- Populated dynamically: ordered sub-steps with their state -->
+                  </div>
+                  <div class="tagging-actions">
+                    <button class="btn btn-xs btn-success-light" id="btn-tagging-next" onclick="App.taggingNextStep()"
+                            data-i18n-title="rec.markPhaseEndTip"
+                            title="Uloží hranici mezi aktuální a následující fází na aktuálním snímku epizody (klávesa mezerník / M)" disabled>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                      <span data-i18n="rec.markPhaseEnd">Označit konec fáze</span>
+                    </button>
+                    <button class="btn btn-xs btn-secondary" id="btn-tagging-undo" onclick="App.taggingUndoStep()" data-i18n-title="rec.undoMarkTip" title="Vrátit poslední značku (překlik) — klávesa Backspace / U" disabled>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+                      <span data-i18n="rec.undoMark">Zpět</span>
+                    </button>
+                  </div>
+                  <div class="tagging-meta">
+                    <span><span data-i18n="rec.episodeLbl">Epizoda</span>: <strong id="rec-tagging-episode">–</strong></span>
+                    <span><span data-i18n="rec.timeLbl">Čas</span>: <strong id="rec-tagging-timer">0.0s</strong></span>
+                    <span><span data-i18n="rec.marksLbl">Značky</span>: <strong id="rec-tagging-points" class="is-count">0</strong></span>
+                  </div>
+                </div>
+
+                <div class="rec-episodes">
+                  <span class="sidebar-subtitle" data-i18n="hint.recordedEps">Nahrané epizody (demonstrace)</span>
+                  <div id="rec-episodes-list-container" class="rec-episodes-list">
+                    <!-- Populated dynamically via JS -->
+                  </div>
+                </div>
+              </div>
+
+              <div class="block-actions">
+                <span class="block-actions-hint" data-i18n="hint.markScope">Značky se ukládají vedle datasetu průběžně během nahrávání. Rozřezání na pod-datasety pro orchestraci se spouští na kartě Správa datasetů.</span>
+                <button class="btn btn-xs btn-secondary" id="btn-rec-open-manage" onclick="App.switchDatasetyTab('manage')" data-i18n="btn.openDatasetManage" data-i18n-title="tip.openDatasetManage" title="Přepne na kartu Správa datasetů">Přejít na správu datasetů</button>
+              </div>
+            </div><!-- /.datacollection-block (marking) -->
           </div><!-- /.datacollection-grid -->
           </div><!-- /.setup-wizard-panel[collect] -->
 
@@ -2886,7 +2929,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.61.0" defer></script>
-  <script src="/static/app.js?v=3.61.0" defer></script>
+  <script src="/static/i18n.js?v=3.62.0" defer></script>
+  <script src="/static/app.js?v=3.62.0" defer></script>
 </body>
 </html>

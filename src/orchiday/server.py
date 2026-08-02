@@ -360,7 +360,11 @@ async def get_current_project():
             "path": str(pm.current_path),
             "active_cameras": active_cams
         }
-    return JSONResponse({"error": "No project open"}, status_code=404)
+    # "Nothing is open yet" is the normal state right after the app starts, not
+    # an error. Answering 404 made the browser log a console error on every
+    # fresh load, which buries the errors that do matter. All callers already
+    # test for `project`, so a null is enough.
+    return {"project": None, "path": "", "active_cameras": []}
 
 
 # ── Robots ───────────────────────────────────────────────────────────────

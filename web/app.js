@@ -52,6 +52,11 @@ const App = {
     taggingEpisode: -1,
     // Phase of lerobot's record loop: 'record' | 'reset' | 'idle'
     taggingPhase: 'idle',
+    // True between a successful /recording/start and the process ending. The
+    // recording keys and the live controls are both gated on this instead of on
+    // an element's inline display, which stopped being a reliable signal once the
+    // marking panel became permanently visible.
+    recordingActive: false,
     armVisualConfig: null,
     armJointRanges: { leader: {}, follower: {} },
     wizardActivePage: 1,
@@ -158,6 +163,12 @@ const App = {
                 this.renderRobots();
                 this.renderCameras();
             }
+            // The marking column and the episode rows are built in JS too, so they
+            // would otherwise keep the previous language.
+            if (this.activeSkill)
+                this.selectSkill(this.activeSkill);
+            else
+                this.renderStepPlan();
             // Both lists live inside a tab of a bigger page, so the page id is what
             // decides whether they are on screen (they used to be looked up under
             // ids that no element carries, which made a language switch leave the
@@ -181,6 +192,9 @@ const App = {
         this.bindResizers();
         this.bindColumnResizers();
         this.bindModals();
+        // Paint the marking column before any project is open, so it reads as
+        // "nothing selected yet" instead of an empty box.
+        this.renderStepPlan();
         // Default tab
         this.changeTab('projects');
         // Camera layout setup
@@ -217,11 +231,9 @@ const App = {
         // neither under our subprocess, so the app is what turns a key press into a
         // recording control (the same three flags lerobot's listener sets) and into
         // a sub-task boundary mark. They therefore only work while this window has
-        // focus, which is what the on-screen key guide says.
+        // focus, which is what the on-screen key map says.
         window.addEventListener('keydown', (e) => {
-            const liveControls = document.getElementById('rec-live-controls');
-            const taggingWizard = document.getElementById('rec-tagging-wizard');
-            const recordingActive = liveControls && liveControls.style.display === 'flex';
+            const recordingActive = this.recordingActive;
             // Never steal keys from a field the user is typing into.
             const target = e.target;
             const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
@@ -240,7 +252,9 @@ const App = {
                     this.sendRecordingAction('stop');
                 }
             }
-            if (taggingWizard && taggingWizard.style.display === 'flex' && !typing) {
+            // The marking panel is on screen whether or not a take is running, so the
+            // marking keys are gated on the session, not on the panel being visible.
+            if (recordingActive && !typing) {
                 if (e.key === ' ' || e.key === 'm' || e.key === 'M') {
                     e.preventDefault();
                     this.taggingNextStep();
@@ -420,9 +434,8 @@ const App = {
             case 'recording_started':
                 this.log('INFO', `Demonstration recording started for skill: ${data}`);
                 this.updateTrainingStatus(`Recording demonstration for '${data}'...`, 'var(--yellow)');
-                const keysG = document.getElementById('rec-keys-guide');
-                if (keysG)
-                    keysG.style.display = 'block';
+                // The process may also have been started from another client.
+                this.setRecordingUiActive(true);
                 break;
             case 'recording_progress':
                 this.log('INFO', `Recording episode progress: ${Math.round(data.progress * 100)}%`);
@@ -446,9 +459,7 @@ const App = {
             case 'recording_stopped':
                 this.log('SUCCESS', `Demonstration episode recorded successfully for: ${data.skill}`);
                 this.updateTrainingStatus(`Recording complete! Saved ${data.episode_count || 0} episodes.`, 'var(--green)');
-                const keysGh = document.getElementById('rec-keys-guide');
-                if (keysGh)
-                    keysGh.style.display = 'none';
+                this.setRecordingUiActive(false);
                 this.finishTaggingPostProcess();
                 this.refreshProject();
                 break;
@@ -1908,6 +1919,12 @@ const App = {
                         emptyState.style.display = 'flex';
                     if (activePanel)
                         activePanel.style.display = 'none';
+                    this.activeSkill = null;
+                    this.renderStepPlan();
+                    const listContainer = document.getElementById('rec-episodes-list-container');
+                    if (listContainer) {
+                        listContainer.innerHTML = `<div class="rec-episodes-empty">${this.esc(this.t('hint.noRecordableSkill'))}</div>`;
+                    }
                 }
                 await this.scanHardware();
                 this.prefillWorkflowData();
@@ -3115,21 +3132,16 @@ const App = {
             alert(msg);
             return;
         }
-        // Show interactive UI guide for LeRobot keys (matches lerobot-record >= 0.4)
-        const guide = document.getElementById('rec-keys-guide');
-        if (guide) {
-            guide.style.display = 'block';
-            guide.innerHTML = `
-        <strong>Nahrávání aktivní!</strong><br>
-        1. <strong>ŠIPKA VPRAVO (→)</strong> = Uložit epizodu a pokračovat<br>
-        2. <strong>ŠIPKA VLEVO (←)</strong> = Zahodit a natočit znovu<br>
-        3. <strong>ESC</strong> = Dokončit a uložit dataset
-      `;
-        }
-        const liveControls = document.getElementById('rec-live-controls');
-        if (liveControls) {
-            liveControls.style.display = 'flex';
-        }
+        // The request can take a while (the backend spawns the LeRobot process and
+        // opens the serial port), so the button says so instead of looking dead.
+        const startBtn = document.getElementById('btn-start-record');
+        const startLabel = startBtn?.querySelector('span');
+        const startLabelText = startLabel?.textContent || '';
+        if (startBtn)
+            startBtn.disabled = true;
+        if (startLabel)
+            startLabel.textContent = this.t('btn.startingRecording');
+        this.setRecordingUiActive(true);
         this.log('INFO', `Requesting Record for ${repo} (${eps} eps @ ${fps}fps, task="${taskDesc || this.activeSkill}")`);
         const extraArgs = document.getElementById('rec-extra-args')?.value.trim() || '';
         const res = await this.api('POST', '/recording/start', {
@@ -3145,36 +3157,48 @@ const App = {
             resume: resume,
             extra_args_str: extraArgs
         });
+        if (startBtn)
+            startBtn.disabled = false;
+        if (startLabel)
+            startLabel.textContent = startLabelText || this.t('btn.startRecording');
         if (res && res.ok === false) {
             this.log('ERROR', `Backend Validation Failed: ${res.error}`);
-            alert(`Chyba: ${res.error}`);
-            if (guide)
-                guide.style.display = 'none';
-            if (liveControls)
-                liveControls.style.display = 'none';
+            alert(`${this.t('alert.errorPrefix')}: ${res.error}`);
+            this.setRecordingUiActive(false);
         }
         else if (res && res.ok !== false) {
             this.initTaggingWizard();
         }
     },
+    /**
+     * Single switch for "a take is running": the live controls, the recording
+     * keys and the two Start/Stop buttons all read from it, so they can never
+     * disagree about whether a recording is in progress.
+     */
+    setRecordingUiActive(on) {
+        this.recordingActive = on;
+        const liveControls = document.getElementById('rec-live-controls');
+        if (liveControls)
+            liveControls.style.display = on ? 'flex' : 'none';
+        const stopBtn = document.getElementById('btn-stop-record');
+        if (stopBtn) {
+            stopBtn.disabled = !on;
+            stopBtn.title = this.t(on ? 'tip.stopRecording' : 'tip.notRecording');
+        }
+    },
     async stopWorkflowRecord() {
         const skillSlug = this.activeSkill || 'pick_cube';
         await this.api('POST', '/recording/stop', { skill_slug: skillSlug });
-        const guide = document.getElementById('rec-keys-guide');
-        if (guide)
-            guide.style.display = 'none';
-        const liveControls = document.getElementById('rec-live-controls');
-        if (liveControls)
-            liveControls.style.display = 'none';
+        this.setRecordingUiActive(false);
         await this.finishTaggingPostProcess();
     },
     async sendRecordingAction(action) {
-        const labels = {
-            next: 'Ukončit epizodu a pokračovat',
-            reset: 'Zahodit epizodu a nahrát znovu',
-            stop: 'Ukončit nahrávání a uložit',
+        const labelKeys = {
+            next: 'log.recNext',
+            reset: 'log.recRetry',
+            stop: 'log.recStop',
         };
-        this.log('INFO', labels[action] || action);
+        this.log('INFO', labelKeys[action] ? this.t(labelKeys[action]) : action);
         // Pass the skill explicitly so the backend targets the right process even
         // if several recordings were ever queued.
         const res = await this.api('POST', '/recording/action', { action, skill: this.activeSkill || '' });
@@ -3882,12 +3906,21 @@ const App = {
         }
         const skills = this.project?.skills || [];
         const hasSubSkills = skills.some(sub => details[sub]?.parent_slug === s);
+        // The marking column is not gated on the recording panel — it describes the
+        // selected skill, which is exactly what the empty state cannot.
+        this.renderStepPlan();
         if (!isStep && !hasSubSkills) {
             // It's a top-level Dovednost with NO sub-skills! Hide active recording panel, show empty state
             if (emptyState)
                 emptyState.style.display = 'flex';
             if (activePanel)
                 activePanel.style.display = 'none';
+            // Nothing is recordable here, so the episode list must not keep showing
+            // the episodes of whichever skill was selected before.
+            const listContainer = document.getElementById('rec-episodes-list-container');
+            if (listContainer) {
+                listContainer.innerHTML = `<div class="rec-episodes-empty">${this.esc(this.t('hint.noRecordableSkill'))}</div>`;
+            }
         }
         else {
             // It has sub-skills or it is a sub-skill! Show active recording panel, hide empty state
@@ -3928,7 +3961,7 @@ const App = {
                 const epCountEl = document.getElementById('active-skill-episodes');
                 const sizeEl = document.getElementById('active-skill-size');
                 if (epCountEl) {
-                    epCountEl.textContent = `${info.num_episodes || 0} epizod`;
+                    epCountEl.textContent = this.t('val.nEpisodes', { n: info.num_episodes || 0 });
                 }
                 if (sizeEl) {
                     sizeEl.textContent = `${info.size_mb || '0.00'} MB`;
@@ -3936,17 +3969,17 @@ const App = {
                 const listContainer = document.getElementById('rec-episodes-list-container');
                 if (listContainer) {
                     if (!info.exists || info.num_episodes === 0) {
-                        listContainer.innerHTML = `<div style="font-size:11px; color:var(--text-muted); font-style:italic; text-align:center; padding: 12px 0;">Žádné epizody nenahrány v local/${datasetSlug}.</div>`;
+                        listContainer.innerHTML = `<div class="rec-episodes-empty">${this.esc(this.t('hint.noEpisodesIn', { repo: `local/${datasetSlug}` }))}</div>`;
                     }
                     else {
                         let listHtml = '';
                         for (let idx = 0; idx < info.num_episodes; idx++) {
                             listHtml += `
-                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); padding: 5px 8px; font-size: 11px;">
-                    <span style="font-weight:700; color:var(--text-muted);">Epizoda ${idx}</span>
-                    <div style="display:flex; gap:4px;">
-                      <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">Přehrát</button>
-                      <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx})" style="padding: 2px 6px; font-size:10px;">Smazat</button>
+                  <div class="rec-episode-row">
+                    <span class="rec-episode-name">${this.esc(this.t('rec.episodeLbl'))} ${idx}</span>
+                    <div class="rec-episode-actions">
+                      <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" title="${this.esc(this.t('tip.replayEp'))}">${this.esc(this.t('btn.replayEp'))}</button>
+                      <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx})" title="${this.esc(this.t('tip.deleteEp'))}">${this.esc(this.t('btn.delete'))}</button>
                     </div>
                   </div>
                 `;
@@ -5036,15 +5069,51 @@ const App = {
         const details = this.project?.skills_details || {};
         return skills.filter(sub => details[sub]?.parent_slug === s);
     },
+    /**
+     * The marking column, rendered from the selected skill alone. It answers the
+     * question the whole project exists for — can this recording feed the
+     * orchestration branch, or only the ACT baseline — and it has to answer it
+     * BEFORE the take, which is why it does not wait for a recording to start.
+     */
+    renderStepPlan() {
+        const verdictEl = document.getElementById('rec-step-verdict');
+        const stepsContainer = document.getElementById('rec-tagging-steps');
+        if (!verdictEl || !stepsContainer)
+            return;
+        const s = this.activeSkill;
+        if (!s) {
+            verdictEl.innerHTML = '';
+            stepsContainer.innerHTML =
+                `<div class="tagging-empty">${this.esc(this.t('hint.pickSkillForPlan'))}</div>`;
+            return;
+        }
+        const subSkills = this.taggingSubSkills();
+        // Two or more ordered sub-steps means at least one boundary, so the
+        // recording can be cut into sub-datasets — same rule the splitter uses.
+        const splittable = subSkills.length >= 2;
+        // A sub-step selected on its own is a perfectly good ACT baseline take; a
+        // top-level task with no sub-steps cannot be recorded at all. Both have
+        // zero boundaries, so the count alone must not decide the wording.
+        const isStep = !!this.project?.skills_details?.[s]?.parent_slug;
+        const textKey = splittable ? 'hint.verdictBoth'
+            : subSkills.length === 1 ? 'hint.verdictOneStep'
+                : isStep ? 'hint.verdictLeafStep' : 'hint.verdictNoSteps';
+        verdictEl.innerHTML = `
+      <span class="pd-task-mode ${splittable ? 'ok' : 'baseline'}">${this.esc(this.t(splittable ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
+      <span class="rec-verdict-text">${this.esc(this.t(textKey, { n: subSkills.length, marks: Math.max(0, subSkills.length - 1) }))}</span>`;
+        this.renderTaggingSteps(subSkills);
+        // Selecting another skill changes why the mark control is unavailable, so
+        // its label has to be recomputed here and not only on a phase change.
+        this.setTaggingNextEnabled(this.taggingPhase === 'record' && splittable
+            && this.taggingActiveIndex < subSkills.length - 1);
+    },
     initTaggingWizard() {
         const s = this.activeSkill;
         if (!s)
             return;
         const subSkills = this.taggingSubSkills();
-        const wizard = document.getElementById('rec-tagging-wizard');
         const stepsContainer = document.getElementById('rec-tagging-steps');
-        if (subSkills.length > 0 && wizard && stepsContainer) {
-            wizard.style.display = 'flex';
+        if (subSkills.length > 0 && stepsContainer) {
             // Marks are timestamped INSIDE the recording process, from the frames
             // already written to the episode — this local timer is display-only.
             this.taggingStartTime = Date.now();
@@ -5074,9 +5143,6 @@ const App = {
             }, 100);
             this.log('SUCCESS', this.t('log.taggingStarted', { s, n: subSkills.length }));
         }
-        else if (wizard) {
-            wizard.style.display = 'none';
-        }
     },
     setTaggingNextEnabled(enabled) {
         const btnNext = document.getElementById('btn-tagging-next');
@@ -5089,10 +5155,12 @@ const App = {
         const label = btnNext.querySelector('span');
         if (!label)
             return;
-        // The disabled state has two different causes — say which one it is.
-        const allMarked = this.taggingActiveIndex >= Math.max(0, this.taggingSubSkills().length - 1);
+        // The disabled state has three different causes — say which one it is.
+        const nSteps = this.taggingSubSkills().length;
+        const allMarked = nSteps >= 2 && this.taggingActiveIndex >= nSteps - 1;
         label.textContent = enabled ? this.t('rec.markPhaseEnd')
-            : allMarked ? this.t('rec.allPhasesMarked') : this.t('rec.markUnavailable');
+            : nSteps < 2 ? this.t('rec.markNoBoundary')
+                : allMarked ? this.t('rec.allPhasesMarked') : this.t('rec.markUnavailable');
     },
     onRecordingEpisodeStarted(episode) {
         // A new episode began — step marking restarts from phase 0. lerobot reuses
@@ -5117,9 +5185,17 @@ const App = {
         if (!stepsContainer)
             return;
         const details = this.project?.skills_details || {};
+        if (!subSkills.length) {
+            stepsContainer.innerHTML =
+                `<div class="tagging-empty">${this.esc(this.t('hint.noStepsToMark'))}</div>`;
+            return;
+        }
+        // Outside a take there is no "current" phase yet, so no row may claim to be
+        // active — the list is then a plan, not a progress indicator.
+        const live = this.taggingPhase === 'record' || this.taggingPoints.length > 0;
         stepsContainer.innerHTML = subSkills.map((sub, idx) => {
-            const isCompleted = idx < this.taggingActiveIndex;
-            const isActive = idx === this.taggingActiveIndex;
+            const isCompleted = live && idx < this.taggingActiveIndex;
+            const isActive = live && idx === this.taggingActiveIndex;
             const rowCls = isCompleted ? 'is-done' : isActive ? 'is-active' : 'is-waiting';
             const stateLabel = isCompleted ? this.t('tag.done')
                 : isActive ? this.t('tag.active') : this.t('tag.waiting');
@@ -5226,6 +5302,9 @@ const App = {
             status.textContent = this.t(key);
             status.className = 'tag ' + (phase === 'record' ? 'tag-live' : 'tag-idle');
         }
+        // The phase decides whether the step list is a plan or a progress
+        // indicator, so it has to be repainted with it.
+        this.renderTaggingSteps(subSkills);
         this.setTaggingNextEnabled(phase === 'record' && subSkills.length > 0
             && this.taggingActiveIndex < subSkills.length - 1);
     },
@@ -5249,14 +5328,22 @@ const App = {
             this.taggingInterval = null;
         }
         this.taggingPhase = 'idle';
-        const wizard = document.getElementById('rec-tagging-wizard');
-        if (wizard)
-            wizard.style.display = 'none';
+        this.taggingPoints = [];
+        this.taggingActiveIndex = 0;
+        const pointsEl = document.getElementById('rec-tagging-points');
+        if (pointsEl)
+            pointsEl.textContent = '0';
+        const epEl = document.getElementById('rec-tagging-episode');
+        if (epEl)
+            epEl.textContent = '–';
+        this.onRecordingPhase('idle');
         const s = this.activeSkill;
         if (s && this.taggingSubSkills().length > 0) {
             this.log('INFO', this.t('log.marksPersisted'));
-            this.selectSkill(s);
         }
+        // Re-reads the episode count and repaints the plan back to its idle state.
+        if (s)
+            this.selectSkill(s);
     },
     initPersistentInferenceUI() {
         const s = this.activeSkill;

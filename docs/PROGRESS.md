@@ -8,6 +8,151 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (9) — Sběr dat: značkování pod-úkolů je vidět **před** nahráváním
++ měřicí fixture konečně měřil to, co appka opravdu ukazuje
+
+**Výchozí stav.** `bash scripts/verify.sh` na čerstvém klonu spadl na dvou
+testech (`websockets` chyběl), `setup-dev.sh` to doinstaloval a gate prošel
+celý (150 pytestů). Priorita A prázdná.
+
+**Nejdřív oprava měření — jinak by tenhle běh řešil neexistující problém**
+
+Fronta říkala, že `datasety` je druhá nejprázdnější stránka (7–11 %). Není to
+pravda: `scripts/measure_layout.mjs` zakládal fixture projekt **bez jediné
+dovednosti**, takže se na půlce stránek měřil prázdný stav. Se skutečným
+fixture (jeden úkol se dvěma seřazenými pod-kroky, tedy **rozdělitelný**)
+měla stránka i před touhle změnou 32 / 34 / 37 %. Fixture to teď zakládá sám
+(`ensureSkills()`) — všechna čísla ve frontě níže z předchozích běhů jsou tím
+pádem podezřelá a je nutné je přeměřit, ne jim věřit.
+
+Skutečný defekt na téhle stránce byl jiný a fronta ho měla taky: **pole
+roztažená přes celou šířku okna** (`#rec-dataset-storage-dir` a
+`#rec-extra-args` po 990 px) a hlavně to, že **značkování pod-úkolů — věc,
+kvůli které celý projekt existuje — bylo vidět až během nahrávání.**
+
+**Hlavní změna — karta „Sběr dat" má tři sloupce**
+
+- **Sloupec 3 je nový: „Značkování pod-úkolů"** a je vidět **pořád**, ne až za
+  běhu. Nahoře **verdikt** (`ACT + orchestrace` vs `jen ACT baseline`, stejné
+  pravidlo ≥ 2 pod-kroky jako používá splitter) s větou, co to pro tuhle
+  dovednost znamená; pod ním **seřazený seznam pod-kroků**, ovládání značek,
+  počítadlo značek a nakonec **seznam nahraných epizod** (přesunut ze
+  sloupce 2, je to jediný prvek, který má smysl zvětšovat, takže volnou výšku
+  pohlcuje on). Otázku „půjde tenhle dataset použít pro orchestraci?" tedy
+  appka zodpoví **před** natočením epizody, ne až po něm.
+  Verdikt rozlišuje tři případy, protože počet pod-kroků sám o sobě nestačí:
+  pod-krok vybraný samostatně je legitimní ACT baseline, kdežto úkol nejvyšší
+  úrovně bez pod-kroků **nejde nahrát vůbec** — a to musí říct, ne mlčet.
+- **Sloupec 2 „Nahrávání (lerobot-record)"**: konfigurace je dvousloupcová
+  mřížka (`.rec-config-grid`, `auto-fit minmax(215px, 1fr)`), jen dvě pole
+  s dlouhou hodnotou (cesta, CLI argumenty) berou dva sloupce. Sloupce 2 a 3
+  si dělí zbývající šířku rovným dílem — nechat sloupec 2 pohltit všechno
+  dávalo formulář ~980 px široký, což je přesně příčina těch roztažených polí.
+- **Řádek statistik dostal `Velikost` a `Policy`** — `selectSkill()` do
+  `active-skill-size` a `active-skill-training` zapisoval celou dobu, ale
+  **ani jeden element v HTML neexistoval** (byly ve frontě mrtvých odkazů).
+- **Klávesová nápověda je tabulka, ne věta.** Pět řádků: klávesy → co udělá →
+  příznak LeRobotu (`mark`, `unmark`, `exit_early`, `rerecord_episode`,
+  `stop_recording`). Každý řádek odpovídá vazbě, kterou prohlížeč opravdu
+  registruje v `keydown` handleru, a příznaku, který z ní vznikne
+  v `_OrchidayFileListener.poll_once()`.
+
+**Opravené chyby (nalezené při práci, ne plánované)**
+
+1. **`startWorkflowRecord()` přepisoval nápovědu ke klávesám natvrdo česky**
+   a jen třemi klávesami — **obě klávesy pro značkování** (mezerník / M,
+   Backspace / U), tedy to hlavní, co appka umí navíc proti LeRobotu, tam
+   chyběly. Navíc to byl přesně vzor zapsaný ve frontě: element se statickým
+   `data-i18n`, do kterého se píše dynamický text → každé přepnutí jazyka ho
+   přepsalo zpátky. Celý element je pryč, nahradila ho ta tabulka.
+2. **Stav „nahrává se" se odvozoval z inline stylů.** Klávesy i `Escape`
+   pro zavření modálu se rozhodovaly podle
+   `liveControls.style.display === 'flex'` a značkovací klávesy podle
+   `taggingWizard.style.display === 'flex'`. Jakmile je značkovací panel vidět
+   pořád, druhá podmínka by platila **vždy**. Nově je stav explicitní
+   (`App.recordingActive`) a jediný přepínač `setRecordingUiActive()` řídí
+   živé ovládání, klávesy i tlačítko „Zastavit nahrávání" — nemůžou se
+   rozejít. Ověřeno: mezerník mimo nahrávání značku nevytvoří.
+3. **`onRecordingPhase()` nepřekresloval seznam kroků**, takže po startu
+   epizody zůstaly všechny kroky ve stavu „Čeká" (fáze se mění *po*
+   vykreslení). Fáze přitom rozhoduje, jestli je seznam plán, nebo ukazatel
+   průběhu.
+4. **Po dokončení nahrávání zůstalo počítadlo značek na poslední hodnotě.**
+   `finishTaggingPostProcess()` vynulovalo pole, ne text v DOM.
+5. **`GET /api/project` vracel 404, když není otevřený projekt.** To je
+   normální stav hned po startu, ne chyba — a prohlížeč to logoval jako
+   chybu konzole při **každém** načtení. Přesně ten šum, pod kterým se
+   v běhu (6) a (7) schoval chybějící `</div>` a mrtvý `/ws`. Nově 200
+   s `project: null`; všichni tři volající už `if (cur.project)` testovali.
+   Nový test v `tests/test_runtime_dependencies.py`.
+6. **Chybějící favicon** — druhá 404 v konzoli na každém načtení. Přidán
+   `web/favicon.svg` (plochý, ostré rohy, bez gradientu) a `<link rel="icon">`.
+   Po obou opravách je v konzoli **jediná** chyba: import fontů z Googlu
+   (kontejner bez internetu, viz fronta).
+7. **Natvrdo česky psané řetězce** ze seznamu ve frontě: seznam epizod
+   („Epizoda", „Přehrát", „Smazat", prázdný stav), popisky v
+   `sendRecordingAction()` a `alert('Chyba: …')`. Tlačítka epizod mají navíc
+   `title` s tím, co opravdu udělají (`lerobot-replay` na reálném rameni;
+   mazání přepisuje uložená Parquet data).
+8. **Přepnutí jazyka nepřekreslovalo značkovací sloupec ani seznam epizod** —
+   `rerenderDynamic()` o nich nevěděl. Stejná třída chyby jako u Projektů
+   v běhu (8).
+9. **Tlačítko „Označit konec fáze" lhalo popiskem u dovednosti bez hranic**:
+   `0 >= max(0, -1)` vyšlo jako „Všechny fáze označeny". Nově tři různé
+   důvody nedostupnosti a `renderStepPlan()` je přepočítá i při pouhé změně
+   vybrané dovednosti.
+10. **„Spustit nahrávání" nemělo indikátor průběhu** — server při startu
+    spouští LeRobot proces a otevírá sériový port. Tlačítko je po dobu
+    requestu disabled s popiskem „Spouštím…".
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **151 pytestů** (bylo 150),
+  compileall, i18n parita cs=en=870 bez duplicit, žádná duplicitní id,
+  9 panelů pod `#workspace-main`, flat design tokens, 104 `App.*` odkazů.
+- **Obsazenost plochy proti běžícímu backendu**, stejný fixture pro obě
+  měření (výchozí stav přeměřen přes `git stash push -- web/`, aby srovnání
+  nelhalo): `datasety` **32 / 34 / 37 % → 33 / 40 / 40 %**
+  (1600×900 / 1280×800 / 1024×760). Hlavní výsledek ale není obsazenost —
+  je to **2 roztažená pole (990 px) → 0** na všech třech velikostech.
+  Ostatních sedm stránek má čísla na jednotku stejná jako před změnou.
+- **Průchod stavy proti běžícímu backendu** (9 stavů): úkol se dvěma
+  pod-kroky → verdikt `ACT + orchestrace`, dva řádky „Čeká", značkování
+  disabled; úkol bez pod-kroků → `jen ACT baseline` + „nelze nahrávat";
+  start nahrávání → fáze „Nahrává se", první krok AKTIVNÍ, živé ovládání
+  `flex`, „Zastavit nahrávání" enabled; značka na 4,25 s → první krok
+  „Hotovo" s časem, druhý AKTIVNÍ, počítadlo 1, „Zpět" enabled, „Označit"
+  přepne na „Všechny fáze označeny"; fáze `reset` → značky zůstanou, štítek
+  se změní; konec → vše zpět do klidu, počítadlo 0, epizoda „–".
+  **Nahrávací proces sám v tomhle ověření neběžel** — testován je stavový
+  automat UI, ne LeRobot.
+- **Klávesové hradlování**: mezerník mimo nahrávání nevytvoří značku
+  (0 → 0). Předtím by ho nový, trvale viditelný panel propustil.
+- **Anglický režim** (přes `setLang('en')`, ne jen `applyI18n()`): v celém
+  `page-datasety` **nezůstal jediný řádek s českou diakritikou**.
+- **Hit-test** všech pěti tlačítek v patičkách karty „Sběr dat" na
+  1600×900, 1024×760 i **860×700** (pod globálním zlomem 920 px): všechna
+  dosažitelná, nic je nepřekrývá. Na 860×700 se sloupce skládají pod sebe,
+  splittery mizí, žádný vodorovný přetok — a totéž na kartě Správa datasetů.
+- **Konzole prohlížeče**: po opravě `/api/project` a favicony **žádná 404**
+  v logu serveru (bylo 1 na každé načtení).
+
+**Zbývá vyzkoušet na fyzickém robotu** (v cloudu nelze)
+
+- Že klávesy z tabulky opravdu dorazí do běžícího `lerobot-record` a nastaví
+  tam ty příznaky, které tabulka slibuje. Ověřená je vazba v prohlížeči
+  a mapování ve wrapperu ve zdrojáku, ne celý řetěz proti procesu.
+- Že „Spustit nahrávání" ukazuje „Spouštím…" po celou dobu round tripu —
+  v kontejneru není sériový port, takže odpověď přijde řádově dřív než na
+  hardwaru.
+- Že se seznam kroků během reálné epizody posouvá podle událostí
+  `step_marked` a že časy značek v něm odpovídají tomu, na čem pak řeže
+  `POST /api/datasets/split_steps`. Simulované byly jen události.
+- Že verdikt `ACT + orchestrace` znamená, že rozřezání opravdu projde —
+  struktura se čte ze `skill.json`, shoda s nahranými značkami ověřená není.
+- Vzhled mimo Chromium (tabulka kláves, `<kbd>`, třísloupcová mřížka) na
+  macOS/WebKitu a ve Firefoxu.
+
 ## 2026-08-02 (8) — Projekty: z 8 % nejprázdnější stránky aplikace pracovní
 plocha master/detail + **měřicí skript konečně v repu**
 
@@ -899,11 +1044,14 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   navíc kontroluje párování značek a zanoření stránek — f494000 kvůli tomu
   sedmkrát po sobě prošel s nedostupnou Nápovědou a neviditelnou konzolí.
 - **Prázdná plocha v panelech.** Teleoperace hotová (4), Kalibrace (5),
-  Projekty (8). Zbývají **`datasety`**, **`setup/connect`**, **`modelrun`**
-  a **`uceni`**; čísla si přeměř `scripts/measure-layout.sh` — tabulka výše je
-  z prázdného fixture projektu a některé stránky podhodnocuje. Vyplnit rozvržením nebo
-  grafickým prvkem, NE roztažením polí. Tohle je věc, kterou zadání označuje
-  za hlavní problém.
+  Projekty (8), `datasety` (9). Zbývají **`setup/connect`**, **`modelrun`**
+  a **`uceni`**. Vyplnit rozvržením nebo grafickým prvkem, NE roztažením polí.
+  Tohle je věc, kterou zadání označuje za hlavní problém.
+  **POZOR na čísla ve frontě z běhů (7)–(8):** fixture tehdy zakládal projekt
+  **bez dovedností**, takže se u `datasety`, `uceni` a `modelrun` měřil prázdný
+  stav a čísla byla řádově nižší než realita (`datasety` 7–11 % vs skutečných
+  32–37 %). Od (9) fixture zakládá úkol se dvěma pod-kroky. **Než si vybereš
+  stránku podle tabulky, přeměř ji** — `bash scripts/measure-layout.sh`.
 - ~~**Měřicí skripty se vyplatí mít v repu.**~~ — hotovo 2026-08-02 (8):
   `bash scripts/measure-layout.sh [--pages a,b] [--json]`. Pasti níže platí dál,
   jsou v něm ošetřené a okomentované. Původní zápis:
@@ -945,10 +1093,11 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   Všechno je dosažitelné scrollem, ale stránky Nastavení a Učení jsou tam
   těsné. Dok jde sbalit na 40 px tlačítkem „Toggle" (od (6) funguje napoprvé).
   Zvážit, jestli si stav sbaleného doku nemá appka pamatovat.
-- `.datacollection-grid` má v CSS pravidla pro `nth-child(3)` (280px sloupec
-  kamer), ale v HTML jsou jen 2 bloky — kamerový sloupec ze sběru dat zmizel
-  (souvisí s mrtvými id `cam-feed-placeholder-1/2` níže). Rozhodnout: vrátit,
-  nebo pravidla smazat.
+- ~~`.datacollection-grid` má pravidla pro `nth-child(3)`, ale v HTML jsou jen
+  2 bloky~~ — vyřešeno 2026-08-02 (9): třetí sloupec je „Značkování pod-úkolů".
+  Kamerový náhled se sem **nevrátil** — mrtvá id `cam-feed-placeholder-1/2`
+  zůstávají ve frontě níž a je pořád nerozhodnuto, jestli má sběr dat ukazovat
+  živý obraz kamer, nebo to nechat na doku dole.
 - ~~`:root` má `--radius`, `--radius-lg`, `--overlay-blur` a `backdrop-filter`~~
   — hotovo 2026-08-02 (7). Všechno pryč, nahrazeno jedním
   `* { border-radius: 0 }`, a `verify.sh` krok „flat design tokens" hlídá
@@ -958,12 +1107,13 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 - Mrtvé odkazy na id v `app.ts` (jsou null-guardované, takže nic nepadá, ale je to
   neudržovaný kód): `status-ws`, `status-robot`, `status-lm`, `robot-list`,
   `sidebar-proj-name`, `sidebar-projects-list-container`, `breadcrumb-file`,
-  `breadcrumb-section`, `active-skill-size`, `active-skill-training`,
-  `task-latch-desc-text`, `train-repo-id`, `cam-feed-placeholder-1/2`.
+  `breadcrumb-section`, `task-latch-desc-text`, `train-repo-id`,
+  `cam-feed-placeholder-1/2`. (`active-skill-size` a `active-skill-training`
+  jsou od (9) skutečné elementy v řádku statistik na kartě Sběr dat.)
   Buď doplnit chybějící UI (indikátor stavu WS/robota by se hodil), nebo smazat.
 - Natvrdo česky psané řetězce v dynamicky generovaném HTML (mimo i18n):
-  `dsRefreshList`, `advPopulateResumeSkills`, `selectSkill` (seznam epizod:
-  „Epizoda", „Přehrát", „Smazat"), wizard `wizard-opt-found-*`.
+  `dsRefreshList`, `advPopulateResumeSkills`, `renderInferenceSubtasks`,
+  wizard `wizard-opt-found-*`. (Seznam epizod v `selectSkill` je hotový od (9).)
   Také `calibrateArm()` („Spouštím (leader)…") a hlášky `log()` napříč
   `app.ts` — ty se do konzole píšou vždy česky.
 - **Vzor, na který si dát pozor:** element se statickým `data-i18n`, do kterého
@@ -973,33 +1123,34 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   dynamické hodnoty odebrat, nebo ho spolu s textem přenastavit na klíč, který
   právě platí — obojí je v kódu použité, hledat `setAttribute('data-i18n'`.
 
-**Naměřená obsazenost plochy (2026-08-02, headless Chromium, otevřený projekt)**
+**Naměřená obsazenost plochy (2026-08-02 běh (9), headless Chromium, fixture
+s jedním úkolem a dvěma pod-kroky)**
 
-Fronta na vyplnění prázdné plochy, seřazená podle toho, kde je jí nejvíc.
-Počítáno jen na prvcích, které opravdu kreslí; 1600×900 / 1280×800 / 1024×760:
+Fronta na vyplnění prázdné plochy. Počítáno jen na prvcích, které opravdu
+kreslí; 1600×900 / 1280×800 / 1024×760:
 
 | stránka | obsazenost | poznámka |
 |---|---|---|
-| ~~`projects`~~ | ~~5 / 6 / 8 %~~ → **31 / 38 / 45 %** | hotovo 2026-08-02 (8), master/detail |
-| `datasety` | **7 / 8 / 11 %** | druhá nejhorší |
-| `setup` | 11 / 13 / 23 % | tab Connect (Kalibrace hotová v (5)) |
-| `uceni` | 16 / 24 / 43 % | + jeden ořezaný prvek, viz níže |
-| `teleoperation` | 18 / 23 / 27 % | po (4) |
-| `modelrun` | 20 / 23 / 25 % | |
-| `settings` | 23 / 35 / 45 % | po (6) |
-| `help` | 77 / 111 / 132 % | scrolluje, v pořádku |
+| `setup` | **17 / 20 / 22 %** | nejhorší — tab Connect (Kalibrace hotová v (5)) |
+| `teleoperation` | **17 / 20 / 22 %** | po (4) |
+| `modelrun` | 20 / 23 / 25 % | + 3 roztažená pole, viz níže |
+| `projects` | 26 / 33 / 43 % | po (8) |
+| `settings` | 28 / 34 / 34 % | po (6), + `#settings-scene-desc` 726 px |
+| `help` | 27 / 35 / 41 % | scrolluje, v pořádku |
+| `datasety` | 33 / 40 / 40 % | hotovo (9), tři sloupce |
+| `uceni` | 37 / 20 / 20 % | + jeden ořezaný prvek, viz níže |
 
-- **`uceni` má na všech třech velikostech `clipped=1`** — jeden prvek
-  s `overflow: hidden`, jehož `scrollHeight` přesahuje `clientHeight`. Nešahal
-  na to tenhle běh, ale je to stejná třída chyby jako ořezaná diagnostika
-  z (6). Najít ho lze měřicím skriptem níže.
-- Na `uceni` je při 1024×760 nejširší prvek `INPUT:884x30` a na `modelrun`
-  dokonce `INPUT:1204x29` při 1600×900 — pole roztažené přes celou šířku okna,
-  přesně to, co zadání zakazuje. Kandidát na příští běh.
+**Čísla z běhů (7)–(8) v tabulce nejsou** — měřila se proti fixture bez
+dovedností, tedy proti prázdnému stavu, a byla u poloviny stránek řádově
+mimo (`datasety` „7 / 8 / 11 %" bylo ve skutečnosti 32 / 34 / 37 %). Vždycky
+přeměřit, nikdy nevěřit zapsané tabulce starší než jeden běh.
 
 **Měřicí skript** je od 2026-08-02 (8) v repu: `scripts/measure-layout.sh`
 (wrapper: server + fixture projekt) a `scripts/measure_layout.mjs` (měření).
-Vyžaduje `npm i playwright`; `verify.sh` ho nevolá. Nová past z běhu (8):
+Vyžaduje `npm i playwright`; `verify.sh` ho nevolá. **Od (9) si fixture zakládá
+i dovednosti** (`ensureSkills()`: jeden úkol + dva pod-kroky, tedy rozdělitelný)
+— bez nich se na `datasety`, `uceni` a `modelrun` měří prázdný stav a čísla
+lžou o desítky procent. Nová past z běhu (8):
 `waitUntil: 'networkidle'` vyprší — živý `/ws` a retry importu fontů síť nikdy
 neutiší, nutno `domcontentloaded` + `waitForFunction(() => !!window.App)`.
 Kromě pastí
@@ -1010,11 +1161,16 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
 **zabije i vlastní shell** — vzorec se shoduje s příkazovou řádkou toho pkillu.
 
 - **Roztažená pole přes celou šířku okna** — `scripts/measure-layout.sh` je hlásí
-  ve sloupci `wide`: `modelrun` má `#orch-input` 1204 px při 1600×900 plus
-  `#eval-policy-path` a `#eval-task-name` po 646 px, `datasety`
-  `#rec-dataset-storage-dir` a `#rec-extra-args` po 990 px, `uceni`
+  ve sloupci `wide` (práh 620 px). Zbývá: `modelrun` `#orch-input` 1204 px při
+  1600×900 plus `#eval-policy-path` a `#eval-task-name` po 646 px, `uceni`
   `#train-extra-args` 884 px, `settings` `#settings-scene-desc` 726 px.
-  Přesně to, co zadání zakazuje. Nejsilnější kandidát na příští běh.
+  `datasety` je hotové od (9). Přesně to, co zadání zakazuje — a `modelrun` je
+  teď nejsilnější kandidát: má tři takové prvky naráz.
+  **Recept, který na `datasety` zabral:** pole do
+  `grid-template-columns: repeat(auto-fit, minmax(215px, 1fr))` a jen dvě pole
+  s opravdu dlouhou hodnotou (cesta, CLI argumenty) přes `span 2` — plus zkrátit
+  sloupec, ve kterém formulář sedí. `max-width` na sekci **nepoužívat**, to je
+  přesně to, co v (5) dělalo mrtvou plochu na Kalibraci.
 - **`uceni` má na všech třech velikostech `clipped=1`**:
   `DIV.chart-container-docked` má `overflow: hidden` a `scrollHeight` o 4 px
   větší než `clientHeight` (512>508 / 262>258 / 454>450). Malé, ale stejná
@@ -1028,6 +1184,10 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
 **Backend / LeRobot**
 - Nedá se ověřit chování na LeRobotu ≥ 0.5 — PyPI index v cloudu má maximum
   0.4.4. Nové wrappery aspoň spadnou nahlas místo tichého no-opu.
+- **Konzole prohlížeče má být od (9) čistá** (kromě importu fontů z Googlu —
+  kontejner je bez internetu). `GET /api/project` už nevrací 404, když není
+  otevřený projekt, a favicona existuje. Když se v konzoli objeví nová chyba,
+  je to opravdu nová chyba, ne trvalý šum — vyplatí se to udržet.
 - **Kontroly, které nespouští server, neuvidí celou třídu chyb.** Běh (7)
   našel dvě (chybějící `websockets`, nezadrátovaný most událostí) až tím, že
   spustil backend a připojil se na `/ws`. `verify.sh` to nedělá a dělat nemusí,

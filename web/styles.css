@@ -1691,14 +1691,25 @@ input[readonly] {
     flex-shrink: 0;
 }
 
+/* Recording and marking share the remaining width evenly. Letting the
+   recording column take all of it made a config form ~980 px wide at 1600x900,
+   which is how its inputs ended up stretched across the window. */
 .datacollection-grid > .datacollection-block:nth-child(2) {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 300px;
 }
 
 .datacollection-grid > .datacollection-block:nth-child(3) {
-    width: 280px;
-    flex-shrink: 0;
+    flex: 1 1 0;
+    min-width: 285px;
+}
+
+/* A flex item shrinks below its content by default; inside a scrolling flex
+   column that means the box reports less height than it paints and the excess
+   escapes through overflow: visible. Every section here keeps its own height
+   and the body scrolls instead. */
+#rec-active-panel > * {
+    flex: 0 0 auto;
 }
 
 .datacollection-block-header {
@@ -1765,7 +1776,9 @@ input[readonly] {
 
 .active-skill-stats-row {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
+    gap: 4px 14px;
     font-size: 11px;
     color: var(--text-muted);
     background: var(--bg-inset);
@@ -1775,16 +1788,137 @@ input[readonly] {
     flex-shrink: 0;
 }
 
-.recording-keys-guide {
-    background: rgba(240, 178, 50, 0.06);
-    border: 1px dashed rgba(240, 178, 50, 0.3);
-    color: var(--yellow);
-    padding: 7px 10px;
+/* ── Recording configuration ──────────────────────────────────────
+   A single column stretched every input to the panel width (~990 px at
+   1600x900). The grid caps a field at one track; only the two fields that
+   really carry long values (a filesystem path, a CLI argument string) take
+   two, and even then they stay well under half the window. */
+.rec-config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 10px 12px;
+    align-items: start;
+    flex-shrink: 0;
+}
+
+.rec-config-grid .form-group {
+    margin: 0;
+    min-width: 0;
+}
+
+.rec-config-grid .rec-cfg-wide {
+    grid-column: span 2;
+}
+
+/* Under the stacking breakpoint a two-track span would overflow a one-track
+   grid, so the spans collapse with it. */
+@media (max-width: 920px) {
+    .rec-config-grid { grid-template-columns: 1fr; }
+    .rec-config-grid .rec-cfg-wide { grid-column: auto; }
+}
+
+.rec-cfg-flags {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    align-items: center;
+    border-top: 1px solid var(--border-dark);
+    padding-top: 8px;
+}
+
+.rec-cfg-flag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rec-cfg-flag input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+}
+
+.rec-cfg-flag label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+/* ── Key map ──────────────────────────────────────────────────────
+   Documentation of what the keys really do: every row is a binding the
+   browser installs and the lerobot-record flag it ends up setting. */
+.rec-keymap {
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.rec-keymap-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+}
+
+.rec-keymap-note {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex: 1 1 220px;
+}
+
+.rec-keymap-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10.5px;
+}
+
+.rec-keymap-table th {
+    text-align: left;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px 3px 0;
+}
+
+.rec-keymap-table td {
+    padding: 3px 8px 3px 0;
+    color: var(--text-light);
+    border-bottom: 1px solid var(--border-dark);
+    vertical-align: middle;
+}
+
+.rec-keymap-table tr:last-child td { border-bottom: none; }
+
+.rec-keymap-table td:first-child { width: 1%; white-space: nowrap; }
+
+.rec-keymap-table td:last-child {
+    width: 1%;
+    white-space: nowrap;
     font-family: var(--font-mono);
     font-size: 10px;
-    line-height: 1.7;
+    color: var(--text-muted);
+    padding-right: 0;
+}
+
+.rec-keymap-table kbd {
+    display: inline-block;
+    min-width: 18px;
     text-align: center;
-    letter-spacing: 0.3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--yellow);
+    border: 1px solid var(--border-light);
+    padding: 1px 4px;
+    margin-right: 3px;
 }
 
 /* ── Sub-task boundary marking during recording ──────────────────── */
@@ -1796,7 +1930,93 @@ input[readonly] {
     background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 10px;
-    margin-top: 8px;
+    flex: 0 0 auto;
+}
+
+/* Can this recording feed the orchestration branch, or only the ACT baseline?
+   Decided by the sub-step count alone, so it is answerable before the take. */
+.rec-verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+    border-bottom: 1px solid var(--border-dark);
+    padding-bottom: 8px;
+}
+
+.rec-verdict:empty { display: none; }
+
+.rec-verdict-text {
+    flex: 1 1 160px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.tagging-empty {
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    padding: 8px;
+}
+
+/* ── Recorded episodes ────────────────────────────────────────────── */
+.rec-episodes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    /* The only element in this column that benefits from spare height, so it
+       is the one that absorbs it instead of the panels above stretching. */
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.rec-episodes-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.rec-episode-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-dark);
+    padding: 4px 8px;
+    font-size: 11px;
+    flex: 0 0 auto;
+}
+
+.rec-episode-name {
+    font-weight: 700;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.rec-episode-actions {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.rec-episode-actions .btn {
+    padding: 2px 6px;
+    font-size: 10px;
+}
+
+.rec-episodes-empty {
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    padding: 8px;
+    text-align: center;
 }
 
 .tagging-header {

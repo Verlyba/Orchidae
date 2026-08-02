@@ -96,6 +96,26 @@ async function ensureProject() {
 }
 
 /**
+ * A project with no skills makes several pages measure their empty state, which
+ * is not what the app looks like in use. One task with two ordered sub-steps is
+ * the smallest fixture that is also SPLITTABLE — that is the case the data
+ * collection and dataset pages are built around, so it must be the one measured.
+ */
+async function ensureSkills() {
+  const cur = await api('/project');
+  const have = new Set(cur.project?.skills || []);
+  const wanted = [
+    { name: 'Uklidit kostku', slug: 'probe_task', parent_slug: null },
+    { name: 'Najet ke kostce', slug: 'probe_step_approach', parent_slug: 'probe_task' },
+    { name: 'Uchopit kostku', slug: 'probe_step_grasp', parent_slug: 'probe_task' },
+  ];
+  for (const s of wanted) {
+    if (have.has(s.slug)) continue;
+    await api('/skills', 'POST', { description: 'Layout measurement fixture.', ...s });
+  }
+}
+
+/**
  * Runs inside the page. Everything here must be self-contained — it is
  * serialised to the browser, so it cannot close over anything above.
  */
@@ -157,6 +177,7 @@ function measurePage(pageId) {
 }
 
 const project = await ensureProject();
+await ensureSkills();
 
 const browser = await chromium.launch({
   executablePath: findChromium(),
