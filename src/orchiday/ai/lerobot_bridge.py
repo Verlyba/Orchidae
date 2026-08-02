@@ -768,6 +768,8 @@ except Exception as e:
             cmd.append(f"--teleop.type={t_type}")
             cmd.append(f"--teleop.port={teleop_port}")
             cmd.append(f"--teleop.id={t_id}")
+            check_port = teleop_port
+            check_type = t_type
         else:
             r_type = follower_type_for(robot_type)
 
@@ -780,6 +782,8 @@ except Exception as e:
             cmd.append(f"--robot.type={r_type}")
             cmd.append(f"--robot.port={port}")
             cmd.append(f"--robot.id={f_id}")
+            check_port = port
+            check_type = r_type
 
         if extra_args:
             self._merge_flags(cmd, [f"--{k}={v}" for k, v in extra_args.items()])
@@ -792,10 +796,7 @@ except Exception as e:
 
         # The preflight probe must see the SAME type the command carries —
         # it opens the bus for that device class before the process starts.
-        if use_teleop:
-            self._run_preflight_check(teleop_port, t_type, launch)
-        else:
-            self._run_preflight_check(port, r_type, launch)
+        self._run_preflight_check(check_port, check_type, launch)
 
     # ── Data recording ───────────────────────────────────────────────────
 

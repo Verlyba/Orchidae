@@ -139,14 +139,8 @@
                   </div>
                 </div>
               </div>
-              <div class="project-list-foot">
-                <span class="pd-key" data-i18n="lbl.projectsRoot">Umístění projektů</span>
-                <span class="mono" id="project-list-root">—</span>
-              </div>
               <div class="block-actions">
                 <button class="btn btn-xs btn-secondary" data-i18n="btn.importBundle" onclick="App.importProjectBundle()" data-i18n-title="tip.importBundle" title="Importovat .orchiday balíček (projekt + datasety + modely)">Importovat balíček</button>
-                <button class="btn btn-xs btn-secondary" data-i18n="btn.runWizard" onclick="App.startSetupWizard()" data-i18n-title="tip.runWizard" title="Otevře průvodce: nový projekt, instalace LeRobotu, připojení ramen a kamer">Spustit průvodce setupem</button>
-                <button class="btn btn-xs btn-primary" data-i18n="btn.newProject" onclick="App.showNewProjectModal()" data-i18n-title="tip.newProject" title="Vytvoří nový projekt a přepne na něj">+ Nový Projekt</button>
               </div>
             </div><!-- /left: project list -->
 
@@ -222,86 +216,53 @@
                         </div>
                         <div id="connect-robot-list" class="conn-type-list"></div>
                       </div>
-
-                      <div class="conn-sect">
-                        <div class="teleop-sub-title-row">
-                          <h4 class="teleop-sub-title" data-i18n="blk.hw.ports">Sériové porty ramen</h4>
-                          <span class="cal-arm-state" id="conn-port-state">-</span>
-                        </div>
-                        <div class="conn-port-grid">
-                          <div class="form-group" id="leader-config-group">
-                            <label data-i18n="lbl.leaderPort">Leader Arm Port (Řídicí)</label>
-                            <select id="tele-leader-port" onchange="App.onTelePortChange('leader')"></select>
-                          </div>
-                          <div class="form-group" id="follower-config-group">
-                            <label data-i18n="lbl.followerPort">Follower Arm Port (Vykonávací)</label>
-                            <select id="tele-follower-port" onchange="App.onTelePortChange('follower')"></select>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- The flags the choices above really turn into. Same
-                           reason as on the Učení page: the window has to say
-                           what will be spawned, not imply it. -->
-                      <div class="train-cmd-preview">
-                        <span class="train-cmd-label" data-i18n="lbl.connCmdPreview">Do LeRobotu půjde</span>
-                        <code id="conn-cmd-preview-text">–</code>
-                      </div>
-                    </div>
-
-                    <div class="block-actions">
-                      <button class="btn btn-xs btn-cyan-dashed" onclick="App.openAutoDetectPortsModal()" data-i18n="btn.portWizard" data-i18n-title="tip.portWizard" title="Otevře průvodce: odpoj rameno, znovu připoj a port se přiřadí sám">Průvodce detekcí portů</button>
-                      <button class="btn btn-xs btn-primary btn-save-hw-config" onclick="App.saveModelConfig()" data-i18n="btn.saveHw" data-i18n-title="tip.saveHw" title="Uloží typ robota, porty ramen a nastavení modelů do projektu">Uložit nastavení hardwaru</button>
                     </div>
                   </section>
 
-                  <!-- Column 2: what the machine actually reports. Everything
-                       here comes from GET /api/hardware/scan, which the app
-                       already called and threw away after filling two
-                       dropdowns. The table is what absorbs this column's
-                       spare height. -->
+                  <!-- Column 2: Follower and Leader Connection Status Cards -->
                   <section class="merge-col">
-                    <h4 class="merge-col-title" data-i18n="blk.hw.detected">Detekovaný hardware</h4>
+                    <h4 class="merge-col-title">Připojení ramen</h4>
 
                     <div class="setup-block-content conn-col-body">
-                      <div class="pd-stats conn-stats">
-                        <div class="pd-stat" id="conn-stat-ports">
-                          <span class="pd-stat-num" id="conn-num-ports">0</span>
-                          <span class="pd-stat-label" data-i18n="stat.serialPorts">Sériové porty</span>
+                      <div class="arm-status-card" id="connect-card-leader" onclick="App.openArmPortSetupModal('leader')">
+                        <div class="arm-status-head">
+                          <span class="arm-status-title" data-i18n="lbl.leaderConnCard">Leader Rameno (Řídicí)</span>
+                          <span class="arm-status-badge" id="conn-badge-leader">ODPOJENO</span>
                         </div>
-                        <div class="pd-stat" id="conn-stat-cams">
-                          <span class="pd-stat-num" id="conn-num-cams">0</span>
-                          <span class="pd-stat-label" data-i18n="stat.videoDevices">Video zařízení</span>
+                        <div class="arm-status-body">
+                          <div class="arm-status-row">
+                            <span>Typ:</span> <strong id="conn-type-leader-name">-</strong>
+                          </div>
+                          <div class="arm-status-row">
+                            <span>Port:</span> <strong id="conn-port-leader-name">Nenastaven</strong>
+                          </div>
                         </div>
-                        <div class="pd-stat" id="conn-stat-assigned">
-                          <span class="pd-stat-num" id="conn-num-assigned">0/2</span>
-                          <span class="pd-stat-label" data-i18n="stat.armsAssigned">Ramena přiřazena</span>
-                        </div>
-                        <div class="pd-stat" id="conn-stat-cams-used">
-                          <span class="pd-stat-num" id="conn-num-cams-used">0</span>
-                          <span class="pd-stat-label" data-i18n="stat.camsConfigured">Kamer v projektu</span>
+                        <div class="arm-status-foot">
+                          <span class="btn-text">Klikněte pro nastavení portu &rarr;</span>
                         </div>
                       </div>
 
-                      <div class="conn-sect conn-sect-grow">
-                        <div class="teleop-sub-title-row">
-                          <h4 class="teleop-sub-title" data-i18n="blk.hw.serialTable">Sériová zařízení</h4>
-                          <span class="cal-arm-state" data-i18n="hint.fromPyserial">z pyserial</span>
+                      <div class="arm-status-card" id="connect-card-follower" onclick="App.openArmPortSetupModal('follower')">
+                        <div class="arm-status-head">
+                          <span class="arm-status-title" data-i18n="lbl.followerConnCard">Follower Rameno (Vykonávací)</span>
+                          <span class="arm-status-badge" id="conn-badge-follower">ODPOJENO</span>
                         </div>
-                        <div id="conn-ports-table" class="conn-table-wrap"></div>
-                      </div>
-
-                      <div class="conn-sect">
-                        <div class="teleop-sub-title-row">
-                          <h4 class="teleop-sub-title" data-i18n="blk.hw.videoTable">Video zařízení</h4>
-                          <span class="cal-arm-state" data-i18n="hint.fromV4l">z v4l2 / OpenCV</span>
+                        <div class="arm-status-body">
+                          <div class="arm-status-row">
+                            <span>Typ:</span> <strong id="conn-type-follower-name">-</strong>
+                          </div>
+                          <div class="arm-status-row">
+                            <span>Port:</span> <strong id="conn-port-follower-name">Nenastaven</strong>
+                          </div>
                         </div>
-                        <div id="conn-cams-table" class="conn-table-wrap"></div>
+                        <div class="arm-status-foot">
+                          <span class="btn-text">Klikněte pro nastavení portu &rarr;</span>
+                        </div>
                       </div>
                     </div>
 
                     <div class="block-actions">
-                      <button class="btn btn-xs btn-secondary" id="btn-rescan-hardware" onclick="App.manualRescanHardware()" data-i18n="btn.rescanHw">Přehledat hardware</button>
+                      <button class="btn btn-xs btn-primary btn-save-hw-config" onclick="App.saveModelConfig()" data-i18n="btn.saveHw">Uložit nastavení hardwaru</button>
                     </div>
                   </section>
 
@@ -425,24 +386,6 @@
                                 data-i18n-title="tip.calManage" data-i18n="btn.calManage">Spravovat soubory</button>
                         <button class="btn btn-xs btn-secondary" id="btn-refresh-calibration" onclick="App.manualRefreshCalibration()"
                                 data-i18n-title="tip.calRefresh" data-i18n="btn.loadState">Načíst stav</button>
-                        <span class="panel-toolbar-spacer"></span>
-                        <button class="btn btn-xs btn-danger" id="btn-restart-server" onclick="App.restartServer()"
-                                data-i18n-title="tip.restartServer" data-i18n="btn.restartServer">Restart serveru</button>
-                      </div>
-                    </section>
-
-                    <!-- Last section, and the only one allowed to grow: the
-                         schematic drawn from the ranges currently bound, and
-                         animated from calibration_progress while a run is
-                         live. It absorbs this column's spare height. -->
-                    <section class="teleop-sub cal-visual-sub">
-                      <div class="teleop-sub-title-row">
-                        <h4 class="teleop-sub-title" data-i18n="blk.calVisual.title">Rozsahy kloubů</h4>
-                        <span class="cal-arm-state" data-i18n="hint.calVisualSrc">z aktivních souborů</span>
-                      </div>
-                      <div class="cal-live-visual">
-                        <div id="arm-visual-cal-wrap" class="arm-visual-svg-wrap"></div>
-                        <div id="cal-live-legend" class="arm-visual-legend"></div>
                       </div>
                     </section>
                   </div>
@@ -459,11 +402,6 @@
                       <span class="cal-live-phase" id="cal-live-phase" data-i18n="cal.phaseIdle">nespuštěno</span>
                     </div>
 
-                    <!-- What to do right now. The four gates of
-                         device.calibrate() are a rail; only the step the run
-                         is sitting on is spelled out, and LeRobot's own
-                         wording lives behind the help button instead of in
-                         four blocks of monospace nobody reads. -->
                     <ol class="phase-rail" id="cal-rail">
                       <li data-step="1"><span class="phase-rail-n">1</span><span data-i18n="cal.step1.short">Soubor</span></li>
                       <li data-step="2"><span class="phase-rail-n">2</span><span data-i18n="cal.step2.short">Střed rozsahu</span></li>
@@ -473,7 +411,7 @@
 
                     <div class="phase-now">
                       <h4 class="phase-now-title" id="cal-now-title" data-i18n="cal.now.idle.title">Kalibrace neběží</h4>
-                      <p class="phase-now-text" id="cal-now-text" data-i18n="cal.now.idle.text">Spusťte ji tlačítkem u ramene v levém sloupci. Postup vás pak provede krok za krokem.</p>
+                      <p class="phase-now-text cal-step-instruction-big" id="cal-now-text" data-i18n="cal.now.idle.text">Spusťte ji tlačítkem u ramene v levém sloupci. Postup vás pak provede krok za krokem.</p>
                       <div class="phase-now-actions">
                         <button class="btn btn-xs btn-primary" id="cal-btn-confirm" style="display:none;" onclick="App.confirmCalibrationStep()" data-i18n-title="tip.calConfirm" data-i18n="cal.confirm">Potvrdit (Enter)</button>
                         <button class="btn btn-xs btn-secondary" id="cal-btn-recal" style="display:none;" onclick="App.forceNewCalibration()" data-i18n-title="tip.calForceNew" data-i18n="cal.recalibrate">Kalibrovat znovu (c)</button>
@@ -481,10 +419,6 @@
                         <button class="btn btn-xs btn-secondary" onclick="App.openCalibrationHelp()" data-i18n="btn.calHowto">Jak kalibrace probíhá</button>
                       </div>
                     </div>
-
-                    <!-- Idle: what the bound calibration files actually store
-                         per joint. Same numbers the schematic is drawn from,
-                         and the reason `wrist_roll` reads 0–4095. -->
                     <div id="cal-ranges" class="cal-ranges">
                       <div class="teleop-sub-title-row">
                         <h4 class="teleop-sub-title" data-i18n="blk.calRanges.title">Uložené rozsahy kloubů</h4>
@@ -535,7 +469,7 @@
               <div class="setup-block" style="display: flex; flex-direction: column;">
                 <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> <span data-i18n="blk.orch.models">Nastavení kognitivních modelů</span></h3>
                 <div class="setup-block-content">
-                  <div class="merge-cols merge-cols-3">
+                  <div class="merge-cols merge-cols-2">
                     <section class="merge-col">
                       <h4 class="merge-col-title" data-i18n="h4.orch.llm">LLM Plánovač (CEO)</h4>
                       <div class="form-group">
@@ -551,6 +485,13 @@
                           <span class="info-tooltip-trigger" data-i18n-tooltip="tip.llmEndpoint">ⓘ</span>
                         </div>
                         <input type="text" id="llm-endpoint" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1">
+                      </div>
+                      <div class="form-group">
+                        <div class="label-with-tooltip">
+                          <label data-i18n="lbl.ceoPrompt">Systémový Prompt pro CEO Plánovač</label>
+                          <span class="info-tooltip-trigger" data-i18n-tooltip="tip.ceoPrompt">ⓘ</span>
+                        </div>
+                        <textarea id="llm-prompt" placeholder="Systémový prompt..." style="min-height:180px; resize:vertical; font-family:var(--font-mono);" data-i18n-ph="ph.systemPrompt"></textarea>
                       </div>
                     </section>
                     <section class="merge-col">
@@ -576,12 +517,6 @@
                           <span class="info-tooltip-trigger" data-i18n-tooltip="tip.vlmLoopFreq">ⓘ</span>
                         </div>
                         <input type="number" id="settings-loop-interval" value="5" min="1" step="0.5" style="width: 110px; font-family:var(--font-mono);">
-                      </div>
-                    </section>
-                    <section class="merge-col">
-                      <h4 class="merge-col-title" data-i18n="lbl.ceoPrompt">Systémový Prompt pro CEO Plánovač</h4>
-                      <div class="form-group flex-stretch-column" style="flex:1;">
-                        <textarea id="llm-prompt" placeholder="Systémový prompt..." style="flex:1; min-height:220px; resize:none; font-family:var(--font-mono);" data-i18n-ph="ph.systemPrompt"></textarea>
                       </div>
                     </section>
                   </div>
@@ -3074,6 +3009,54 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- Modal: Choice between Quick Setup and Empty Project -->
+  <div id="modal-create-project-choice" class="modal-overlay" style="display:none;">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <h3 data-i18n="modal.newProjectChoice.title">Vytvořit nový projekt</h3>
+        <button class="modal-close" onclick="App.closeModal('modal-create-project-choice')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="choice-cards-grid">
+          <div class="choice-card" onclick="App.closeModal('modal-create-project-choice'); App.startSetupWizard();">
+            <div class="choice-card-icon">⚡</div>
+            <h4 data-i18n="choice.quickSetup.title">Rychlý setup</h4>
+            <p data-i18n="choice.quickSetup.desc">Průvodce krok za krokem: založení projektu, detekce a připojení ramen a kamer.</p>
+          </div>
+          <div class="choice-card" onclick="App.closeModal('modal-create-project-choice'); App.showNewProjectModal();">
+            <div class="choice-card-icon">📁</div>
+            <h4 data-i18n="choice.emptyProject.title">Prázdný projekt</h4>
+            <p data-i18n="choice.emptyProject.desc">Vytvořit čistý projekt bez přednastaveného hardwaru a dovedností.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Arm Port Setup & Auto-detection -->
+  <div id="modal-arm-port-setup" class="modal-overlay" style="display:none;">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <h3 id="modal-arm-port-title" data-i18n="lbl.selectArmPort">Nastavení portu ramene</h3>
+        <button class="modal-close" onclick="App.closeModal('modal-arm-port-setup')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label id="modal-arm-port-label">Vybrat sériový port</label>
+          <select id="modal-arm-port-select" class="form-control"></select>
+        </div>
+        <div class="modal-actions-row">
+          <button class="btn btn-secondary" onclick="App.startArmAutoDetectInModal()" data-i18n="btn.autoDetectPort">Automatická detekce</button>
+          <button class="btn btn-primary" onclick="App.saveArmPortFromModal()" data-i18n="btn.save">Uložit port</button>
+        </div>
+        <div id="modal-arm-next-step" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid var(--border);">
+          <p id="modal-arm-next-msg" style="font-weight:700; color:var(--cyan); margin-bottom:10px;">Port byl úspěšně nastaven.</p>
+          <button class="btn btn-primary" id="btn-modal-arm-continue" onclick="App.continueArmPortSetupNext()" data-i18n="btn.continueNextArm">Pokračovat na druhé rameno</button>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -1510,15 +1510,21 @@ const App = {
         }
         const el = document.getElementById('project-list');
         if (el) {
+            const plusCard = `
+        <div class="project-card project-card-new" onclick="App.openNewProjectChoiceModal()" tabindex="0" role="button" aria-label="Vytvořit nový projekt">
+          <div class="project-card-plus-icon">+</div>
+          <div style="font-weight:700; color:var(--cyan); font-size:13px;">${this.esc(this.t('lbl.newProjectCard'))}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${this.esc(this.t('lbl.newProjectCardSub'))}</div>
+        </div>`;
             if (!all.length) {
-                el.innerHTML = `
+                el.innerHTML = plusCard + `
           <div class="empty-state">
             <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
             <div class="empty-state-text">${this.esc(this.t('hint.noProjects'))}</div>
           </div>`;
             }
             else {
-                el.innerHTML = all.map(p => {
+                const rows = all.map(p => {
                     const isOpen = !!(this.project && this.project.path === p._path);
                     const isSel = p._path === this.selectedProjectPath;
                     const robot = (p.robots && p.robots.length) ? p.robots[0] : null;
@@ -1545,6 +1551,7 @@ const App = {
               </div>
             </div>`;
                 }).join('');
+                el.innerHTML = plusCard + rows;
             }
         }
         const countEl = document.getElementById('project-list-count');
@@ -2239,6 +2246,93 @@ const App = {
         }
         // Re-apply running-process gating on top of the port-based logic
         this.updateActionButtonStates();
+        this.updateArmStatusCards();
+    },
+    openNewProjectChoiceModal() {
+        this.openModal('modal-create-project-choice');
+    },
+    openArmPortSetupModal(arm) {
+        this.autoDetectActiveArm = arm;
+        const title = document.getElementById('modal-arm-port-title');
+        if (title) {
+            title.textContent = arm === 'leader' ? this.t('lbl.leaderConnCard') : this.t('lbl.followerConnCard');
+        }
+        const sel = document.getElementById('modal-arm-port-select');
+        if (sel) {
+            sel.innerHTML = '<option value="">-- Vyberte port --</option>' + (this.availablePorts || []).map((p) => `<option value="${this.esc(p.port)}">${this.esc(p.port)} (${this.esc(p.description || '')})</option>`).join('');
+            const curVal = arm === 'leader'
+                ? document.getElementById('tele-leader-port')?.value
+                : document.getElementById('tele-follower-port')?.value;
+            if (curVal)
+                sel.value = curVal;
+        }
+        const nextStep = document.getElementById('modal-arm-next-step');
+        if (nextStep)
+            nextStep.style.display = 'none';
+        this.openModal('modal-arm-port-setup');
+    },
+    saveArmPortFromModal() {
+        const sel = document.getElementById('modal-arm-port-select');
+        const port = sel?.value || '';
+        const arm = this.autoDetectActiveArm;
+        if (arm === 'leader') {
+            const leaderSel = document.getElementById('tele-leader-port');
+            if (leaderSel) {
+                if (!Array.from(leaderSel.options).some(o => o.value === port)) {
+                    leaderSel.insertAdjacentHTML('beforeend', `<option value="${this.esc(port)}">${this.esc(port)}</option>`);
+                }
+                leaderSel.value = port;
+                this.onTelePortChange('leader');
+            }
+        }
+        else {
+            const followerSel = document.getElementById('tele-follower-port');
+            if (followerSel) {
+                if (!Array.from(followerSel.options).some(o => o.value === port)) {
+                    followerSel.insertAdjacentHTML('beforeend', `<option value="${this.esc(port)}">${this.esc(port)}</option>`);
+                }
+                followerSel.value = port;
+                this.onTelePortChange('follower');
+            }
+        }
+        this.updateArmStatusCards();
+        const nextStep = document.getElementById('modal-arm-next-step');
+        if (nextStep)
+            nextStep.style.display = 'block';
+    },
+    startArmAutoDetectInModal() {
+        this.closeModal('modal-arm-port-setup');
+        this.openAutoDetectPortsModal();
+    },
+    continueArmPortSetupNext() {
+        const nextArm = this.autoDetectActiveArm === 'leader' ? 'follower' : 'leader';
+        this.openArmPortSetupModal(nextArm);
+    },
+    updateArmStatusCards() {
+        const leaderPort = document.getElementById('tele-leader-port')?.value || '';
+        const followerPort = document.getElementById('tele-follower-port')?.value || '';
+        const leaderType = document.getElementById('tele-leader-type')?.value || 'so100_leader';
+        const followerType = document.getElementById('tele-follower-type')?.value || 'so100_follower';
+        const leaderCard = document.getElementById('connect-card-leader');
+        const leaderBadge = document.getElementById('conn-badge-leader');
+        const leaderPortText = document.getElementById('conn-port-leader-name');
+        const leaderTypeText = document.getElementById('conn-type-leader-name');
+        if (leaderCard && leaderBadge && leaderPortText && leaderTypeText) {
+            leaderCard.classList.toggle('is-connected', !!leaderPort);
+            leaderBadge.textContent = leaderPort ? this.t('lbl.connected') : this.t('lbl.portNotSet');
+            leaderPortText.textContent = leaderPort || this.t('lbl.portNotSet');
+            leaderTypeText.textContent = leaderType;
+        }
+        const followerCard = document.getElementById('connect-card-follower');
+        const followerBadge = document.getElementById('conn-badge-follower');
+        const followerPortText = document.getElementById('conn-port-follower-name');
+        const followerTypeText = document.getElementById('conn-type-follower-name');
+        if (followerCard && followerBadge && followerPortText && followerTypeText) {
+            followerCard.classList.toggle('is-connected', !!followerPort);
+            followerBadge.textContent = followerPort ? this.t('lbl.connected') : this.t('lbl.portNotSet');
+            followerPortText.textContent = followerPort || this.t('lbl.portNotSet');
+            followerTypeText.textContent = followerType;
+        }
     },
     // ── Hardware Page Auto-detection & Cameras ───────────────────────
     async hwStartDetectArm(role) {
@@ -5493,7 +5587,8 @@ const App = {
         if (!dock)
             return;
         dock.style.transition = 'width 0.2s ease, opacity 0.2s ease';
-        if (dock.style.width === '0px' || dock.style.width === '') {
+        const isClosed = !dock.style.width || dock.style.width === '0px' || dock.style.opacity === '0';
+        if (isClosed) {
             const targetWidth = this.lastCamerasWidth || '520px';
             dock.style.width = targetWidth;
             dock.style.opacity = '1';

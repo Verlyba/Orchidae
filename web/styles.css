@@ -702,9 +702,7 @@ body {
     transition: opacity 0.3s ease;
 }
 
-.setup-block:hover {
-    /* border-color hover removed */
-}
+
 
 .setup-block:hover::before {
     opacity: 0;
@@ -2527,14 +2525,15 @@ input[readonly] {
 }
 
 .cameras-dock {
-    width: 520px;
+    width: 0px;
+    opacity: 0;
+    border-left: none;
     display: flex;
     flex-direction: column;
     min-width: 0;
     height: 100%;
     transition: width 0.2s ease, opacity 0.2s ease;
     background-color: var(--bg-sidebar);
-    border-left: 1px solid var(--border);
     overflow: hidden;
 }
 
@@ -3372,9 +3371,7 @@ input[type="number"]::-webkit-outer-spin-button {
     transition: transform 0.25s ease;
 }
 
-.wizard-type-card:hover .wizard-card-icon-wrapper {
-    /* transform removed */
-}
+
 
 .wizard-type-card.type-main .wizard-card-icon-wrapper {
     background: rgba(0, 188, 212, 0.08);
@@ -4492,11 +4489,7 @@ textarea:focus-visible {
     }
 }
 
-.cal-arm-card.is-calibrated {
-}
 
-.cal-arm-card.is-default {
-}
 
 .cal-arm-state {
     font-size: 11px;
@@ -7053,3 +7046,156 @@ body { min-width: 320px; }
     color: var(--text-light);
     border-left-color: var(--red);
 }
+
+/* ── Plus card for New Project ── */
+.project-card-new {
+    border: 1px dashed var(--accent) !important;
+    background: rgba(14, 99, 156, 0.04) !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.project-card-new:hover {
+    background: rgba(14, 99, 156, 0.1) !important;
+    border-color: var(--cyan) !important;
+}
+
+.project-card-plus-icon {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--cyan);
+    margin-bottom: 4px;
+}
+
+/* ── Choice Cards Modal Grid ── */
+.choice-cards-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.choice-card {
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    padding: 16px;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.choice-card:hover {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.choice-card-icon {
+    font-size: 22px;
+}
+
+.choice-card h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.choice-card p {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* ── Arm Status Cards (Connect page) ── */
+.arm-status-card {
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-light);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.arm-status-card:hover {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.arm-status-card.is-connected {
+    border-left-color: var(--green);
+}
+
+.arm-status-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.arm-status-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.arm-status-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    letter-spacing: 0.5px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+}
+
+.arm-status-card.is-connected .arm-status-badge {
+    background: rgba(76, 175, 80, 0.15);
+    color: var(--green);
+}
+
+.arm-status-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+}
+
+.arm-status-row {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+}
+
+.arm-status-row strong {
+    color: var(--text-light);
+    font-family: var(--font-mono);
+}
+
+.arm-status-foot {
+    font-size: 11px;
+    color: var(--cyan);
+    margin-top: 4px;
+}
+
+/* ── Large Calibration Step Instruction ── */
+.cal-step-instruction-big {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+    color: var(--text-white) !important;
+    background: var(--bg-inset);
+    border-left: 3px solid var(--accent);
+    padding: 12px 14px;
+    margin: 12px 0;
+}
+
