@@ -109,6 +109,10 @@ const App = {
     skillWizardIsEdit: false,
     skillWizardEditSlug: '',
     skillWizardPrefilledParent: '',
+    // Identifier (slug) validation state, per input id. `valid` gates the modal's
+    // primary button; `touched` stops the name field from overwriting a slug the
+    // user typed by hand.
+    slugState: {},
     // ── Internationalization (i18n) ─────────────────────────────────────
     /**
      * Translate a key for the current language, falling back to Czech then the key.
@@ -1776,6 +1780,7 @@ const App = {
             const slugInput = document.getElementById('new-project-slug');
             if (slugInput)
                 slugInput.value = '';
+            this.resetSlugState('new-project-slug');
             const sceneDescInput = document.getElementById('new-project-scene-desc');
             if (sceneDescInput)
                 sceneDescInput.value = '';
@@ -1792,14 +1797,36 @@ const App = {
             alert(this.t('alert.sceneDescRequired'));
             return;
         }
-        const r = await this.api('POST', '/projects', { name, slug, parent_dir: parentDir, scene_description: sceneDescription });
+        const btn = document.getElementById('new-project-submit-btn');
+        const btnText = btn?.textContent || '';
+        // Creating a project lays out a dozen directories and writes project.json,
+        // so the button says so for the whole round trip instead of looking dead.
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = this.t('btn.creating');
+        }
+        let r;
+        try {
+            r = await this.api('POST', '/projects', { name, slug, parent_dir: parentDir, scene_description: sceneDescription });
+        }
+        finally {
+            if (btn) {
+                btn.textContent = btnText;
+                btn.disabled = false;
+            }
+        }
         if (r.ok) {
             this.closeModal('modal-new-project');
             this.loadProjects();
         }
         else {
-            this.log('ERROR', r.error || 'Failed to create project');
-            alert('Chyba při vytváření projektu: ' + (r.error || 'neznámá chyba'));
+            // A rejected identifier arrives as a reason CODE, so the sentence comes
+            // from i18n rather than from the API.
+            const msg = r.error_code
+                ? this.t(`slug.err.${this.camelSlugCode(r.error_code)}`, { slug, ...(r.error_params || {}) })
+                : (r.error || this.t('alert.unknownError'));
+            this.log('ERROR', msg);
+            alert(`${this.t('alert.createProjectFailed')} ${msg}`);
         }
     },
     async openProject(path) {
@@ -4722,6 +4749,7 @@ const App = {
             slugInput.value = '';
         if (descInput)
             descInput.value = '';
+        this.resetSlugState('new-skill-slug');
         // Populate parent dropdown
         const select = document.getElementById('new-skill-parent');
         if (select) {
@@ -4806,7 +4834,7 @@ const App = {
             backBtn.style.display = (this.skillWizardIsEdit || this.skillWizardPrefilledParent) ? 'none' : 'inline-block';
         }
         if (submitBtn) {
-            submitBtn.textContent = this.skillWizardIsEdit ? this.t('btn.saveChanges') : 'Vytvořit';
+            submitBtn.textContent = this.skillWizardIsEdit ? this.t('btn.saveChanges') : this.t('btn.create');
         }
         if (this.skillWizardType === 'main') {
             if (nameLabel)
@@ -4834,23 +4862,15 @@ const App = {
             if (descTextarea)
                 descTextarea.placeholder = this.t('wiz.stepDescPh');
         }
-        // Auto-slug generation binding
-        if (nameInput && !this.skillWizardIsEdit) {
-            nameInput.oninput = () => {
-                const slugInput = document.getElementById('new-skill-slug');
-                if (slugInput) {
-                    slugInput.value = nameInput.value
-                        .toLowerCase()
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-                        .replace(/[^a-z0-9]+/g, '_')
-                        .replace(/^_|_$/g, '');
-                }
-            };
-        }
-        else if (nameInput) {
-            nameInput.oninput = null; // Disable auto-slug when editing
-        }
+        // Auto-slug generation and live validation both hang off `bindAutoSlug()`,
+        // which runs once at init. This used to install a SECOND `oninput` handler
+        // with its own copy of the generator \u2014 two handlers writing the same field,
+        // whichever fired last winning. The identifier of an existing skill is
+        // fixed (it is the dataset directory), so editing only locks the field.
+        const slugInput = document.getElementById('new-skill-slug');
+        if (slugInput)
+            slugInput.readOnly = this.skillWizardIsEdit;
+        this.updateSlugSubmitState('new-skill-slug');
     },
     nextSkillWizardStep() {
         this.showSkillWizardStep2();
@@ -4866,7 +4886,7 @@ const App = {
         const details = this.project?.skills_details || {};
         const skill = details[slug];
         if (!skill) {
-            alert(`Dovednost ${slug} nebyla nalezena!`);
+            alert(this.t('alert.skillNotFound', { slug }));
             return;
         }
         this.openModal('modal-new-skill');
@@ -4907,7 +4927,7 @@ const App = {
     },
     async submitSkillWizard() {
         if (!this.project) {
-            alert("Žádný projekt není otevřen!");
+            alert(this.t('alert.noProjectOpen'));
             return;
         }
         const name = document.getElementById('new-skill-name').value.trim();
@@ -4917,12 +4937,12 @@ const App = {
         if (this.skillWizardType === 'step') {
             parent_slug = document.getElementById('new-skill-parent')?.value || null;
             if (!parent_slug) {
-                alert("Pro motorický krok musíte vybrat nadřazenou dovednost!");
+                alert(this.t('alert.stepNeedsParent'));
                 return;
             }
         }
         if (!name) {
-            alert("Název nesmí být prázdný!");
+            alert(this.t('alert.nameRequired'));
             return;
         }
         if (!desc) {
@@ -4931,7 +4951,7 @@ const App = {
         }
         if (this.skillWizardIsEdit) {
             // EDIT MODE
-            this.log('INFO', `Ukládám změny dovednosti/kroku: '${name}' (slug: ${this.skillWizardEditSlug})...`);
+            this.log('INFO', `${this.t('log.savingSkill')} '${name}' (slug: ${this.skillWizardEditSlug})...`);
             try {
                 const res = await this.api('PUT', `/skills/${this.skillWizardEditSlug}`, {
                     name,
@@ -4940,8 +4960,8 @@ const App = {
                     parent_slug
                 });
                 if (res && res.error) {
-                    alert(`Chyba při ukládání: ${res.error}`);
-                    this.log('ERROR', `Uložení selhalo: ${res.error}`);
+                    alert(`${this.t('alert.saveSkillFailed')} ${res.error}`);
+                    this.log('ERROR', `${this.t('alert.saveSkillFailed')} ${res.error}`);
                     return;
                 }
                 this.closeModal('modal-new-skill');
@@ -4949,29 +4969,29 @@ const App = {
                 this.log('SUCCESS', `✓ Dovednost '${name}' byla úspěšně upravena.`);
             }
             catch (err) {
-                alert(`Chyba při komunikaci se serverem: ${err.message}`);
-                this.log('ERROR', `Komunikační chyba: ${err.message}`);
+                alert(`${this.t('alert.serverCommError')} ${err.message}`);
+                this.log('ERROR', `${this.t('alert.serverCommError')} ${err.message}`);
             }
         }
         else {
             // CREATE MODE
-            if (!slug && name) {
-                slug = name.toLowerCase()
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/[^a-z0-9]+/g, '_')
-                    .replace(/^_|_$/g, '');
-            }
+            if (!slug && name)
+                slug = this.slugify(name);
             if (!slug) {
-                alert("Identifikátor se nepodařilo vygenerovat. Zadejte název platnými znaky.");
+                alert(this.t('alert.slugNotDerivable'));
                 return;
             }
-            this.log('INFO', `Vytvářím ${this.skillWizardType === 'main' ? 'dovednost' : 'krok'}: '${name}' (slug: ${slug})...`);
+            this.log('INFO', `${this.t('log.creatingSkill')} '${name}' (slug: ${slug})...`);
             try {
                 const res = await this.api('POST', '/skills', { name, slug, description: desc, parent_slug });
                 if (res && res.error) {
-                    alert(`Chyba při vytváření: ${res.error}`);
-                    this.log('ERROR', `Vytvoření selhalo: ${res.error}`);
+                    // A rejected identifier comes back as a reason CODE, not a sentence,
+                    // so the message reads the same in both languages.
+                    const msg = res.error_code
+                        ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug, ...(res.error_params || {}) })
+                        : res.error;
+                    alert(`${this.t('alert.createSkillFailed')} ${msg}`);
+                    this.log('ERROR', `${this.t('alert.createSkillFailed')} ${msg}`);
                     return;
                 }
                 this.closeModal('modal-new-skill');
@@ -4979,8 +4999,8 @@ const App = {
                 this.log('SUCCESS', `✓ ${this.skillWizardType === 'main' ? 'Dovednost' : 'Krok'} '${name}' byla úspěšně vytvořena.`);
             }
             catch (err) {
-                alert(`Chyba při komunikaci se serverem: ${err.message}`);
-                this.log('ERROR', `Komunikační chyba: ${err.message}`);
+                alert(`${this.t('alert.serverCommError')} ${err.message}`);
+                this.log('ERROR', `${this.t('alert.serverCommError')} ${err.message}`);
             }
         }
     },
@@ -5598,20 +5618,176 @@ const App = {
         return true;
     },
     openSettings() { this.openModal('modal-settings'); },
+    /**
+     * The ONE name -> identifier generator in the frontend.
+     *
+     * There used to be three, and they disagreed: this one did not strip
+     * diacritics, so "Úklid stolu" became `_klid_stolu` in the project modal and
+     * `uklid_stolu` in the skill wizard — and `_klid_stolu` is not a name the
+     * backend accepts (it must start alphanumeric). It mirrors
+     * `orchiday.core.slugs.suggest_slug()`; the backend stays the authority and
+     * `checkSlug()` reports whatever it says.
+     */
+    slugify(name) {
+        return (name || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // drop combining accents, keep the ASCII letter
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '');
+    },
+    /**
+     * Wire a name field to its identifier field and to live validation.
+     *
+     * The identifier is not decoration: it becomes a directory on disk and — for
+     * a skill — the LeRobot `repo_id` the recorder and the trainer are handed.
+     * A name as ordinary as "Eval test" produced `eval_test`, which LeRobot 0.6
+     * refuses to record into, and "Con" produced a directory Windows cannot
+     * create. Nothing said so until the run failed, so the field now answers
+     * while the user types.
+     */
     bindAutoSlug() {
         const pairs = [
-            ['new-project-name', 'new-project-slug'],
-            ['new-skill-name', 'new-skill-slug'],
+            { nameId: 'new-project-name', slugId: 'new-project-slug', kind: 'project' },
+            { nameId: 'new-skill-name', slugId: 'new-skill-slug', kind: 'skill' },
         ];
-        pairs.forEach(([nameId, slugId]) => {
+        pairs.forEach(({ nameId, slugId, kind }) => {
             const nameEl = document.getElementById(nameId);
             const slugEl = document.getElementById(slugId);
-            if (nameEl && slugEl) {
-                nameEl.addEventListener('input', () => {
-                    slugEl.value = nameEl.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                });
-            }
+            if (!nameEl || !slugEl)
+                return;
+            nameEl.addEventListener('input', () => {
+                // Editing the name only regenerates the identifier while the user has
+                // not taken it over. Overwriting a hand-typed identifier would undo the
+                // one fix available when the generator cannot produce a valid name.
+                if (this.slugState[slugId]?.touched) {
+                    this.checkSlug(slugId, kind);
+                    return;
+                }
+                slugEl.value = this.slugify(nameEl.value);
+                this.checkSlug(slugId, kind);
+            });
+            slugEl.addEventListener('input', () => {
+                this.slugState[slugId] = { ...(this.slugState[slugId] || { valid: false, timer: 0 }), touched: true };
+                this.checkSlug(slugId, kind);
+            });
         });
+    },
+    /** Forget any previous verdict for a slug field — called when a modal opens. */
+    resetSlugState(slugId) {
+        const st = this.slugState[slugId];
+        if (st?.timer)
+            clearTimeout(st.timer);
+        this.slugState[slugId] = { valid: false, touched: false, timer: 0 };
+        const statusEl = document.getElementById(`${slugId}-status`);
+        if (statusEl) {
+            statusEl.textContent = '';
+            statusEl.className = 'slug-status';
+        }
+        this.updateSlugSubmitState(slugId);
+    },
+    /**
+     * Ask the backend whether this identifier is usable, debounced per keystroke.
+     *
+     * The rules are not re-implemented here on purpose: the duplicate check needs
+     * the open project, and a second copy of the charset / reserved-name rules is
+     * how the three slug generators drifted apart in the first place. The reply
+     * carries a reason CODE, never a sentence, so the wording comes from i18n and
+     * the English UI cannot show a Czech string from the API.
+     */
+    checkSlug(slugId, kind) {
+        const prev = this.slugState[slugId];
+        if (prev?.timer)
+            clearTimeout(prev.timer);
+        const timer = window.setTimeout(() => this.runSlugCheck(slugId, kind), 180);
+        this.slugState[slugId] = { valid: prev?.valid ?? false, touched: prev?.touched ?? false, timer };
+    },
+    async runSlugCheck(slugId, kind) {
+        const slugEl = document.getElementById(slugId);
+        const statusEl = document.getElementById(`${slugId}-status`);
+        if (!slugEl)
+            return;
+        const slug = slugEl.value.trim();
+        const nameEl = document.getElementById(slugId === 'new-project-slug' ? 'new-project-name' : 'new-skill-name');
+        if (!slug) {
+            // An empty field before anything is typed is not an error to shout about;
+            // it just is not submittable yet.
+            this.setSlugState(slugId, false);
+            if (statusEl) {
+                statusEl.textContent = '';
+                statusEl.className = 'slug-status';
+            }
+            return;
+        }
+        const body = { slug, kind, name: nameEl?.value || '' };
+        if (kind === 'skill') {
+            body.parent_slug = this.skillWizardType === 'step'
+                ? (document.getElementById('new-skill-parent')?.value || '')
+                : '';
+        }
+        else {
+            body.parent_dir = document.getElementById('new-project-parent-dir')?.value.trim() || '';
+        }
+        let res;
+        try {
+            res = await this.api('POST', '/slug/check', body);
+        }
+        catch (_) {
+            // Backend unreachable: do not block the user on a check that could not
+            // run — the create call enforces the same rules server-side anyway.
+            this.setSlugState(slugId, true);
+            if (statusEl) {
+                statusEl.textContent = '';
+                statusEl.className = 'slug-status';
+            }
+            return;
+        }
+        // A slower reply from an earlier keystroke must not overwrite a newer one.
+        if (slugEl.value.trim() !== slug)
+            return;
+        this.setSlugState(slugId, !!res?.valid);
+        if (!statusEl)
+            return;
+        if (res?.valid) {
+            statusEl.className = 'slug-status is-ok';
+            statusEl.textContent = kind === 'skill'
+                ? this.t('slug.okSkill', { repoId: res.repo_id || '' })
+                : this.t('slug.okProject', { slug });
+        }
+        else {
+            statusEl.className = 'slug-status is-bad';
+            const params = { slug, ...(res?.params || {}) };
+            const reason = this.t(`slug.err.${this.camelSlugCode(res?.code || 'empty')}`, params);
+            const hint = res?.suggestion && res.suggestion !== slug
+                ? ' ' + this.t('slug.suggestion', { suggestion: res.suggestion })
+                : '';
+            statusEl.textContent = reason + hint;
+        }
+    },
+    /** `windows_reserved` -> `windowsReserved`, so reason codes map onto i18n keys. */
+    camelSlugCode(code) {
+        return String(code).replace(/_([a-z])/g, (_m, c) => c.toUpperCase());
+    },
+    setSlugState(slugId, valid) {
+        const prev = this.slugState[slugId];
+        this.slugState[slugId] = { valid, touched: prev?.touched ?? false, timer: prev?.timer ?? 0 };
+        this.updateSlugSubmitState(slugId);
+    },
+    /** Keep the modal's primary button in step with the identifier's verdict. */
+    updateSlugSubmitState(slugId) {
+        const btnId = slugId === 'new-project-slug' ? 'new-project-submit-btn' : 'new-skill-submit-btn';
+        const btn = document.getElementById(btnId);
+        if (!btn)
+            return;
+        // Editing an existing skill never changes its identifier, so the verdict on
+        // the (disabled) field must not lock the Save button.
+        if (slugId === 'new-skill-slug' && this.skillWizardIsEdit) {
+            btn.disabled = false;
+            return;
+        }
+        // Nothing to create without an identifier, so an empty field disables the
+        // button too — that is the honest state, not an error worth shouting about.
+        btn.disabled = !this.slugState[slugId]?.valid;
     },
     taggingSubSkills() {
         const s = this.activeSkill;

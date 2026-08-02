@@ -30,6 +30,12 @@ from orchiday.core.constants import (
 )
 from orchiday.core.config import AppConfig, RecentProjects
 from orchiday.core.events import event_bus
+from orchiday.core.slugs import (
+    KIND_PROJECT,
+    KIND_SKILL,
+    InvalidSlug,
+    validate_slug,
+)
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +65,16 @@ class ProjectManager:
         Create a new project with full directory structure.
 
         Raises:
+            InvalidSlug: If the slug cannot be used as a directory name on all
+                three supported platforms (see `orchiday.core.slugs`).
             FileExistsError: If a project with the same slug already exists.
         """
+        # The slug is the directory name, so it is checked before anything is
+        # created — a rejected name must not leave half a project on disk.
+        problem = validate_slug(slug, kind=KIND_PROJECT)
+        if problem is not None:
+            raise InvalidSlug(problem)
+
         base = parent_dir or self._config.projects_dir
         project_dir = base / slug
 
@@ -186,6 +200,11 @@ class ProjectManager:
 
     # ── List ─────────────────────────────────────────────────────────────
 
+    @property
+    def projects_dir(self) -> Path:
+        """Where projects are created when no parent directory is given."""
+        return self._config.projects_dir
+
     def list_projects(self) -> list[dict[str, Any]]:
         projects_dir = self._config.projects_dir
         if not projects_dir.exists():
@@ -301,9 +320,29 @@ class ProjectManager:
     # ── Skill CRUD ───────────────────────────────────────────────────────
 
     def add_skill(self, skill_slug: str, skill_data: dict[str, Any]) -> None:
+        """Create a skill directory and register it in the project.
+
+        Raises:
+            RuntimeError: If no project is open.
+            InvalidSlug: If the identifier is unusable — as a directory name on
+                any supported platform, as a LeRobot `repo_id`, or because it
+                is already taken. The last one used to be silent: the call
+                overwrote the existing `skill.json` and `skills_details` entry,
+                so the older skill lost its description while its recorded
+                episodes stayed on disk under the shared name.
+        """
         if self.current_project is None:
             raise RuntimeError("No project open")
         assert self.current_path is not None
+
+        problem = validate_slug(
+            skill_slug,
+            kind=KIND_SKILL,
+            taken=self.current_project.get("skills", []),
+        )
+        if problem is not None:
+            raise InvalidSlug(problem)
+
         skill_dir = self.current_path / SKILLS_DIR / skill_slug
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "dataset").mkdir(exist_ok=True)

@@ -8,6 +8,120 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (14) — Identifikátor dovednosti se nekontroloval: „Eval test“
+LeRobot 0.6 odmítne nahrát, „Con“ nejde vytvořit na Windows a stejné jméno
+dvakrát **tiše přepsalo** existující dovednost
+
+**Výchozí stav.** `setup-dev.sh` + `verify.sh` prošly celé (248 pytestů),
+priorita A prázdná. Fronta označovala validaci slugů za „nejsilnější zbývající
+položku priority B“ po běhu (13). Zdrojáky obou verzí LeRobotu staženy podle
+doporučení z (11): 0.6.1 přes `git clone`, 0.4.4 přes `pip download`.
+
+**Nález — slug je identita, ale nikdo ho nekontroloval**
+
+Slug dovednosti se používá doslova jako (a) název adresáře v projektu,
+(b) LeRobot `repo_id` (`local/<úkol>` nebo `local/<rodič>/<krok>`), a tedy
+(c) adresář pod `$HF_LEROBOT_HOME/<repo_id>` a hodnota `--dataset.repo_id`
+a `--job_name`. `add_skill()` ani `create_project()` ho nevalidovaly vůbec:
+
+| napsané jméno | vzniklý slug | co se stane |
+|---|---|---|
+| `Eval test` | `eval_test` | **`lerobot-record` odmítne nahrávat** (0.6.1) |
+| `Con` | `con` | na Windows **nejde vytvořit složku** |
+| `Úklid stolu` | `_klid_stolu` | v modálu projektu (bez NFD) — nezačíná alfanumericky |
+| `!!!` | `` (prázdné) | `mkdir` na kořen `skills/`; u projektu tlačítko **mlčky nic** |
+| stejné jméno 2× | stejný slug | **přepsal se `skill.json` i `skills_details`** původní dovednosti |
+
+`eval_` je čtené ze zdrojáku: `lerobot_record.py:433` v 0.6.1 vyhodí
+`ValueError` pro `repo_id.split("/", 1)[-1]` začínající `eval_` (jména jsou
+rezervovaná pro `lerobot-rollout`). **0.4.4 tu kontrolu nemá** — přesně proto
+patří do appky: projekt nesmí fungovat na jedné verzi LeRobotu a umřít na další.
+
+**Oprava — jedna definice pravidel, jedna definice `repo_id`**
+
+- **`src/orchiday/core/slugs.py`** (nový, listový modul bez závislostí na
+  zbytku Orchiday): `validate_slug()` vrací **kód důvodu + hodnoty**, nikdy
+  větu (past z (13) — česká próza z backendu se objevila v anglickém UI),
+  `suggest_slug()` je **jediný** generátor jména → identifikátoru.
+  Pravidla a čím jsou podložená: `eval_` (LeRobot 0.6.1), znaková sada
+  `[a-z0-9][a-z0-9_-]*` (`/` mění hloubku `repo_id`, `..` píše mimo
+  `$HF_LEROBOT_HOME`, `<>:"|?*` nejdou do windowsové cesty, velká písmena
+  kolidují na case-insensitive FS macOS/Windows), windowsová jména zařízení
+  (`con`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`), délka 48 (Windows MAX_PATH),
+  a duplicita case-insensitive.
+- **`dataset_repo_id(parent, slug)`** přesunut do téhož listového modulu;
+  `Controller._dataset_repo_id_for()` je jen stavový obal nad ním. Wizard tak
+  ukazuje **tutéž** identitu, jakou dostane rekordér i trenér — ne řetězec
+  poskládaný podruhé pro zobrazení.
+- **Vynuceno v `ProjectManager`**, ne v API: `add_skill()` i `create_project()`
+  vyhodí `InvalidSlug` **dřív, než cokoliv vznikne** na disku. Desktopové Qt UI
+  volá `pm` přímo, takže kontrola v endpointu by ho minula.
+- **`POST /api/slug/check`** — wizard se ptá při psaní. Endpoint, ne kopie
+  pravidel v `app.ts`, ze dvou důvodů: kontrola duplicity potřebuje otevřený
+  projekt, a druhá implementace znakových pravidel je přesně to, čím se
+  rozešly tři slug generátory ve frontendu.
+- **Existující projekty se nikdy nepřevalidují** — kontrola běží jen při
+  vytváření, takže identifikátor ze starší verze jede dál (pokryto testem).
+
+**Frontend — pole říká, čím se identifikátor stane**
+
+- Obě pole (`new-skill-slug`, `new-project-slug`) **už nejsou `readonly`** —
+  když generátor nemůže vyrobit platné jméno, musí jít opravit ručně.
+  Jakmile do pole uživatel sáhne, jméno mu ho už nepřepisuje.
+- Pod polem je `.slug-status`: buď `Dataset: local/…` (repo_id, který opravdu
+  vznikne), nebo technicky přesný důvod odmítnutí + návrh. Rezervovaná výška,
+  aby modál neposkakoval. Plochý styl, jen levá linka — orámování by vypadalo
+  jako druhý input.
+- **Primární tlačítko je disabled, dokud identifikátor neprojde.**
+- **Tři kopie generátoru → jedna** (`slugify()`): `bindAutoSlug()` (bez NFD),
+  `showSkillWizardStep2()` (s NFD, druhý `oninput` handler na tomtéž poli —
+  vyhrával ten, kdo běžel později) a fallback v `submitSkillWizard()`.
+- „Vytvořit projekt“ dostalo **indikátor průběhu** (zakládá tucet adresářů).
+- **Natvrdo psané české řetězce** v tomto modálu přes `t()`: `'Vytvořit'`,
+  „Žádný projekt není otevřen!“, „Pro motorický krok…“, „Název nesmí být
+  prázdný!“, „Dovednost … nebyla nalezena!“, „Chyba při ukládání/vytváření“,
+  „Chyba při komunikaci se serverem“. Přibylo 22 klíčů (cs i en).
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **289 pytestů** (bylo 248),
+  compileall, i18n parita cs=en=989 bez duplicit, žádná duplicitní id,
+  9 panelů, ploché tokeny, 106 `App.*` odkazů.
+- **`tests/test_slugs.py` (41 testů)**: každé pravidlo zvlášť i s důvodem;
+  `eval_` je prefix, ne podřetězec, a **neplatí pro projekty** (slug projektu
+  není `repo_id`); `suggest_slug()` **nikdy nevyrobí nic, co by validátor
+  odmítl** (11 vstupů); `add_skill()` nepřepíše existující dovednost (popis
+  na disku i v paměti zůstane původní); `../escaped` nevytvoří nic mimo
+  projekt; `create_project("con")` nenechá **prázdný adresář**; starý projekt
+  se nepřevaliduje; a `_dataset_repo_id_for()` **prokazatelně deleguje** na
+  sdílenou funkci (monkeypatch + spy), aby nevznikla čtvrtá kopie odvození.
+- **Negativní kontrola:** nové testy proti kódu před opravou
+  (`git stash` na `project_manager.py` + `controller.py`) **6× padnou**,
+  po opravě projdou.
+- **Proti běžícímu backendu** (curl): `con` → `422 windows_reserved`,
+  duplicitní `pick_place` → `422 duplicate`, `eval_test` → `422 eval_prefix`,
+  `../../pwned` → `422 charset {"chars": "./"}` a na disku **nic nevzniklo**.
+  Platný slug projde beze změny chování.
+- **Průchod stavy v headless Chromiu** proti běžícímu backendu: dojel skillový
+  wizard (prázdný modál → „Uklidit stůl“ → „Eval test“ → „Con“ → „!!!“ →
+  ručně psaný `my/step` → duplicitní `pick_place` → volný `wipe_table` →
+  editace jména už ručně psaný slug nepřepíše → EN režim). **Část s modálem
+  projektu a hit-test na 860×700 doběhnout nestihly** (skript čekal na
+  neviditelný `#new-project-name`, což je jen chyba fixture — modál projektu
+  se otevírá přes výběr režimu). **Zbývá dojet příště.**
+
+**Zbývá vyzkoušet na fyzickém robotu / s reálným LeRobotem** (v cloudu nelze)
+
+- Že `lerobot-record` s validním slugem opravdu nastartuje. Ověřené je, že
+  `eval_`-jména 0.6.1 odmítá (přečteno ze zdrojáku), ne že proces s ostatními
+  doběhne.
+- Že `con` / `com1` opravdu selžou na Windows — pravidlo je psané podle
+  dokumentace Win32, v kontejneru není jak ho vyvolat.
+- Že `?v=3.73.0` opravdu donutí prohlížeč načíst nový `app.js` a `styles.css`.
+- Vzhled `.slug-status` mimo Chromium (macOS/WebKit, Firefox).
+
+---
+
 ## 2026-08-02 (13) — Connect: aplikace posílala LeRobotu **typy zařízení, které
 neexistují** — u 4 z 10 nabízených robotů by kalibrace i teleoperace umřely na
 parsování argumentů
@@ -1728,6 +1842,17 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   Recept z (13) na tři sloupce: sloupec dostane `min-height: 0` +
   `overflow: hidden`, jeho tělo `overflow-y: auto`, a právě JEDNA sekce
   ve sloupci `flex: 1 1 auto` — ta pohltí volnou výšku.
+- ~~**Validace slugů (`eval_` prefix z LeRobotu 0.6.1)**~~ — hotovo 2026-08-02
+  (14), `src/orchiday/core/slugs.py`. Pravidla jsou na JEDNOM místě a vynucená
+  v `ProjectManager` (ne v API — desktopové Qt UI volá `pm` přímo).
+  **Nezakládat druhou kopii v `app.ts`**, wizard se ptá přes
+  `POST /api/slug/check`. `dataset_repo_id()` je od (14) tamtéž, `Controller.
+  _dataset_repo_id_for()` je jen stavový obal; hlídá to
+  `tests/test_slugs.py::test_controller_repo_id_resolution_delegates_to_the_module_function`.
+- **Dojet průchod stavy pro modál projektu** — běh (14) stihl v prohlížeči jen
+  skillový wizard. `#new-project-name` je viditelné až po výběru režimu
+  (`App.showNewProjectPlainForm()` nestačí), a hit-test na 860×700 pro oba
+  modály neproběhl vůbec. Malá položka, ale nedodělaná.
 - **Před commitem na `main` pouštět `scripts/verify.sh`.** 58277f7 přistál
   s dvěma padajícími kontrolami (chybějící `App.browseFile`, dva nedefinované
   i18n klíče) a se ztrátou popisu scény i přepínače jazyka. Od (6) verify.sh

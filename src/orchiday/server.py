@@ -44,6 +44,15 @@ if _qt_app is None:
 
 from orchiday.core.project_manager import ProjectManager
 from orchiday.core.events import event_bus
+from orchiday.core.slugs import (
+    KIND_PROJECT,
+    KIND_SKILL,
+    MAX_LEN,
+    InvalidSlug,
+    dataset_repo_id,
+    suggest_slug,
+    validate_slug,
+)
 from orchiday.core.constants import (
     LEROBOT_SUPPORTED_ROBOTS,
     LEROBOT_TELEOP_TYPES,
@@ -163,6 +172,22 @@ def _get_controller():
         from orchiday.core.controller import OrchidayController
         _controller = OrchidayController(pm)
     return _controller
+
+
+def _slug_error_response(exc: InvalidSlug) -> dict[str, Any]:
+    """Turn a rejected identifier into a response the page can translate.
+
+    `error` stays for callers that only log the body; `error_code` /
+    `error_params` are what the wizard renders, so the wording lives in i18n
+    and not in the API.
+    """
+    problem = exc.problem
+    return {
+        "ok": False,
+        "error": f"invalid slug: {problem.code}",
+        "error_code": problem.code,
+        "error_params": dict(problem.params),
+    }
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────
@@ -316,6 +341,8 @@ async def create_project(body: ProjectCreate):
         p_dir = Path(body.parent_dir) if body.parent_dir else None
         data = pm.create_project(body.name, body.slug, p_dir, scene_description=body.scene_description)
         return {"ok": True, "project": data}
+    except InvalidSlug as e:
+        return JSONResponse(_slug_error_response(e), status_code=422)
     except FileExistsError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
 
@@ -684,8 +711,64 @@ async def create_skill(body: SkillCreate):
         skill_data = body.model_dump()
         pm.add_skill(body.slug, skill_data)
         return {"ok": True, "skill": skill_data}
+    except InvalidSlug as e:
+        return JSONResponse(_slug_error_response(e), status_code=422)
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
+class SlugCheck(BaseModel):
+    slug: str = ""
+    name: str = ""
+    kind: str = KIND_SKILL
+    parent_slug: str = ""
+    parent_dir: str = ""
+
+
+@app.post("/api/slug/check")
+async def check_slug(body: SlugCheck):
+    """Is this identifier usable, and what would it become on disk?
+
+    The new-skill / new-project wizards ask this while the user types. It is an
+    endpoint rather than a copy of the rules in `app.ts` for two reasons: the
+    duplicate check needs the open project, and a second implementation of the
+    charset/reserved-name rules is exactly the kind of drift that put three
+    disagreeing slug generators in the frontend to begin with.
+
+    Returns reason *codes*, never sentences — the page composes the wording
+    through i18n so the English UI cannot end up with a Czech string from the
+    API.
+    """
+    kind = KIND_PROJECT if body.kind == KIND_PROJECT else KIND_SKILL
+    slug = (body.slug or "").strip()
+
+    taken: list[str] = []
+    if kind == KIND_SKILL and pm.current_project is not None:
+        taken = list(pm.current_project.get("skills", []))
+    elif kind == KIND_PROJECT:
+        base = Path(body.parent_dir) if body.parent_dir.strip() else pm.projects_dir
+        try:
+            taken = [p.name for p in base.iterdir() if p.is_dir()]
+        except OSError:
+            # A parent directory that does not exist yet is not a conflict; it
+            # is created together with the project.
+            taken = []
+
+    problem = validate_slug(slug, kind=kind, taken=taken)
+    result: dict[str, Any] = {
+        "valid": problem is None,
+        "slug": slug,
+        "kind": kind,
+        "suggestion": suggest_slug(body.name or slug),
+        "max_len": MAX_LEN,
+    }
+    if problem is not None:
+        result.update(problem.to_dict())
+    if kind == KIND_SKILL:
+        # The identity the recorder and the trainer would use, from the same
+        # derivation they use — not a string rebuilt for display.
+        result["repo_id"] = dataset_repo_id(body.parent_slug, slug) if slug else ""
+    return result
 
 
 @app.put("/api/skills/{skill_slug}")

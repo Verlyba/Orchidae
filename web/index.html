@@ -7,8 +7,8 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.76.0">
-  <link rel="stylesheet" href="/static/styles.css?v=3.76.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.77.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.77.0">
 </head>
 <body>
 
@@ -2291,7 +2291,8 @@
               <label for="new-project-slug" data-i18n="lbl.slug">Identifikátor (Slug)</label>
               <span class="info-tooltip-trigger" data-i18n-tooltip="tip.projectSlug">ⓘ</span>
             </div>
-            <input type="text" id="new-project-slug" readonly placeholder="automaticky-generovany-slug">
+            <input type="text" id="new-project-slug" placeholder="automaticky-generovany-slug">
+            <div class="slug-status" id="new-project-slug-status" role="status" aria-live="polite"></div>
           </div>
           <div class="form-group">
             <div class="label-with-tooltip">
@@ -2312,7 +2313,7 @@
       <!-- Modal Footer (hidden in selection step, shown in details form step) -->
       <div class="modal-footer" id="new-project-modal-footer" style="display: none;">
         <button class="btn btn-xs btn-secondary" onclick="App.showNewProjectModeSelection()" data-i18n="btn.back">Zpět</button>
-        <button class="btn btn-xs btn-primary" onclick="App.createProject()" data-i18n="btn.createProject">Vytvořit projekt</button>
+        <button class="btn btn-xs btn-primary" id="new-project-submit-btn" onclick="App.createProject()" data-i18n="btn.createProject">Vytvořit projekt</button>
       </div>
     </div>
   </div>
@@ -2474,10 +2475,13 @@
               <label for="new-skill-slug" data-i18n="lbl.slug">Identifikátor (Slug)</label>
               <span class="info-tooltip-trigger" data-i18n-tooltip="tip.skillSlug">ⓘ</span>
             </div>
-            <input type="text" id="new-skill-slug" readonly placeholder="např. uklidit_stul" style="width: 100%;" data-i18n-ph="ph.skillSlug">
+            <input type="text" id="new-skill-slug" placeholder="např. uklidit_stul" style="width: 100%;" data-i18n-ph="ph.skillSlug">
           </div>
         </div>
-        
+        <!-- What the identifier becomes: the LeRobot repo_id the recorder and
+             the trainer will use, or the reason it cannot be used at all. -->
+        <div class="slug-status" id="new-skill-slug-status" role="status" aria-live="polite"></div>
+
         <div class="form-group" style="margin-bottom: 16px;">
           <label for="new-skill-desc" id="new-skill-desc-label" data-i18n="lbl.plannerDesc">Bližší popis a instrukce pro plánovač</label> <span class="required-mark">*</span>
           <div id="new-skill-desc-hint" style="font-size:13px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;"></div>
@@ -3074,7 +3078,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.76.0" defer></script>
-  <script src="/static/app.js?v=3.76.0" defer></script>
+  <script src="/static/i18n.js?v=3.77.0" defer></script>
+  <script src="/static/app.js?v=3.77.0" defer></script>
 </body>
 </html>

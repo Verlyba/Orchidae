@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Slot
 
 from orchiday.core.events import event_bus
 from orchiday.core.project_manager import ProjectManager
+from orchiday.core.slugs import dataset_repo_id
 from orchiday.hardware.camera_worker import CameraManager
 from orchiday.ai.lm_studio_client import LMStudioClient
 from orchiday.ai.llm_planner import LLMPlanner
@@ -856,12 +857,16 @@ class OrchidayController(QObject):
 
         Recording (`_on_recording_requested`) writes to the same names, which is
         what makes both branches of the comparison come from one collection run.
+
+        The derivation itself lives in the module-level `dataset_repo_id()` so
+        the new-skill wizard can preview the identity of a skill that does not
+        exist yet without owning a second copy of the rule.
         """
         parent_slug = ""
         skills_details = (self.pm.current_project or {}).get("skills_details", {})
         if skill_slug in skills_details:
             parent_slug = skills_details[skill_slug].get("parent_slug", "") or ""
-        return f"local/{parent_slug}/{skill_slug}" if parent_slug else f"local/{skill_slug}"
+        return dataset_repo_id(parent_slug, skill_slug)
 
     def training_targets(self) -> dict[str, Any]:
         """What `lerobot-train` would be started for, per top-level task.

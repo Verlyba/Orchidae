@@ -7040,3 +7040,36 @@ body { min-width: 320px; }
     padding: 5px 6px;
     overflow-wrap: anywhere;
 }
+
+/* ── Identifier (slug) verdict under the name/slug pair ──────────────────
+   The identifier is a folder name and, for a skill, the LeRobot repo_id the
+   recorder and the trainer are handed — so the field states what it will
+   become, or why it cannot be used. Left rule only: an outline would read as
+   a second input next to the real one. */
+.slug-status {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    margin-top: 6px;
+    padding: 0;
+    min-height: 17px;          /* reserve the line so the modal does not jump */
+    overflow-wrap: anywhere;
+}
+
+.slug-status.is-ok,
+.slug-status.is-bad {
+    padding: 4px 8px;
+    background: var(--bg-inset);
+    border-left: 2px solid var(--border-light);
+}
+
+.slug-status.is-ok {
+    color: var(--text-main);
+    border-left-color: var(--green);
+}
+
+.slug-status.is-bad {
+    color: var(--text-light);
+    border-left-color: var(--red);
+}
