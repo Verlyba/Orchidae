@@ -725,3 +725,80 @@ def test_rerun_probe_is_cached_per_interpreter(bridge, monkeypatch):
     # in the native SDK and used to lose races with the subprocess timeout.
     assert "find_spec" in calls[0][-1]
     assert "import rerun" not in calls[0][-1]
+
+
+# ── Device types on the command line ─────────────────────────────────────────
+# Orchiday used to build `--robot.type` / `--teleop.type` by appending
+# `_follower` / `_leader` to the family name. draccus resolves those flags
+# against registered subclasses, so for every robot whose leader is not named
+# after it the process died during argument parsing. These bind the spawned
+# command to the catalogue read off LeRobot's own `register_subclass` calls.
+
+from orchiday.core import device_types as dt
+
+
+@pytest.mark.parametrize("robot_type,expected_robot,expected_teleop", [
+    ("lekiwi", "lekiwi", "so100_leader"),
+    ("unitree_g1", "unitree_g1", "unitree_g1"),
+    ("reachy2", "reachy2", "reachy2_teleoperator"),
+    ("hope_jr_arm", "hope_jr_arm", "homunculus_arm"),
+    ("so101_follower", "so101_follower", "so101_leader"),
+])
+def test_teleop_command_carries_registered_device_types(
+        bridge, robot_type, expected_robot, expected_teleop):
+    bridge.start_teleop(
+        robot_type=robot_type, robot_port="COM3", robot_id="my_follower_arm",
+        teleop_type="", teleop_port="COM4", teleop_id="my_leader_arm",
+    )
+    cmd = bridge._captured["cmd"]
+    assert _arg(cmd, "--robot.type=") == expected_robot
+    assert _arg(cmd, "--teleop.type=") == expected_teleop
+
+
+@pytest.mark.parametrize("robot_type,expected", [
+    ("lekiwi", "lekiwi"),                    # was `lekiwi_follower`
+    ("unitree_g1", "unitree_g1"),            # was `unitree_g1_follower`
+    ("reachy2", "reachy2"),                  # was `reachy2_follower`
+    ("hope_jr_arm", "hope_jr_arm"),          # was `hope_jr_arm_follower`
+    ("so100", "so100_follower"),             # bare family from an old project
+])
+def test_follower_calibration_carries_a_registered_robot_type(bridge, robot_type, expected):
+    bridge.calibrate_robot(robot_type=robot_type, port="COM3", robot_id="my_follower_arm")
+    cmd = bridge._captured["cmd"]
+    assert _arg(cmd, "--robot.type=") == expected
+    assert "--teleop.type=" not in " ".join(cmd)
+
+
+@pytest.mark.parametrize("robot_type,expected", [
+    ("lekiwi", "so100_leader"),              # was `lekiwi_leader`
+    ("reachy2", "reachy2_teleoperator"),     # was `reachy2_leader`
+    ("hope_jr_hand", "homunculus_glove"),    # was `hope_jr_hand_leader`
+    ("koch_follower", "koch_leader"),
+])
+def test_leader_calibration_carries_a_registered_teleop_type(bridge, robot_type, expected):
+    bridge.calibrate_robot(
+        robot_type="", teleop_type=robot_type,
+        teleop_port="COM4", robot_id="my_leader_arm",
+    )
+    cmd = bridge._captured["cmd"]
+    assert _arg(cmd, "--teleop.type=") == expected
+    assert "--robot.type=" not in " ".join(cmd)
+
+
+def test_no_catalogue_device_can_produce_an_unregistered_flag(bridge):
+    """
+    Sweeps the whole catalogue through the command builder — the guarantee is
+    that nothing Orchiday can be configured with reaches LeRobot as a name it
+    does not register.
+    """
+    from tests.test_device_types import LEROBOT_ROBOT_TYPES, LEROBOT_TELEOP_TYPES
+
+    for entry in dt.CATALOGUE:
+        bridge.start_teleop(
+            robot_type=entry.robot_type, robot_port="COM3", robot_id="follower",
+            teleop_type="", teleop_port="COM4", teleop_id="leader",
+        )
+        cmd = bridge._captured["cmd"]
+        assert _arg(cmd, "--robot.type=") in LEROBOT_ROBOT_TYPES, entry.robot_type
+        assert _arg(cmd, "--teleop.type=") in LEROBOT_TELEOP_TYPES, entry.robot_type
+        bridge._active_processes.clear()

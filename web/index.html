@@ -7,8 +7,8 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.71.0">
-  <link rel="stylesheet" href="/static/styles.css?v=3.71.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.72.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.72.0">
 </head>
 <body>
 
@@ -194,82 +194,59 @@
                 <h3 style="margin:0;"><span data-i18n="blk.connect.title"></span></h3>
               </div>
               <div class="setup-block-content">
-                <div class="merge-cols">
+                <div class="merge-cols merge-cols-3">
+
+                  <!-- Column 1: what the robot IS, and which two ports its arms
+                       sit on. The device-type rows are rendered from
+                       /api/hardware/device_types so the names shown here are
+                       the ones LeRobot registers — deriving them a second time
+                       in the browser is exactly how they drifted before. -->
                   <section class="merge-col">
                     <h4 class="merge-col-title" data-i18n="blk.hw.arms">Konfigurace robotických ramen</h4>
-              
-                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
-                       <!-- segmented track slider -->
-                      <div class="robot-slider-container">
-                        <div class="robot-slider-track">
-                          <div class="robot-type-pill active" data-value="so100_follower" onclick="App.selectRobot('so100_follower')">
-                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle><circle cx="16" cy="16" r="2"></circle><path d="M12 2v9"></path></svg>
-                            <span class="pill-title">SO-100</span>
-                            <span class="pill-subtitle">Follower</span>
-                          </div>
-                          <div class="robot-type-pill" data-value="so101_follower" onclick="App.selectRobot('so101_follower')">
-                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle><circle cx="16" cy="16" r="2"></circle><path d="M12 2v9"></path></svg>
-                            <span class="pill-title">SO-101</span>
-                            <span class="pill-subtitle">Follower</span>
-                          </div>
-                          <div class="robot-type-pill" data-value="bi_so_follower" onclick="App.selectRobot('bi_so_follower')">
-                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="8" height="10" rx="2"></rect><rect x="13" y="11" width="8" height="10" rx="2"></rect><path d="M7 2v9M17 2v9"></path></svg>
-                            <span class="pill-title">Bimanual SO</span>
-                            <span class="pill-subtitle">Follower</span>
-                          </div>
-                          <div class="robot-type-pill" data-value="koch_follower" onclick="App.selectRobot('koch_follower')">
-                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="8" cy="16" r="2"></circle></svg>
-                            <span class="pill-title">Koch v1.1</span>
-                            <span class="pill-subtitle">Follower</span>
-                          </div>
-                          <div class="robot-type-pill" data-value="openarm_follower" onclick="App.selectRobot('openarm_follower')">
-                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v7M12 15v7"></path></svg>
-                            <span class="pill-title">OpenArm</span>
-                            <span class="pill-subtitle">CAN Bus</span>
-                          </div>
-                          <div class="robot-type-pill" data-value="lekiwi" onclick="App.selectRobot('lekiwi')">
-                            <svg class="robot-pill-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M3 9l1 1M21 9l-1 1M3 15l1-1M21 15l-1-1"></path></svg>
-                            <span class="pill-title">LeKiwi</span>
-                            <span class="pill-subtitle">Mobile</span>
-                          </div>
-                        </div>
-                      </div>
 
-                      <!-- hidden fields -->
+                    <div class="setup-block-content conn-col-body">
+                      <!-- hidden fields: the resolved types the rest of the app
+                           reads. Written only by onRobotTypeChange(). -->
                       <input type="hidden" id="tele-leader-type" value="so100_leader">
                       <input type="hidden" id="tele-follower-type" value="so100_follower">
                       <input type="hidden" id="tele-leader-port-custom" value="">
                       <input type="hidden" id="tele-leader-id" value="my_leader_arm">
                       <input type="hidden" id="tele-follower-port-custom" value="">
                       <input type="hidden" id="tele-follower-id" value="my_follower_arm">
-                      <select id="robot-type-select" onchange="App.onRobotTypeChange()" style="display:none;">
-                        <option value="so100_follower">so100_follower</option>
-                        <option value="so101_follower">so101_follower</option>
-                        <option value="bi_so_follower">bi_so_follower</option>
-                        <option value="koch_follower">koch_follower</option>
-                        <option value="openarm_follower">openarm_follower</option>
-                        <option value="bi_openarm_follower">bi_openarm_follower</option>
-                        <option value="hope_jr_arm">hope_jr_arm</option>
-                        <option value="lekiwi">lekiwi</option>
-                        <option value="unitree_g1">unitree_g1</option>
-                        <option value="reachy2">reachy2</option>
-                      </select>
+                      <select id="robot-type-select" onchange="App.onRobotTypeChange()" style="display:none;"></select>
 
-                      <div class="form-row" style="margin:0; gap:16px;">
-                        <div class="form-group" id="leader-config-group">
-                          <label data-i18n="lbl.leaderPort">Leader Arm Port (Řídicí)</label>
-                          <select id="tele-leader-port" onchange="App.onTelePortChange('leader')" style="width:100%;">
-                            <option value="">-- Vyberte port --</option>
-                          </select>
+                      <div class="conn-sect conn-sect-grow">
+                        <div class="teleop-sub-title-row">
+                          <h4 class="teleop-sub-title" data-i18n="blk.hw.deviceType">Typ zařízení</h4>
+                          <span class="cal-arm-state" id="conn-type-count">-</span>
                         </div>
-                        <div class="form-group" id="follower-config-group">
-                          <label data-i18n="lbl.followerPort">Follower Arm Port (Vykonávací)</label>
-                          <select id="tele-follower-port" onchange="App.onTelePortChange('follower')" style="width:100%;">
-                            <option value="">-- Vyberte port --</option>
-                          </select>
+                        <div id="connect-robot-list" class="conn-type-list"></div>
+                      </div>
+
+                      <div class="conn-sect">
+                        <div class="teleop-sub-title-row">
+                          <h4 class="teleop-sub-title" data-i18n="blk.hw.ports">Sériové porty ramen</h4>
+                          <span class="cal-arm-state" id="conn-port-state">-</span>
+                        </div>
+                        <div class="conn-port-grid">
+                          <div class="form-group" id="leader-config-group">
+                            <label data-i18n="lbl.leaderPort">Leader Arm Port (Řídicí)</label>
+                            <select id="tele-leader-port" onchange="App.onTelePortChange('leader')"></select>
+                          </div>
+                          <div class="form-group" id="follower-config-group">
+                            <label data-i18n="lbl.followerPort">Follower Arm Port (Vykonávací)</label>
+                            <select id="tele-follower-port" onchange="App.onTelePortChange('follower')"></select>
+                          </div>
                         </div>
                       </div>
 
+                      <!-- The flags the choices above really turn into. Same
+                           reason as on the Učení page: the window has to say
+                           what will be spawned, not imply it. -->
+                      <div class="train-cmd-preview">
+                        <span class="train-cmd-label" data-i18n="lbl.connCmdPreview">Do LeRobotu půjde</span>
+                        <code id="conn-cmd-preview-text">–</code>
+                      </div>
                     </div>
 
                     <div class="block-actions">
@@ -277,18 +254,71 @@
                       <button class="btn btn-xs btn-primary btn-save-hw-config" onclick="App.saveModelConfig()" data-i18n="btn.saveHw" data-i18n-title="tip.saveHw" title="Uloží typ robota, porty ramen a nastavení modelů do projektu">Uložit nastavení hardwaru</button>
                     </div>
                   </section>
+
+                  <!-- Column 2: what the machine actually reports. Everything
+                       here comes from GET /api/hardware/scan, which the app
+                       already called and threw away after filling two
+                       dropdowns. The table is what absorbs this column's
+                       spare height. -->
+                  <section class="merge-col">
+                    <h4 class="merge-col-title" data-i18n="blk.hw.detected">Detekovaný hardware</h4>
+
+                    <div class="setup-block-content conn-col-body">
+                      <div class="pd-stats conn-stats">
+                        <div class="pd-stat" id="conn-stat-ports">
+                          <span class="pd-stat-num" id="conn-num-ports">0</span>
+                          <span class="pd-stat-label" data-i18n="stat.serialPorts">Sériové porty</span>
+                        </div>
+                        <div class="pd-stat" id="conn-stat-cams">
+                          <span class="pd-stat-num" id="conn-num-cams">0</span>
+                          <span class="pd-stat-label" data-i18n="stat.videoDevices">Video zařízení</span>
+                        </div>
+                        <div class="pd-stat" id="conn-stat-assigned">
+                          <span class="pd-stat-num" id="conn-num-assigned">0/2</span>
+                          <span class="pd-stat-label" data-i18n="stat.armsAssigned">Ramena přiřazena</span>
+                        </div>
+                        <div class="pd-stat" id="conn-stat-cams-used">
+                          <span class="pd-stat-num" id="conn-num-cams-used">0</span>
+                          <span class="pd-stat-label" data-i18n="stat.camsConfigured">Kamer v projektu</span>
+                        </div>
+                      </div>
+
+                      <div class="conn-sect conn-sect-grow">
+                        <div class="teleop-sub-title-row">
+                          <h4 class="teleop-sub-title" data-i18n="blk.hw.serialTable">Sériová zařízení</h4>
+                          <span class="cal-arm-state" data-i18n="hint.fromPyserial">z pyserial</span>
+                        </div>
+                        <div id="conn-ports-table" class="conn-table-wrap"></div>
+                      </div>
+
+                      <div class="conn-sect">
+                        <div class="teleop-sub-title-row">
+                          <h4 class="teleop-sub-title" data-i18n="blk.hw.videoTable">Video zařízení</h4>
+                          <span class="cal-arm-state" data-i18n="hint.fromV4l">z v4l2 / OpenCV</span>
+                        </div>
+                        <div id="conn-cams-table" class="conn-table-wrap"></div>
+                      </div>
+                    </div>
+
+                    <div class="block-actions">
+                      <button class="btn btn-xs btn-secondary" id="btn-rescan-hardware" onclick="App.manualRescanHardware()" data-i18n="btn.rescanHw">Přehledat hardware</button>
+                    </div>
+                  </section>
+
+                  <!-- Column 3: cameras — pick a video device, see it, add it
+                       to the project. -->
                   <section class="merge-col">
                     <h4 class="merge-col-title" data-i18n="blk.hw.cameras">Nakonfigurované USB Kamery</h4>
-              
-                    <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
-                      <div class="form-row" style="margin: 0; gap: 12px; align-items: flex-end;">
-                        <div class="form-group" style="flex: 1.2;">
+
+                    <div class="setup-block-content conn-col-body">
+                      <div class="conn-cam-pick">
+                        <div class="form-group">
                           <label data-i18n="lbl.selectVideoPort">Vybrat video port</label>
                           <select id="hw-camera-port-select" onchange="App.hwOnCameraPortChange()">
                             <option value="" data-i18n="opt.noCameras">-- Žádné kamery nenačteny --</option>
                           </select>
                         </div>
-                        <div class="form-group" style="flex: 1;">
+                        <div class="form-group">
                           <label data-i18n="lbl.camTypeRole">Typ kamery (Role)</label>
                           <select id="hw-camera-role-select">
                             <option value="overhead" data-i18n="opt.overheadScene">Overhead (Scéna)</option>
@@ -297,34 +327,35 @@
                         </div>
                       </div>
 
-                      <!-- Camera preview and Actions row -->
-                      <div style="display: flex; gap: 12px; align-items: stretch; width: 100%; flex: 1; min-height: 0;">
-                        <!-- Preview Box -->
-                        <div style="flex: 1.2; display: flex; flex-direction: column; gap: 4px; min-height: 0;">
-                          <span style="font-size:12.5px; font-weight: bold; color: var(--text-muted);" data-i18n="hint.livePreview">Live náhled</span>
-                          <div id="hw-camera-preview-box" style="flex: 1; min-height: 150px; background: #000; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
-                            <img id="hw-camera-preview-img" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
-                            <span id="hw-camera-preview-placeholder" style="font-size:11.5px; color: var(--text-muted); text-align: center; padding: 10px;" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
-                          </div>
+                      <!-- The live preview is the one element on this tab that
+                           gets better with more room, so it takes the column's
+                           spare height and holds 4:3 rather than stretching. -->
+                      <div class="conn-sect conn-sect-grow conn-cam-preview-sect">
+                        <div class="teleop-sub-title-row">
+                          <h4 class="teleop-sub-title" data-i18n="hint.livePreview">Live náhled</h4>
+                          <span class="cal-arm-state" id="hw-camera-preview-state" data-i18n="cam.previewIdle">vypnuto</span>
                         </div>
+                        <div id="hw-camera-preview-box" class="conn-cam-preview">
+                          <img id="hw-camera-preview-img" />
+                          <span id="hw-camera-preview-placeholder" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
+                        </div>
+                      </div>
 
-                        <!-- Actions & List -->
-                        <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
-                          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                            <button class="btn btn-xs btn-primary" onclick="App.hwAddCamera()" data-i18n="btn.addCamera">Přidat kameru</button>
-                            <button class="btn btn-xs btn-secondary" onclick="App.hwClearCameras()" data-i18n="btn.clearAll">Vymazat všechny</button>
-                          </div>
-
-                          <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; flex: 1; overflow: hidden;">
-                            <span style="font-size:11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;" data-i18n="hint.configuredCams">Nakonfigurované kamery:</span>
-                            <div id="hw-camera-list" style="flex: 1; overflow-y: auto; background: var(--bg-sidebar); border: 1px solid var(--border); padding: 4px; display: flex; flex-direction: column; gap: 2px;">
-                              <div style="font-size:11.5px; color: var(--text-muted); text-align: center; padding: 4px;" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
-                            </div>
-                          </div>
+                      <div class="conn-sect">
+                        <div class="teleop-sub-title-row">
+                          <h4 class="teleop-sub-title" data-i18n="hint.configuredCams">Nakonfigurované kamery:</h4>
+                          <span class="cal-arm-state" id="hw-camera-count">-</span>
+                        </div>
+                        <div id="hw-camera-list" class="conn-cam-list">
+                          <div class="conn-empty" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
                         </div>
                       </div>
                     </div>
 
+                    <div class="block-actions">
+                      <button class="btn btn-xs btn-secondary" onclick="App.hwClearCameras()" data-i18n="btn.clearAll">Vymazat všechny</button>
+                      <button class="btn btn-xs btn-primary" onclick="App.hwAddCamera()" data-i18n="btn.addCamera">Přidat kameru</button>
+                    </div>
                   </section>
                 </div>
               </div>
@@ -2996,7 +3027,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.71.0" defer></script>
-  <script src="/static/app.js?v=3.71.0" defer></script>
+  <script src="/static/i18n.js?v=3.72.0" defer></script>
+  <script src="/static/app.js?v=3.72.0" defer></script>
 </body>
 </html>

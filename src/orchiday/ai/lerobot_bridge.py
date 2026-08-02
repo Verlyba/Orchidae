@@ -597,14 +597,22 @@ except Exception as e:
 
     @staticmethod
     def _normalize_device_types(robot_type: str, teleop_type: str = "") -> tuple[str, str]:
-        clean_robot = (robot_type or "so100").replace("_follower", "").replace("_leader", "")
-        norm_robot = f"{clean_robot}_follower"
-        if not teleop_type:
-            norm_teleop = f"{clean_robot}_leader"
-        else:
-            clean_teleop = teleop_type.replace("_follower", "").replace("_leader", "")
-            norm_teleop = f"{clean_teleop}_leader"
-        return norm_robot, norm_teleop
+        """
+        Resolve a (robot, teleop) pair to names LeRobot actually registers.
+
+        This used to append `_follower` / `_leader` to the family name, which
+        invents types for every robot whose leader is not named after it
+        (`lekiwi_leader`, `reachy2_leader`, `unitree_g1_follower`, …). draccus
+        resolves these flags against registered subclasses, so an invented name
+        kills the process during argument parsing. The catalogue is read off
+        LeRobot's own `register_subclass` calls — see `core/device_types.py`.
+        """
+        from orchiday.core.device_types import normalize_pair, DEFAULT_LEADER_TYPE
+
+        norm_robot, norm_teleop = normalize_pair(robot_type, teleop_type)
+        # Teleoperation always needs a leader; a robot that has none (none do
+        # today) keeps the historical default rather than emitting an empty flag.
+        return norm_robot, norm_teleop or DEFAULT_LEADER_TYPE
 
     # ── Robot teleoperation ──────────────────────────────────────────────
 
@@ -745,12 +753,14 @@ except Exception as e:
 
         cmd = [self._python, self._ensure_calibration_wrapper()]
 
+        # Both branches resolve their type through the catalogue read off
+        # LeRobot's own `register_subclass` calls, so `--teleop.type` /
+        # `--robot.type` can only ever carry a name draccus knows.
+        from orchiday.core.device_types import (
+            leader_type_for, follower_type_for, DEFAULT_LEADER_TYPE)
+
         if use_teleop:
-            t_type = teleop_type or "so100_leader"
-            if not t_type.endswith("_leader") and not t_type.endswith("_follower"):
-                t_type = f"{t_type}_leader"
-            elif t_type.endswith("_follower"):
-                t_type = f"{t_type[:-9]}_leader"
+            t_type = leader_type_for(teleop_type or robot_type) or DEFAULT_LEADER_TYPE
 
             # Derive distinct teleop ID (e.g. my_leader_arm or setup1_leader)
             t_id = robot_id if "leader" in robot_id.lower() else f"{robot_id}_leader"
@@ -759,15 +769,13 @@ except Exception as e:
             cmd.append(f"--teleop.port={teleop_port}")
             cmd.append(f"--teleop.id={t_id}")
         else:
-            r_type = robot_type or "so100_follower"
-            standalone = ("lekiwi", "lekiwi_client", "hope_jr_hand", "hope_jr_arm", "unitree_g1")
-            if not r_type.endswith("_follower") and not r_type.endswith("_leader") and r_type not in standalone:
-                r_type = f"{r_type}_follower"
-            elif r_type.endswith("_leader"):
-                r_type = f"{r_type[:-7]}_follower"
+            r_type = follower_type_for(robot_type)
 
-            # Derive distinct follower ID (e.g. my_follower_arm or setup1_follower)
-            f_id = robot_id if ("follower" in robot_id.lower() or robot_id in standalone) else f"{robot_id}_follower"
+            # Derive distinct follower ID (e.g. my_follower_arm or setup1_follower).
+            # A robot whose registered name carries no `_follower` suffix
+            # (lekiwi, unitree_g1, …) is its own follower, so its id stays as-is.
+            is_own_follower = not r_type.endswith("_follower")
+            f_id = robot_id if ("follower" in robot_id.lower() or is_own_follower) else f"{robot_id}_follower"
             self._purge_robot_calibration_cache(f_id, r_type, "robots")
             cmd.append(f"--robot.type={r_type}")
             cmd.append(f"--robot.port={port}")
@@ -782,10 +790,12 @@ except Exception as e:
             event_bus.log_message.emit("INFO", f"Starting calibration of {target} arm '{robot_id}'")
             self._spawn_process(key, cmd, kind="calibrate", skill_slug=robot_id)
 
+        # The preflight probe must see the SAME type the command carries —
+        # it opens the bus for that device class before the process starts.
         if use_teleop:
-            self._run_preflight_check(teleop_port, teleop_type or "so100_leader", launch)
+            self._run_preflight_check(teleop_port, t_type, launch)
         else:
-            self._run_preflight_check(port, robot_type or "so100_follower", launch)
+            self._run_preflight_check(port, r_type, launch)
 
     # ── Data recording ───────────────────────────────────────────────────
 

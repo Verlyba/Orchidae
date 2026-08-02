@@ -8,6 +8,237 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (13) — Connect: aplikace posílala LeRobotu **typy zařízení, které
+neexistují** — u 4 z 10 nabízených robotů by kalibrace i teleoperace umřely na
+parsování argumentů
+
+**Výchozí stav.** `bash scripts/setup-dev.sh` + `bash scripts/verify.sh` prošly
+celé (189 pytestů), priorita A tedy prázdná. Fronta ukazovala na poslední
+stránku s mrtvou plochou — `setup` (17 / 20 / 22 %, přeměřeno, sedí). Šel jsem
+tam, ale nejdřív podle priority B otevřel zdrojáky LeRobotu (0.6.1 přes
+`git clone`, viz doporučení z běhu (11)) — a na téhle stránce se ukázalo něco
+horšího než layout.
+
+**Nález — `${base}_leader` je vymyšlené jméno, ne odvození**
+
+Typ zařízení se odvozoval sufixy z názvu followeru:
+
+```js
+leader   = robotType.replace('_follower','') + '_leader'
+follower = robotType.replace('_leader','')   + '_follower'
+```
+
+To sedí pro rodiny SO / Koch / OpenArm a **je špatně pro každého dalšího robota,
+kterého LeRobot registruje** — leader se nejmenuje podle followeru a několik
+followerů nemá sufix `_follower` vůbec. draccus přitom `--robot.type` /
+`--teleop.type` řeší proti registrovaným podtřídám, takže vymyšlené jméno není
+varování: proces umře na parsování argumentů, ještě než sáhne na hardware.
+
+| robot v nabídce | co appka posílala | co LeRobot registruje |
+|---|---|---|
+| `lekiwi` | `lekiwi_follower` / `lekiwi_leader` | `lekiwi` / `so100_leader` |
+| `unitree_g1` | `unitree_g1_follower` / `unitree_g1_leader` | `unitree_g1` / `unitree_g1` |
+| `reachy2` | `reachy2_follower` / `reachy2_leader` | `reachy2` / `reachy2_teleoperator` |
+| `hope_jr_arm` | `hope_jr_arm_follower` / `hope_jr_arm_leader` | `hope_jr_arm` / `homunculus_arm` |
+
+Zdroje jsou zdrojáky, ne domněnka: `@RobotConfig.register_subclass(...)`
+v `src/lerobot/robots/*/config_*.py`, `@TeleoperatorConfig.register_subclass(...)`
+v `src/lerobot/teleoperators/*`, a párování z vlastních docs LeRobotu
+(`docs/source/{unitree_g1,hope_jr,reachy2}.mdx`, `examples/lekiwi/teleoperate.py`).
+
+**Druhá polovina nálezu — jeden sériový port nestačí na všechny**
+
+Connect vydává **jeden** port ze scanu pyserial a posílá ho jako `--robot.port`.
+To dává smysl jen u sériových zařízení. Ze 16 registrovaných robotů:
+
+| tvar | co LeRobot doopravdy chce | roboti |
+|---|---|---|
+| `serial` | `--robot.port=/dev/ttyACM0` | SO-100/101, Koch, OMX, reBot, LeKiwi, HOPE-Jr |
+| `can` | `--robot.port=can0` (CAN rozhraní, ne tty) | OpenArm |
+| `bimanual` | `--robot.{left,right}_arm_config.port` | Bimanual SO / OpenArm / reBot |
+| `network` | `--robot.ip_address` / `.robot_ip` / `.sdk_url` | Reachy 2, Unitree G1, LeKiwi client, EarthRover |
+
+`bi_so_follower` byl přitom v nabídce jako plnohodnotná volba — appka by mu
+poslala `--robot.port`, které jeho konfigurace nemá.
+
+**Oprava — jedna definice, ne pátá kopie**
+
+- **`src/orchiday/core/device_types.py`** (nový) — katalog: pro každého robota
+  registrované `--robot.type`, registrovaný `--teleop.type` (nebo `None`), tvar
+  připojení a příznak, jestli ho Orchiday umí ovládat. `entry_for()` navíc
+  rozřeší jména, která na disku nechaly starší verze (holé `so100`,
+  zmršené `lekiwi_follower`, `reachy2_leader`), takže staré projekty jedou dál.
+- **`GET /api/hardware/device_types`** — frontend katalog **stahuje**, neodvozuje.
+  Odvozovat ho i v prohlížeči by byla přesně ta druhá kopie, kvůli které se to
+  rozešlo s LeRobotem.
+- **Odvození bylo na PĚTI místech a všechna teď volají katalog:**
+  `lerobot_bridge._normalize_device_types()` (teleop + record),
+  `lerobot_bridge.calibrate_robot()` (měl vlastní neúplný seznam `standalone`,
+  jen pro robot stranu, bez `reachy2`), `server.save_settings()`,
+  `server` start recordingu, `controller._start_recording()`,
+  a v prohlížeči `onRobotTypeChange()`, `calibrateArm()` a `prefillWorkflowData()`.
+- **Preflight dostane týž typ, jaký nese příkaz** — otevírá sběrnici pro danou
+  třídu zařízení, takže se s příkazem nesmí rozejít.
+
+**Nález při práci — volba robota se do příkazů vůbec nedostala (priorita C)**
+
+Typ zařízení se ukládal na **dvě místa, která si odporovala**:
+`project["robot_type"]` (co píše a čte Setup) a `project["robots"][*]["type"]`
+(z čeho se **doopravdy** spouští record / teleop / kalibrace). `POST /api/settings`
+psal jen to první. Vybrat na Connectu jiného robota tedy změnilo popisek, ale
+příkaz se spustil se starým typem — a `prefillWorkflowData()` volbu chvíli po
+kliknutí přepsalo zpátky. Nově `save_settings()` píše obě místa a obě přes
+katalog, takže ani jedno nemůže nést typ, který LeRobot nezná.
+
+**Hlavní změna v UI — Connect má tři sloupce a říká, co se opravdu spustí**
+
+- **Sloupec 1 „Typ zařízení + porty".** Místo mřížky šesti dlaždic je seznam
+  **všech 16** registrovaných zařízení, u každého `--robot.type` a `--teleop.type`
+  a tvar připojení. Řádek, který Orchiday jedním sériovým portem neovládne, je
+  **disabled** a v tooltipu říká, jaký flag LeRobot místo toho chce — místo aby
+  šel vybrat a umřel až při spuštění. Seznam pohlcuje volnou výšku sloupce.
+- **Náhled příkazu**: zaškrtnutá volba se vypíše jako `lerobot-calibrate`
+  (leader), `lerobot-calibrate` (follower) a `lerobot-teleoperate` s vyplněnými
+  porty a id. Stejný vzor jako na `modelrun` (10) a `uceni` (12).
+- **Sloupec 2 „Detekovaný hardware" (nový).** `GET /api/hardware/scan` appka
+  volala celou dobu a **zahodila** z něj všechno kromě dvou dropdownů. Nově je
+  z něj tabulka sériových zařízení (zařízení / popis / VID:PID / kdo ho používá,
+  trvalé ID v `title`) a tabulka video zařízení, plus čtyři počítadla
+  (porty / video / ramena přiřazena / kamer v projektu), žlutá když něco chybí.
+  Tabulka pohlcuje volnou výšku. Tlačítko „Přehledat hardware" má indikátor
+  průběhu — scan probíhá přes OpenCV indexy a je pomalý.
+- **Sloupec 3 „Kamery".** Náhled je druhý prvek, kterému velikost prospívá:
+  drží 4:3 a bere volnou výšku, místo aby se roztáhl na pruh. Přibyl stavový
+  štítek („vypnuto" / „streamuje") s jediným pisatelem, aby nemohl tvrdit něco
+  jiného, než co se opravdu streamuje.
+- **`isSingleArm = ['lekiwi','moss','stretch']`** je pryč — jestli má robot
+  leader rameno, je vlastnost registru LeRobotu, ne natvrdo psaný seznam
+  (`moss` ani `stretch` LeRobot 0.6 vůbec nezná).
+
+**Opravené chyby (nalezené při práci, ne plánované)**
+
+1. **`<select>` mlčky odmítá hodnotu, pro kterou nemá `<option>`.** Když jsem
+   options přesunul do JS, `selectRobot()` přestal cokoliv měnit — a nešlo to
+   poznat, protože přiřazení nevyhodí chybu. Nově options plní katalog
+   (`syncRobotTypeOptions()`) a požadovaná hodnota se pamatuje na elementu
+   (`data-desired`), protože projekt se může otevřít dřív, než katalog dorazí.
+2. **`prefillWorkflowData()` bylo čtvrtou kopií odvození** a spouštělo se
+   asynchronně — přepsalo vyřešené typy chvíli po tom, co je stránka vykreslila.
+   Našel to až průchod stavy, ne čtení kódu.
+3. **`prefillWorkflowData()` bez robota v projektu fallbackovalo na natvrdo
+   `'so100'`**, čímž taky rušilo uživatelovu volbu. Nově bere
+   `project.robot_type`.
+4. **`cal-ranges-source` nepřežil přepnutí jazyka** — vzor zapsaný ve frontě
+   (dynamický text v elementu bez `data-i18n`). Nově klíč nastavuje jen tehdy,
+   když píše překlad, a odebírá ho, když píše jméno souboru.
+5. **Natvrdo česky psané řetězce** ze seznamu ve frontě, všechny na téhle
+   stránce: `-- Vyberte port --`, `Ruční zadání cesty...`, `-- Vyberte kameru --`,
+   `-- Vyberte port kamery --`, `Ruční index nebo URL...`, prompt na ruční port,
+   hláška o nevybraném portu a `Spouštím (leader)…`. Přibylo 49 klíčů (cs i en).
+6. **Katalog nesměl vozit českou prózu.** První verze posílala `note` s českým
+   vysvětlením a to se pak objevilo v anglickém UI (`HOPE-Jr rameno`). Backend
+   posílá jen strukturovaná fakta (`connection`, `port_flag`), větu skládá
+   stránka přes i18n. Hlídá to nový test na diakritiku ve `label`.
+7. **Mrtvé CSS**: `.robot-slider-container`, `.robot-slider-track`,
+   `.robot-type-pill` a jejich 4 media-query varianty — po přestavbě je nic
+   nepoužívalo.
+
+**Layout — proč to napoprvé vyšlo hůř**
+
+První měření po přestavbě dalo **15 / 17 / 14 %**, tedy méně než výchozích
+17 / 20 / 22 %. Příčinu ukázala až geometrie: sloupce byly **1022 px vysoké
+uvnitř 441px řádku**. Grid item má `min-height: auto`, takže se nesmrskne pod
+obsah — panel tedy rostl dolů a přetékal mimo pohled, místo aby přetok dostaly
+scrollporty uvnitř. Dvě opravy: `min-height: 0` + `overflow: hidden` na sloupci
+(a `overflow-y: auto` na jeho těle, jinak se tělo ořízlo v půlce řádku na
+1280×800), a **tři sloupce se drží až k globálnímu zlomu 920 px** — pád na jeden
+sloupec na 1100 px skládal ~1000 px obsahu do 528px okna.
+**Past k zapamatování: každý grid/flex item, do kterého se má vejít scrollport,
+potřebuje `min-height: 0`; jinak neroste scrollbar, ale panel.**
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` prochází celé: tsc, **248 pytestů** (bylo 189),
+  compileall, i18n parita cs=en=999 bez duplicit, žádná duplicitní id,
+  9 panelů pod `#workspace-main`, flat design tokens, 106 `App.*` odkazů.
+- **Nové testy — `tests/test_device_types.py` (44 testů)**: každý typ v katalogu
+  je jméno, které LeRobot registruje (obě množiny přepsané z jeho dekorátorů);
+  čtyři rozbitá párování; roboti bez sufixu si drží své jméno; jména po starých
+  verzích se rozřeší; `so100_leader` patří SO-100, ne LeKiwi (sdílený leader);
+  explicitně zvolený leader se respektuje; `normalize_pair()` nikdy nevydá
+  neregistrované jméno; tvar připojení; jen sériová zařízení jsou `supported`;
+  labely bez diakritiky; **most volá katalog, ne vlastní kopii**.
+- **Nové testy v `tests/test_lerobot_commands.py` (15)**: sváží **spuštěný
+  příkaz** s katalogem — `lerobot-teleoperate` i obě větve `lerobot-calibrate`
+  pro `lekiwi` / `unitree_g1` / `reachy2` / `hope_jr_*`, plus průlet celým
+  katalogem („nic, čím jde Orchiday nakonfigurovat, nesmí dojít k LeRobotu jako
+  neregistrované jméno").
+- **Negativní kontrola:** nové testy proti kódu před opravou
+  (`git stash` na `lerobot_bridge.py`) **9× padnou**, po opravě projdou.
+  Samostatný průlet ukázal, že staré odvození zmršilo **9 z 16** položek
+  katalogu (z toho 4 přímo v nabídce UI).
+- **Průchod stavy proti běžícímu backendu** (8 stavů): katalog dorazí
+  (16 řádků, 8 disabled) → výběr 4 zařízení, u každého se **náhled shoduje**
+  s vyřešenými poli → kliknutí na disabled řádek volbu **nezmění** → přiřazení
+  portu (tabulka označí `follower`, počítadlo 0/2 → 1/2, žlutá, náhled doplní
+  `--robot.port=/dev/ttyS0`) → přepnutí jazyka → 860×700.
+  **Žádný LeRobot proces v tomhle ověření neběžel** — testován je stavový
+  automat UI a kontrakt s endpointem.
+- **Anglický režim** (přes `setLang('en')`): v celém `page-setup` **nezůstal
+  jediný řádek s českou diakritikou**. První kolo jich mělo 2 (český label
+  z backendu a `cal-ranges-source`), obojí opraveno.
+- **Hit-test** všech pěti tlačítek v patičkách na **860×700** (pod globálním
+  zlomem 920 px): všechna dosažitelná, `ovfX = 0`.
+- **Obsazenost plochy** proti běžícímu backendu, stejný fixture.
+  **Pozor, měřeno dvakrát:** během běhu přistály na `main` dvě cizí frontendové
+  změny (typové měřítko, zrušené splittery, okna k dolní hraně), takže výchozí
+  stav se posunul. Čísla proti **rebasovanému** stavu, kde se `web/` porovnává
+  jen s tímhle commitem (`git checkout origin/main -- web/` a zpět):
+  `setup` **16 / 21 / 34 % → 33 / 35 / 40 %** (1600×900 / 1280×800 / 1024×760)
+  a **1 → 0 ořezaných** na 1024×760. Proti stavu před cizími commity to bylo
+  17 / 20 / 22 % → 31 / 35 / 43 %; ta první čísla už nejsou srovnatelná.
+  Ostatních sedm stránek se od nového výchozího stavu neliší — žádná regrese.
+- **Konzole prohlížeče**: jediná chyba je import fontů z Googlu (ověřeno přes
+  `requestfailed`, že je to opravdu ona a nic dalšího).
+
+**Rebase na cizí práci (stalo se během běhu, stojí za zápis)**
+
+Než jsem stihl pushnout, přistály na `main` dva cizí commity, oba do `web/`
+(`strip the chrome` a `bigger type, no drag splitters`). Konflikty byly
+v `index.html` a `styles.css` a vyřešily se **podle jejich konvencí**, ne mých:
+
+- `?v=` u assetů jede dál z jejich čísla (3.71.0 → **3.72.0**), ne z mého.
+- Statické `.block-actions-hint` v patičkách oni odstranili (zůstaly jen dvě,
+  které nesou běhový stav). Smazal jsem tedy i ty dvě, které tenhle commit
+  přidával, a s nimi jejich i18n klíče, ať nezůstanou mrtvé.
+- Nové komponenty jsem přepsal na **jejich typové měřítko** — nic pod 11 px
+  (bylo 8,5–10,5 px). Tabulky dědí `.pd-table` 12,5 px, hustší `.conn-table`
+  drží 11,5 px.
+- Po rebase přeměřeno i přeběhnuto znovu (viz čísla výše), aby se netvrdilo nic
+  z předrebasového stavu.
+
+**Zbývá vyzkoušet na fyzickém robotu / s reálným LeRobotem** (v cloudu nelze)
+
+- Že `lerobot-calibrate --robot.type=lekiwi` a `--teleop.type=homunculus_arm`
+  opravdu nastartují. Ověřené je, že ta jména LeRobot 0.6.1 registruje
+  (přečteno z dekorátorů), ne že proces s nimi doběhne.
+- Že `--teleop.type=so100_leader` je u LeKiwi správná volba i pro **CLI**.
+  LeRobot to páruje ve svém API příkladu (`examples/lekiwi/teleoperate.py`),
+  přes `lerobot-teleoperate` to jeho docs nikde neukazují.
+- Chování na LeRobotu **0.4.4**: katalog je psaný podle 0.6.1. Rodiny
+  SO / Koch / OpenArm mají stejná jména v obou, ale `homunculus_*`,
+  `reachy2_teleoperator` a `rebot_*` ve starší verzi ověřené nejsou.
+- Že tabulka „Detekovaný hardware" ukáže u skutečného ramene rozumný popis a
+  VID:PID — v kontejneru je jediné sériové zařízení `/dev/ttyS0` s popisem `n/a`.
+- Že sloupec „Použití" označí právě ten port, na kterém rameno opravdu je
+  (porovnává se řetězec z dropdownu se scanem, přepojení kabelu čísla mění).
+- Že „Přehledat hardware" drží „Hledám…" po celou dobu scanu — v kontejneru
+  není co skenovat, takže odpověď přijde řádově dřív.
+- Vzhled mimo Chromium (`aspect-ratio` na náhledu kamery, sticky hlavičky
+  tabulek, třísloupcová mřížka) na macOS/WebKitu a ve Firefoxu.
+
+---
+
 ## 2026-08-02 (12) — Učení: **ACT baseline se nedal natrénovat vůbec** —
 stránka nabízela jen pod-kroky, tedy půlku srovnání, kvůli kterému projekt je
 
@@ -1493,16 +1724,22 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   ukázat (tabulka, schéma).
 - **Hledat `max-width` na `.setup-section`.** Kalibrace měla mrtvou plochu
   kvůli jedné sdílené řádce `max-width: 640px`. Tab „Modely" ji pořád má —
-  až na něj přijde řada, začít tam.
+  je to **poslední zbývající stránka s mrtvou plochou**, začít tam.
+  Recept z (13) na tři sloupce: sloupec dostane `min-height: 0` +
+  `overflow: hidden`, jeho tělo `overflow-y: auto`, a právě JEDNA sekce
+  ve sloupci `flex: 1 1 auto` — ta pohltí volnou výšku.
 - **Před commitem na `main` pouštět `scripts/verify.sh`.** 58277f7 přistál
   s dvěma padajícími kontrolami (chybějící `App.browseFile`, dva nedefinované
   i18n klíče) a se ztrátou popisu scény i přepínače jazyka. Od (6) verify.sh
   navíc kontroluje párování značek a zanoření stránek — f494000 kvůli tomu
   sedmkrát po sobě prošel s nedostupnou Nápovědou a neviditelnou konzolí.
 - **Prázdná plocha v panelech.** Teleoperace hotová (4), Kalibrace (5),
-  Projekty (8), `datasety` (9), `modelrun` (10), `uceni` (12). Zbývá už jen
-  **`setup/connect`** (17 / 20 / 22 %) a s ním tab **Modely**, který má pořád
-  sdílenou řádku `max-width: 640px` (viz položka výše).
+  Projekty (8), `datasety` (9), `modelrun` (10), `uceni` (12),
+  **`setup/connect` (13)** (17 / 20 / 22 % → 31 / 35 / 43 %). Zbývá už jen tab
+  **Modely** uvnitř `setup` — ten ale mezitím přestavěl cizí commit 1249fbd
+  do tří sloupců, takže položka je nejspíš hotová. Na měření celé stránky se
+  neprojeví, protože se měří výchozí tab Connect: **měřit ho zvlášť**
+  (`switchSetupTab('models')`) a teprve pak škrtnout.
   Vyplnit rozvržením nebo grafickým prvkem, NE roztažením polí.
   Tohle je věc, kterou zadání označuje za hlavní problém.
   **POZOR na čísla ve frontě z běhů (7)–(8):** fixture tehdy zakládal projekt
@@ -1573,9 +1810,22 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 - Natvrdo česky psané řetězce v dynamicky generovaném HTML (mimo i18n):
   `dsRefreshList`, `advPopulateResumeSkills`, wizard `wizard-opt-found-*`.
   (Seznam epizod v `selectSkill` hotový od (9), `renderInferenceSubtasks`
-  a celý sloupec workeru od (10), celá stránka Učení od (12).)
-  Také `calibrateArm()` („Spouštím (leader)…") a hlášky `log()` napříč
-  `app.ts` — ty se do konzole píšou vždy česky.
+  a celý sloupec workeru od (10), celá stránka Učení od (12), dropdowny portů
+  a kamer + `calibrateArm()` od (13).)
+  Zbývají hlášky `log()` napříč `app.ts` — ty se do konzole píšou vždy česky.
+- **Past z (13): `<select>` mlčky odmítne hodnotu, pro kterou nemá `<option>`.**
+  Přiřazení `select.value = x` nevyhodí nic, prostě se neprojeví. Když se
+  options plní z API, může projekt dorazit dřív než ony — proto se požadovaná
+  hodnota pamatuje na elementu (`data-desired`) a dosadí se, až options
+  existují (`syncRobotTypeOptions()`).
+- **Past z (13): grid/flex item má `min-height: auto`**, takže se nesmrskne pod
+  svůj obsah. Sloupec se scrollportem uvnitř tedy neroste scrollbar, ale roste
+  sám — v (13) měl 1022 px uvnitř 441px řádku a obsazenost stránky vyšla
+  **níž** než před přestavbou. Každý předek scrollportu potřebuje `min-height: 0`.
+- **Past z (13): backend nesmí posílat přeloženou prózu.** Katalog zařízení
+  v první verzi vozil české `note` a to se objevilo v anglickém UI. Posílat
+  strukturovaná fakta, větu skládat na stránce přes i18n. Hlídá to test na
+  diakritiku ve `label`.
 - **Vzor, na který si dát pozor:** element se statickým `data-i18n`, do kterého
   se pak píše dynamický text. Každé `applyI18n()` (= přepnutí jazyka) ho
   přepíše zpátky na překlad klíče. Takhle mizel název otevřeného projektu
@@ -1591,7 +1841,7 @@ kreslí; 1600×900 / 1280×800 / 1024×760:
 
 | stránka | obsazenost | poznámka |
 |---|---|---|
-| `setup` | **17 / 20 / 22 %** | nejhorší — tab Connect (Kalibrace hotová v (5)) |
+| `setup` | ~~17 / 20 / 22 %~~ → **31 / 35 / 43 %** | hotovo (13), tři sloupce; měří se tab Connect |
 | `teleoperation` | **17 / 20 / 22 %** | po (4) |
 | `modelrun` | ~~20 / 23 / 25 %~~ → **24 / 33 / 37 %** | hotovo (10), tři sloupce, 0 roztažených polí |
 | `projects` | 26 / 33 / 43 % | po (8) |
@@ -1661,7 +1911,8 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
     Kontroluje se `repo_id.split("/", 1)[-1]`, u nás tedy `<slug>` nebo
     `<rodič>/<krok>` — riziko vzniká **jen slugem dovednosti začínajícím
     `eval_`**. Ověřeno v (12) jen čtením zdrojáku; validace slugů zatím
-    **není** a zůstává tady jako práce.
+    **není** a zůstává tady jako práce. **Po (13) je to nejsilnější zbývající
+    položka priority B** — všechny ostatní rozdíly 0.4.4/0.6.1 jsou prověřené.
   - Přibyly příkazy `lerobot-rollout` a `lerobot-annotate`, skripty se jmenují
     `lerobot_*.py` (v 0.4.4 taky) — ale `predict_action` z `control_utils`
     v 0.6 zmizel, což `orchiday_inference.py` už řeší vlastní implementací.
@@ -1678,6 +1929,24 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
   než posílat nový přepínač na příkazové řádce (starší verze ho odmítne).
   A ke každé takové neutralizaci přidat **hlášení skutečného stavu zpátky do
   appky** — wrapper vidí pravdu, appka jen to, co si vyžádala.
+- **Typy zařízení jsou od (13) v `core/device_types.py` a NIKDE JINDE.**
+  Odvození bylo v pěti kopiích (`_normalize_device_types`, `calibrate_robot`,
+  `save_settings`, `controller._start_recording`, a v prohlížeči
+  `onRobotTypeChange` / `calibrateArm` / `prefillWorkflowData`) a všechny
+  vyráběly jména, která LeRobot neregistruje. Když do toho někdo sáhne, chytí
+  to `tests/test_lerobot_commands.py::test_no_catalogue_device_can_produce_an_unregistered_flag`.
+  **Nezakládat šestou kopii.** Katalog je psaný podle **0.6.1** — až bude po ruce
+  0.4.4, projít `homunculus_*`, `reachy2_teleoperator` a `rebot_*`.
+- **Zbývá dotáhnout tvary připojení, které katalog zná, ale appka neumí.**
+  `bimanual` (`--robot.{left,right}_arm_config.port`), `can` (jméno CAN
+  rozhraní místo tty) a `network` (`--robot.ip_address` / `.robot_ip` /
+  `.sdk_url`). Dnes jsou ty řádky **disabled a říkají proč**, což je poctivé,
+  ale je to půlka registru LeRobotu. Bimanual je zdaleka nejužitečnější —
+  `bi_so_follower` je běžná sestava a stačí mu druhý port ze stejného scanu.
+- **Dvě místa pro typ robota jsou od (13) synchronizovaná** (`project["robot_type"]`
+  i `project["robots"][*]["type"]`, obojí přes katalog). Kdyby přibylo třetí
+  místo, které typ ukládá, musí projít `save_settings()` — jinak se volba na
+  Connectu zase nedostane do příkazů.
 - **Odvození cest má být na JEDNOM místě.** Běh (12) našel `repo_id` /
   `output_dir` odvozované ve třech kopiích (`_on_training_started()`,
   `_policy_path_for()`, autodetekce modelů v `open_project()`) — sjednoceno do

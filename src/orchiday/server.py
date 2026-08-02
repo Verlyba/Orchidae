@@ -518,6 +518,21 @@ def scan_hardware():
     }
 
 
+@app.get("/api/hardware/device_types")
+def hardware_device_types():
+    """
+    The robot/teleoperator types LeRobot really registers, and how each one is
+    addressed. The Connect tab renders its choices from this — deriving the
+    pair in the frontend as well would be a second, drifting copy of the very
+    mapping this endpoint exists to keep honest.
+    """
+    from orchiday.core import device_types
+    return {
+        "device_types": device_types.catalogue(),
+        "default_robot_type": device_types.DEFAULT_ROBOT_TYPE,
+    }
+
+
 @app.get("/api/calibration/arm_visual_config")
 def get_arm_visual_config(robot_id: str | None = None):
     """Joint calibration (motor id, range_min/max, homing_offset) for the
@@ -1227,8 +1242,13 @@ async def start_recording(body: RecordingConfig):
     if not cameras:
         return {"ok": False, "error": "No cameras assigned. You must assign at least one camera."}
 
+    from orchiday.core.device_types import leader_type_for, DEFAULT_LEADER_TYPE
     robot_type = body.robot_type or robot.get("follower_type") or robot.get("type", "so100_follower")
-    leader_type = robot.get("leader_type") or robot_type.replace("_follower", "_leader")
+    # `_follower` -> `_leader` invents a teleoperator for every robot whose
+    # leader is not named after it (lekiwi, reachy2, unitree_g1, hope_jr_*).
+    # A leader_type stored by an older version can itself be a mangled name, so
+    # it goes through the catalogue too instead of being trusted verbatim.
+    leader_type = leader_type_for(robot.get("leader_type") or robot_type) or DEFAULT_LEADER_TYPE
 
     # Enforce strict dataset path naming based on parent skill slug
     parent_slug = ""
@@ -1504,7 +1524,21 @@ async def save_settings(body: SettingsConfig):
     if body.scene_description is not None:
         pm.current_project["scene_description"] = body.scene_description.strip()
     if body.robot_type is not None:
-        pm.current_project["robot_type"] = body.robot_type.strip()
+        # Two places used to hold the device type and they disagreed:
+        # `project["robot_type"]` is what the Setup tab writes and reads, while
+        # `project["robots"][*]["type"]` is what recording, teleoperation and
+        # calibration are actually started from. Picking a robot on the Connect
+        # tab therefore never reached the commands. Both are written here, and
+        # the name is resolved through the catalogue so neither store can hold
+        # a type LeRobot does not register.
+        from orchiday.core.device_types import (
+            follower_type_for, leader_type_for, DEFAULT_LEADER_TYPE)
+        resolved = follower_type_for(body.robot_type.strip())
+        pm.current_project["robot_type"] = resolved
+        for robot in pm.current_project.get("robots", []):
+            robot["type"] = resolved
+            robot["follower_type"] = resolved
+            robot["leader_type"] = leader_type_for(resolved) or DEFAULT_LEADER_TYPE
     if body.follower_port is not None:
         pm.current_project["follower_port"] = body.follower_port.strip()
     if body.leader_port is not None:

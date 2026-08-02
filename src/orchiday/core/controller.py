@@ -509,7 +509,11 @@ class OrchidayController(QObject):
         robot_type = robot.get("follower_type") or robot.get("type", "so100_follower")
         port = robot.get("follower_port") or robot.get("port", "")
         leader_port = robot.get("leader_port") or self.pm.current_project.get("leader_port", "")
-        leader_type = robot.get("leader_type") or robot_type.replace("_follower", "_leader")
+        # Same reason as in server.save_settings / lerobot_bridge: appending
+        # `_leader` invents a teleoperator for every robot whose leader is not
+        # named after it, and a stored leader_type may itself be such a name.
+        from orchiday.core.device_types import leader_type_for, DEFAULT_LEADER_TYPE
+        leader_type = leader_type_for(robot.get("leader_type") or robot_type) or DEFAULT_LEADER_TYPE
         associated_cams = robot.get("cameras", [])
 
         # Vynucení lokálního názvu datasetu s ohledem na hierarchii dovedností

@@ -36,6 +36,9 @@ const App = {
     activeCameras: [],
     availablePorts: [],
     availableCameras: [],
+    // The robot/teleoperator types LeRobot registers, fetched once from
+    // /api/hardware/device_types. The browser never derives the pair itself.
+    deviceTypes: [],
     isProjectLoading: false,
     projectOpenInFlight: false,
     // Projects page is master/detail: the list only *selects*, the detail panel
@@ -224,6 +227,13 @@ const App = {
                     el.textContent = this.t(this.orchStatusKey.key, this.orchStatusKey.params);
             }
             this.renderInferenceSubtasks(this.inferenceSubSkills);
+            // The Connect tab builds its device-type rows and both hardware tables
+            // in JS from cached responses, so they would otherwise keep the previous
+            // language. The command preview carries runtime values (ports, ids) and
+            // has no static data-i18n, so it repaints from state too.
+            this.renderRobotTypeList();
+            this.renderDetectedHardware();
+            this.updateConnectCmdPreview();
         }
         catch (_) { /* renders are best-effort */ }
     },
@@ -239,6 +249,10 @@ const App = {
         // Paint the marking column before any project is open, so it reads as
         // "nothing selected yet" instead of an empty box.
         this.renderStepPlan();
+        // The Connect tab renders its choices from LeRobot's registry, so the
+        // catalogue is fetched before a project can select one of them.
+        this.loadDeviceTypes();
+        this.renderDetectedHardware();
         // Default tab
         this.changeTab('projects');
         // Camera layout setup
@@ -1973,6 +1987,10 @@ const App = {
             this.availableCameras = res.cameras || [];
             this.populatePortDropdowns();
             this.populateCameraDropdowns();
+            // The Connect tab shows the scan itself, not only the two dropdowns
+            // distilled out of it, so it repaints from the same result.
+            this.renderDetectedHardware();
+            this.updateConnectCmdPreview();
         }
         catch (err) {
             this.log('WARN', 'Failed to scan USB/serial or video hardware devices.');
@@ -1985,11 +2003,11 @@ const App = {
             if (!select)
                 return;
             const currentVal = select.value || select.getAttribute('data-last-val');
-            let html = `<option value="">-- Vyberte port --</option>`;
+            let html = `<option value="">${this.esc(this.t('opt.pickPort'))}</option>`;
             this.availablePorts.forEach(p => {
                 html += `<option value="${p.device}" data-persistent-id="${p.persistent_id}">${this.esc(p.friendly_name)}</option>`;
             });
-            html += `<option value="__custom__">Ruční zadání cesty...</option>`;
+            html += `<option value="__custom__">${this.esc(this.t('opt.manualPath'))}</option>`;
             select.innerHTML = html;
             // Restore value. If it's custom and not in scanned ports list, add it dynamically!
             if (currentVal) {
@@ -2010,11 +2028,11 @@ const App = {
         const select = document.getElementById('camera-source');
         if (select) {
             const currentVal = select.value || select.getAttribute('data-last-val');
-            let html = `<option value="">-- Vyberte kameru --</option>`;
+            let html = `<option value="">${this.esc(this.t('opt.pickCamera'))}</option>`;
             this.availableCameras.forEach(c => {
                 html += `<option value="${c.index}" data-persistent-id="${c.persistent_id}">${this.esc(c.friendly_name)}</option>`;
             });
-            html += `<option value="__custom__">Ruční index nebo URL...</option>`;
+            html += `<option value="__custom__">${this.esc(this.t('opt.manualIndex'))}</option>`;
             select.innerHTML = html;
             if (currentVal) {
                 let opt = select.querySelector(`option[value="${currentVal}"]`);
@@ -2031,11 +2049,11 @@ const App = {
         const hwSelect = document.getElementById('hw-camera-port-select');
         if (hwSelect) {
             const currentVal = hwSelect.value || hwSelect.getAttribute('data-last-val');
-            let html = `<option value="">-- Vyberte port kamery --</option>`;
+            let html = `<option value="">${this.esc(this.t('opt.pickCameraPort'))}</option>`;
             this.availableCameras.forEach(c => {
                 html += `<option value="${c.index}" data-persistent-id="${c.persistent_id}">${this.esc(c.friendly_name)}</option>`;
             });
-            html += `<option value="__custom__">Ruční index nebo URL...</option>`;
+            html += `<option value="__custom__">${this.esc(this.t('opt.manualIndex'))}</option>`;
             hwSelect.innerHTML = html;
             if (currentVal) {
                 let opt = hwSelect.querySelector(`option[value="${currentVal}"]`);
@@ -2099,7 +2117,7 @@ const App = {
     onTelePortChange(role) {
         const select = document.getElementById(`tele-${role}-port`);
         if (select && select.value === '__custom__') {
-            const val = prompt(`Zadejte ručně cestu k portu pro ${role.toUpperCase()} arm:`, select.getAttribute('data-last-val') || (role === 'leader' ? '/dev/ttyUSB1' : '/dev/ttyUSB0'));
+            const val = prompt(this.t('prompt.armPort', { role: role.toUpperCase() }), select.getAttribute('data-last-val') || (role === 'leader' ? '/dev/ttyUSB1' : '/dev/ttyUSB0'));
             if (val && val.trim()) {
                 let opt = select.querySelector(`option[value="${val.trim()}"]`);
                 if (!opt) {
@@ -2120,6 +2138,8 @@ const App = {
         }
         // Auto-save port changes immediately
         this.saveSettingsState();
+        this.updateConnectCmdPreview();
+        this.renderDetectedHardware();
         this.updateHardwareButtonStates();
     },
     updateHardwareButtonStates() {
@@ -2321,6 +2341,16 @@ const App = {
         previewImg.src = `/api/setup/camera-preview/feed?source=${sourceVal}`;
         previewImg.style.display = 'block';
         placeholder.style.display = 'none';
+        this.setCamPreviewState('cam.previewLive');
+    },
+    /** One writer for the preview's state badge, so the label cannot disagree
+     * with whether an image is actually being streamed. */
+    setCamPreviewState(key) {
+        const el = document.getElementById('hw-camera-preview-state');
+        if (!el)
+            return;
+        el.textContent = this.t(key);
+        el.setAttribute('data-i18n', key);
     },
     hwStopCameraPreview() {
         const previewImg = document.getElementById('hw-camera-preview-img');
@@ -2332,6 +2362,7 @@ const App = {
         if (placeholder) {
             placeholder.style.display = 'block';
         }
+        this.setCamPreviewState('cam.previewIdle');
     },
     async hwAddCamera() {
         const portSelect = document.getElementById('hw-camera-port-select');
@@ -2425,22 +2456,17 @@ const App = {
         await this.api('POST', `/robots/${id}/calibrate`);
     },
     async calibrateArm(role) {
-        const robotType = document.getElementById('robot-type-select')?.value || 'so100';
-        const select = document.getElementById(`tele-${role}-port`);
-        let port = select ? select.value : '';
-        if (port === '__custom__') {
-            port = document.getElementById(`tele-${role}-port-custom`)?.value.trim() || '';
-        }
+        const port = this.resolvedArmPort(role);
         const id = document.getElementById(`tele-${role}-id`)?.value || `my_${role}_arm`;
-        let type = robotType;
-        if (role === 'leader') {
-            type = robotType.endsWith('_leader') ? robotType : `${robotType.replace(/_follower$/, '')}_leader`;
-        }
-        else {
-            type = robotType.endsWith('_follower') ? robotType : `${robotType.replace(/_leader$/, '')}_follower`;
-        }
+        // The type comes from the same resolved field the preview prints, which
+        // onRobotTypeChange() fills from the device catalogue. Re-deriving it here
+        // by appending `_leader` is what used to send LeRobot names it does not
+        // register (`lekiwi_leader`, `reachy2_leader`, `hope_jr_arm_leader`).
+        const typeField = role === 'leader' ? 'tele-leader-type' : 'tele-follower-type';
+        const type = document.getElementById(typeField)?.value
+            || (role === 'leader' ? 'so100_leader' : 'so100_follower');
         if (!port) {
-            const msg = `Port sériového připojení pro rameno ${role.toUpperCase()} není vybrán!`;
+            const msg = this.t('alert.armPortMissing', { role: role.toUpperCase() });
             this.log('ERROR', msg);
             alert(msg);
             return;
@@ -2449,7 +2475,7 @@ const App = {
         const oldText = btn ? btn.innerHTML : '';
         if (btn) {
             btn.disabled = true;
-            btn.innerHTML = `Spouštím (${role})…`;
+            btn.innerHTML = this.esc(this.t('btn.calibStarting', { role }));
         }
         try {
             this.log('INFO', `Spouštím kalibraci pro ${role} rameno (${id}) na portu ${port}...`);
@@ -2601,7 +2627,15 @@ const App = {
         if (src) {
             const key = !arm ? 'cal.stateUnknown'
                 : arm.source === 'calibration' ? 'cal.rangesFromFile' : 'cal.rangesDefault';
-            src.textContent = arm?.source === 'calibration' && arm.filename ? arm.filename : this.t(key);
+            const filename = arm?.source === 'calibration' && arm.filename ? arm.filename : '';
+            src.textContent = filename || this.t(key);
+            // A filename is runtime data and must survive applyI18n(); a translated
+            // label must be repainted by it. Carrying the key only in the second
+            // case is the difference — this label stayed Czech in the English UI.
+            if (filename)
+                src.removeAttribute('data-i18n');
+            else
+                src.setAttribute('data-i18n', key);
             src.classList.toggle('is-default', !!arm && arm.source !== 'calibration');
         }
         tbody.innerHTML = rows.map(name => {
@@ -2890,11 +2924,17 @@ const App = {
             }
             dockBody.innerHTML = dockHtml;
         }
+        // The Connect tab shows how many of the scanned video devices the project
+        // actually uses, so it repaints whenever that set changes.
+        const camCount = document.getElementById('hw-camera-count');
+        if (camCount)
+            camCount.textContent = String(cams.length);
+        this.renderDetectedHardware();
         const el = document.getElementById('hw-camera-list');
         if (!el)
             return;
         if (!cams.length) {
-            el.innerHTML = '<div class="empty-state-text">' + this.t('hint.noCamsConfigured') + '</div>';
+            el.innerHTML = '<div class="conn-empty">' + this.esc(this.t('hint.noCamsConfigured')) + '</div>';
             const placeholder1 = document.getElementById('cam-feed-placeholder-1');
             if (placeholder1)
                 placeholder1.innerHTML = '<span>' + this.t('hint.noCamInProject') + '</span>';
@@ -3036,7 +3076,14 @@ const App = {
     prefillWorkflowData() {
         const robots = this.project?.robots || [];
         const skills = this.project?.skills || [];
-        const activeRobot = robots[0] || { id: 'my_follower_arm', type: 'so100', port: '/dev/ttyUSB0' };
+        // With no robot record yet, the project-level robot_type is the setting the
+        // Setup tab writes — falling back to a hardcoded 'so100' here silently
+        // undid the user's choice a moment after they made it.
+        const activeRobot = robots[0] || {
+            id: 'my_follower_arm',
+            type: this.project?.robot_type || 'so100',
+            port: '/dev/ttyUSB0',
+        };
         const activeSkill = this.activeSkill || skills[0] || 'pick_cube';
         // Prefill Step 1: Teleop
         const leaderIdEl = document.getElementById('tele-leader-id');
@@ -3050,10 +3097,6 @@ const App = {
         const savedLeaderPort = this.project?.leader_port || activeRobot.leader_port || "";
         const isLeaderAvailable = this.availablePorts.some(p => p.device === savedLeaderPort);
         this.setDropdownOrCustomValue('tele-leader-port', isLeaderAvailable ? savedLeaderPort : "");
-        const leaderTypeEl = document.getElementById('tele-leader-type');
-        if (leaderTypeEl) {
-            leaderTypeEl.value = `${activeRobot.type}_leader`;
-        }
         const followerIdEl = document.getElementById('tele-follower-id');
         if (followerIdEl) {
             followerIdEl.value = activeRobot.follower_id || activeRobot.id;
@@ -3062,10 +3105,12 @@ const App = {
         const savedFollowerPort = this.project?.follower_port || activeRobot.follower_port || activeRobot.port || "";
         const isFollowerAvailable = this.availablePorts.some(p => p.device === savedFollowerPort);
         this.setDropdownOrCustomValue('tele-follower-port', isFollowerAvailable ? savedFollowerPort : "");
-        const followerTypeEl = document.getElementById('tele-follower-type');
-        if (followerTypeEl) {
-            followerTypeEl.value = activeRobot.type.includes('follower') ? activeRobot.type : `${activeRobot.type}_follower`;
-        }
+        // The robot record decides the device type, but the NAMES that reach
+        // LeRobot come from the catalogue — appending `_leader` / `_follower` here
+        // was a fourth copy of the derivation and it silently overwrote the
+        // resolved pair a moment after the Connect tab had painted it.
+        this.setRobotTypeValue(activeRobot.type);
+        this.onRobotTypeChange();
         // Prefill inputs based on active selected skill
         this.selectSkill(activeSkill);
     },
@@ -3376,19 +3421,15 @@ const App = {
         this.setInferenceSubtaskRunning('');
     },
     selectRobot(type) {
-        const hiddenSelect = document.getElementById('robot-type-select');
-        if (hiddenSelect) {
-            hiddenSelect.value = type;
+        // A device Orchiday cannot drive with the single serial port this tab
+        // hands out must not become the project's robot — the row is rendered
+        // disabled and says why, this is the guard behind it.
+        const entry = this.deviceTypeFor(type);
+        if (entry && !entry.supported) {
+            this.log('WARN', this.t('log.deviceUnsupported', { type: entry.robot_type }));
+            return;
         }
-        // Update active state in horizontal segmented control
-        document.querySelectorAll('.robot-type-pill').forEach(pill => {
-            if (pill.getAttribute('data-value') === type) {
-                pill.classList.add('active');
-            }
-            else {
-                pill.classList.remove('active');
-            }
-        });
+        this.setRobotTypeValue(type);
         this.onRobotTypeChange();
         // Dynamically auto-save configuration in active project config in real time
         this.saveSettingsState();
@@ -3474,14 +3515,17 @@ const App = {
         if (!robotTypeSelect)
             return;
         const robotType = robotTypeSelect.value;
-        const isSingleArm = ['lekiwi', 'moss', 'stretch'].includes(robotType);
+        const entry = this.deviceTypeFor(robotType);
+        // Whether there is a leader arm to calibrate is a property of the device
+        // in LeRobot's registry, not a hardcoded list of names: a robot with no
+        // registered teleoperator has no leader card and no leader port.
+        const hasLeader = entry ? entry.has_leader : true;
         const leaderGroup = document.getElementById('leader-config-group');
         const btnCalibrateLeader = document.getElementById('btn-calibrate-leader');
-        // LeKiwi/Moss/Stretch have no leader arm at all, so the whole leader card
-        // on the Kalibrace tab goes with the button — leaving the card behind
-        // showed a device that cannot be calibrated.
+        // The whole leader card on the Kalibrace tab goes with the button —
+        // leaving the card behind showed a device that cannot be calibrated.
         const calCardLeader = document.getElementById('cal-arm-leader');
-        if (isSingleArm) {
+        if (!hasLeader) {
             if (leaderGroup)
                 leaderGroup.style.display = 'none';
             if (btnCalibrateLeader)
@@ -3497,36 +3541,300 @@ const App = {
             if (calCardLeader)
                 calCardLeader.style.display = '';
         }
-        // Set hidden inputs dynamically for app.js/app.ts internal routing
+        // The resolved types the rest of the app reads. They come from the
+        // catalogue, never from string surgery on the follower name — appending
+        // `_leader` invents a type for every robot whose teleoperator is not
+        // named after it (lekiwi, reachy2, unitree_g1, hope_jr_*), and draccus
+        // kills the process on an unregistered name.
         const leaderTypeInput = document.getElementById('tele-leader-type');
         const followerTypeInput = document.getElementById('tele-follower-type');
-        const baseType = robotType.replace(/_(follower|leader)$/, '');
         if (leaderTypeInput)
-            leaderTypeInput.value = `${baseType}_leader`;
+            leaderTypeInput.value = (entry?.leader_type) || 'so100_leader';
         if (followerTypeInput)
-            followerTypeInput.value = `${baseType}_follower`;
+            followerTypeInput.value = (entry?.robot_type) || robotType;
+        this.renderRobotTypeList();
+        this.updateConnectCmdPreview();
         this.updateHardwareButtonStates();
+    },
+    // ── Connect tab: the device catalogue LeRobot really registers ──────────
+    // Loaded once from GET /api/hardware/device_types. Nothing in the browser
+    // derives `--robot.type` / `--teleop.type` on its own: a second copy of
+    // that mapping is exactly what drifted away from LeRobot before.
+    /** Resolves any stored name (bare family, mangled, leader half) to an entry. */
+    deviceTypeFor(name) {
+        if (!name)
+            return null;
+        const list = this.deviceTypes || [];
+        if (!list.length)
+            return null;
+        const hit = list.find((d) => d.robot_type === name);
+        if (hit)
+            return hit;
+        const asLeader = list.find((d) => d.leader_type === name);
+        if (asLeader)
+            return asLeader;
+        // Names older versions wrote: "so100", "lekiwi_follower", "reachy2_leader"
+        const base = name.replace(/_(follower|leader)$/, '');
+        return list.find((d) => d.robot_type === base)
+            || list.find((d) => d.robot_type === `${base}_follower`)
+            || null;
+    },
+    async loadDeviceTypes() {
+        try {
+            const res = await this.api('GET', '/hardware/device_types');
+            this.deviceTypes = res.device_types || [];
+        }
+        catch (_) {
+            this.deviceTypes = [];
+        }
+        this.renderRobotTypeList();
+        this.onRobotTypeChange();
+    },
+    /** Rebuilds the hidden robot-type <select> from the catalogue and restores
+     * the wanted value. A project can be opened before the catalogue arrives,
+     * and assigning a value a <select> has no option for is a silent no-op —
+     * that is why the wanted type is remembered on the element itself. */
+    syncRobotTypeOptions() {
+        const select = document.getElementById('robot-type-select');
+        if (!select)
+            return;
+        const list = this.deviceTypes || [];
+        if (!list.length)
+            return;
+        const wanted = select.getAttribute('data-desired') || select.value || '';
+        const signature = list.map((d) => d.robot_type).join(',');
+        if (select.getAttribute('data-signature') !== signature) {
+            select.innerHTML = list.map((d) => `<option value="${this.esc(d.robot_type)}">${this.esc(d.robot_type)}</option>`).join('');
+            select.setAttribute('data-signature', signature);
+        }
+        const resolved = this.deviceTypeFor(wanted)?.robot_type || list[0].robot_type;
+        if (select.value !== resolved)
+            select.value = resolved;
+    },
+    /** The one way the robot type is set. Remembers the wanted value even when
+     * the catalogue has not arrived yet, so a project opened first is not lost. */
+    setRobotTypeValue(type) {
+        const select = document.getElementById('robot-type-select');
+        if (!select)
+            return;
+        select.setAttribute('data-desired', type);
+        this.syncRobotTypeOptions();
+    },
+    /** One row per device LeRobot registers: what it is called on the command
+     * line, which teleoperator leads it, and how it is addressed. Rows Orchiday
+     * cannot drive with the one serial port this tab hands out are disabled and
+     * carry the reason, instead of being selectable and dying at spawn time. */
+    renderRobotTypeList() {
+        const host = document.getElementById('connect-robot-list');
+        if (!host)
+            return;
+        const list = this.deviceTypes || [];
+        const count = document.getElementById('conn-type-count');
+        if (!list.length) {
+            host.innerHTML = `<div class="conn-empty">${this.esc(this.t('hint.deviceTypesUnavailable'))}</div>`;
+            if (count)
+                count.textContent = '-';
+            return;
+        }
+        // The hidden <select> is what the rest of the app reads the robot type
+        // from, and a <select> silently refuses a value it has no option for —
+        // so its options come from the catalogue too, before anything sets it.
+        this.syncRobotTypeOptions();
+        const active = document.getElementById('robot-type-select')?.value || '';
+        const usable = list.filter((d) => d.supported).length;
+        if (count)
+            count.textContent = this.t('lbl.nOfMDrivable', { n: usable, m: list.length });
+        host.innerHTML = list.map((d) => {
+            const isActive = d.robot_type === active;
+            const cls = ['conn-type-row'];
+            if (isActive)
+                cls.push('is-active');
+            if (!d.supported)
+                cls.push('is-blocked');
+            // The reason a row is out of reach is composed here, from the structured
+            // facts the catalogue carries — the backend has no business shipping
+            // translated prose.
+            const title = d.supported
+                ? this.t('tip.deviceSupported', { robot: d.robot_type, leader: d.leader_type || '–' })
+                : this.t('tip.deviceBlocked', {
+                    robot: d.robot_type,
+                    conn: this.t('conn.' + d.connection),
+                    flag: d.port_flag,
+                });
+            const leader = d.leader_type
+                ? `--teleop.type=${d.leader_type}`
+                : this.t('lbl.noLeader');
+            return `<div class="${cls.join(' ')}" data-value="${this.esc(d.robot_type)}"
+                   role="button" tabindex="0" title="${this.esc(title)}"
+                   onclick="App.selectRobot('${this.esc(d.robot_type)}')"
+                   onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectRobot('${this.esc(d.robot_type)}');}">
+                <div class="conn-type-main">
+                  <span class="conn-type-label">${this.esc(d.label)}</span>
+                  <span class="conn-type-conn">${this.esc(this.t('conn.' + d.connection))}</span>
+                </div>
+                <div class="conn-type-flags">
+                  <code>--robot.type=${this.esc(d.robot_type)}</code>
+                  <code>${this.esc(leader)}</code>
+                </div>
+              </div>`;
+        }).join('');
+    },
+    /** Restates the current choice as the flags that will really be spawned.
+     * Kept next to the ports it is built from, and it is the only place this
+     * tab names a LeRobot command. */
+    updateConnectCmdPreview() {
+        const el = document.getElementById('conn-cmd-preview-text');
+        const state = document.getElementById('conn-port-state');
+        if (!el)
+            return;
+        const robotType = document.getElementById('robot-type-select')?.value || '';
+        const entry = this.deviceTypeFor(robotType);
+        const leaderType = document.getElementById('tele-leader-type')?.value || '';
+        const followerType = document.getElementById('tele-follower-type')?.value || '';
+        const leaderPort = this.resolvedArmPort('leader');
+        const followerPort = this.resolvedArmPort('follower');
+        const leaderId = document.getElementById('tele-leader-id')?.value || 'my_leader_arm';
+        const followerId = document.getElementById('tele-follower-id')?.value || 'my_follower_arm';
+        const hasLeader = entry ? entry.has_leader : true;
+        if (state) {
+            const have = (hasLeader ? (leaderPort ? 1 : 0) : 0) + (followerPort ? 1 : 0);
+            const need = hasLeader ? 2 : 1;
+            state.textContent = `${have}/${need}`;
+            state.classList.toggle('is-warn', have < need);
+        }
+        const missing = this.t('lbl.portMissing');
+        const lines = [];
+        if (hasLeader) {
+            lines.push(`lerobot-calibrate --teleop.type=${leaderType} --teleop.port=${leaderPort || missing} --teleop.id=${leaderId}`);
+        }
+        lines.push(`lerobot-calibrate --robot.type=${followerType} --robot.port=${followerPort || missing} --robot.id=${followerId}`);
+        if (hasLeader) {
+            lines.push(`lerobot-teleoperate --robot.type=${followerType} --robot.port=${followerPort || missing} --teleop.type=${leaderType} --teleop.port=${leaderPort || missing}`);
+        }
+        el.textContent = lines.join('\n');
+    },
+    /** The port string an arm would really be started with — the dropdown value,
+     * or the manually typed path when the dropdown is on "custom". */
+    resolvedArmPort(role) {
+        const select = document.getElementById(`tele-${role}-port`);
+        const val = select ? select.value : '';
+        if (val === '__custom__') {
+            return document.getElementById(`tele-${role}-port-custom`)?.value.trim() || '';
+        }
+        return val || '';
+    },
+    /** The scan result itself, not just the two dropdowns distilled out of it:
+     * which physical device each port is, and which arm currently claims it. */
+    renderDetectedHardware() {
+        const portsHost = document.getElementById('conn-ports-table');
+        const camsHost = document.getElementById('conn-cams-table');
+        const ports = this.availablePorts || [];
+        const cams = this.availableCameras || [];
+        const leaderPort = this.resolvedArmPort('leader');
+        const followerPort = this.resolvedArmPort('follower');
+        const projectCams = this.project?.cameras || [];
+        const camSources = new Set(projectCams.map(c => String(c.source)));
+        const numPorts = document.getElementById('conn-num-ports');
+        const numCams = document.getElementById('conn-num-cams');
+        const numAssigned = document.getElementById('conn-num-assigned');
+        const numCamsUsed = document.getElementById('conn-num-cams-used');
+        const entry = this.deviceTypeFor(document.getElementById('robot-type-select')?.value);
+        const need = (entry ? entry.has_leader : true) ? 2 : 1;
+        const have = (need === 2 && leaderPort ? 1 : 0) + (followerPort ? 1 : 0);
+        if (numPorts)
+            numPorts.textContent = String(ports.length);
+        if (numCams)
+            numCams.textContent = String(cams.length);
+        if (numAssigned)
+            numAssigned.textContent = `${have}/${need}`;
+        if (numCamsUsed)
+            numCamsUsed.textContent = String(projectCams.length);
+        document.getElementById('conn-stat-ports')?.classList.toggle('warn', ports.length === 0);
+        document.getElementById('conn-stat-assigned')?.classList.toggle('warn', have < need);
+        document.getElementById('conn-stat-cams-used')?.classList.toggle('warn', projectCams.length === 0);
+        if (portsHost) {
+            if (!ports.length) {
+                portsHost.innerHTML = `<div class="conn-empty">${this.esc(this.t('hint.noSerialFound'))}</div>`;
+            }
+            else {
+                portsHost.innerHTML = `<table class="pd-table conn-table"><thead><tr>
+            <th>${this.esc(this.t('th.device'))}</th>
+            <th>${this.esc(this.t('th.description'))}</th>
+            <th>${this.esc(this.t('th.vidPid'))}</th>
+            <th>${this.esc(this.t('th.role'))}</th>
+          </tr></thead><tbody>` +
+                    ports.map((p) => {
+                        let role = '–';
+                        let roleCls = 'conn-role-free';
+                        if (p.device === leaderPort) {
+                            role = this.t('lbl.leaderShort');
+                            roleCls = 'conn-role-used';
+                        }
+                        else if (p.device === followerPort) {
+                            role = this.t('lbl.followerShort');
+                            roleCls = 'conn-role-used';
+                        }
+                        const vidpid = (p.vid || p.pid)
+                            ? `${Number(p.vid).toString(16).padStart(4, '0')}:${Number(p.pid).toString(16).padStart(4, '0')}`
+                            : '–';
+                        return `<tr title="${this.esc(this.t('tip.persistentId', { id: p.persistent_id || '–' }))}">
+                <td><code>${this.esc(p.device)}</code></td>
+                <td class="conn-td-desc">${this.esc(p.description || '–')}</td>
+                <td><code>${this.esc(vidpid)}</code></td>
+                <td><span class="${roleCls}">${this.esc(role)}</span></td>
+              </tr>`;
+                    }).join('') + '</tbody></table>';
+            }
+        }
+        if (camsHost) {
+            if (!cams.length) {
+                camsHost.innerHTML = `<div class="conn-empty">${this.esc(this.t('hint.noVideoFound'))}</div>`;
+            }
+            else {
+                camsHost.innerHTML = `<table class="pd-table conn-table"><thead><tr>
+            <th>${this.esc(this.t('th.index'))}</th>
+            <th>${this.esc(this.t('th.model'))}</th>
+            <th>${this.esc(this.t('th.role'))}</th>
+          </tr></thead><tbody>` +
+                    cams.map((c) => {
+                        const used = camSources.has(String(c.index)) || camSources.has(String(c.device));
+                        return `<tr title="${this.esc(this.t('tip.persistentId', { id: c.persistent_id || '–' }))}">
+                <td><code>${this.esc(String(c.index))}</code></td>
+                <td class="conn-td-desc">${this.esc(c.model_name || '–')}</td>
+                <td><span class="${used ? 'conn-role-used' : 'conn-role-free'}">${this.esc(used ? this.t('lbl.inProject') : '–')}</span></td>
+              </tr>`;
+                    }).join('') + '</tbody></table>';
+            }
+        }
+    },
+    /** Rescan on demand — a replugged cable changes the port numbering, and the
+     * scan is slow enough (OpenCV probes indexes) to need a visible indicator. */
+    async manualRescanHardware() {
+        const btn = document.getElementById('btn-rescan-hardware');
+        const old = btn ? btn.textContent : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = this.t('btn.rescanning');
+        }
+        try {
+            await this.scanHardware();
+        }
+        finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = old || this.t('btn.rescanHw');
+            }
+        }
     },
     loadModelConfig() {
         if (!this.project?.models)
             return;
         const llm = this.project.models.llm_ceo || {};
         const vlm = this.project.models.vlm_inspector || {};
-        const robotType = this.project.robot_type || 'so100';
-        const robotTypeSelect = document.getElementById('robot-type-select');
-        if (robotTypeSelect) {
-            robotTypeSelect.value = robotType;
-        }
-        // Synchronize horizontal segmented slider selector state on load
-        document.querySelectorAll('.robot-type-pill').forEach(pill => {
-            if (pill.getAttribute('data-value') === robotType) {
-                pill.classList.add('active');
-                pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-            }
-            else {
-                pill.classList.remove('active');
-            }
-        });
+        // A project written by an older version can carry a bare family name
+        // ("so100") or one the old string surgery mangled ("lekiwi_follower").
+        // The catalogue resolves both to the name LeRobot registers.
+        this.setRobotTypeValue(this.project.robot_type || 'so100');
         this.onRobotTypeChange();
         const settingsDs = document.getElementById('settings-dataset-storage-dir');
         const recDs = document.getElementById('rec-dataset-storage-dir');

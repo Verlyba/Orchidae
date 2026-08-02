@@ -1535,71 +1535,253 @@ input[readonly] {
    ROBOT TYPE SLIDER
    ═══════════════════════════════════════════════════════════════════ */
 
-.robot-slider-container {
-    padding: 4px;
-    margin-bottom: 10px;
-    display: flex;
-    overflow: hidden;
-    flex-shrink: 0;
-}
-
-/* Compact tile grid sized to content (3 columns, natural row height) */
-.robot-slider-track {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-auto-rows: auto;
-    gap: 8px;
-    width: 100%;
-}
-
-.robot-type-pill {
-    padding: 6px 10px;
-    background: transparent;
-    border: 1px solid transparent;
+/* Rows, not tiles: the choice carries two command-line flags per device, which
+   a 74px square could not show — so the list reads left to right (what it is,
+   how it is addressed) with the flags underneath. It is also the element that
+   absorbs this column's spare height instead of the fields stretching. */
+.conn-type-list {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
     gap: 4px;
-    cursor: pointer;
-    min-width: 0;
-    min-height: 74px;
-    transition: var(--transition);
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    padding: 4px;
+    overflow-y: auto;
+    min-height: 0;
+    flex: 1 1 auto;
 }
 
-.robot-type-pill:hover {
+.conn-type-row {
+    border: 1px solid transparent;
+    border-left: 3px solid var(--border);
+    padding: 5px 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.conn-type-row:hover {
     background: rgba(255, 255, 255, 0.03);
     border-color: var(--border);
+    border-left-color: var(--border);
 }
 
-.robot-type-pill.active {
+.conn-type-row.is-active {
     background: rgba(14, 99, 156, 0.10);
     border-color: var(--accent);
+    border-left-color: var(--cyan);
 }
 
-.robot-pill-icon {
-    color: var(--text-muted);
-    transition: var(--transition);
+/* A device LeRobot does not address with a single serial port cannot be
+   driven from this tab, so the row is visibly out of reach and says why in
+   its tooltip — rather than being selectable and dying at spawn time. */
+.conn-type-row.is-blocked {
+    cursor: not-allowed;
+    opacity: 0.45;
+    border-left-color: var(--border-dark);
 }
 
-.robot-type-pill.active .robot-pill-icon {
-    color: var(--cyan);
-    filter: none;
+.conn-type-row.is-blocked:hover {
+    background: transparent;
 }
 
-.robot-type-pill .pill-title {
+.conn-type-main {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
+.conn-type-label {
+    font-size: 12.5px;
     font-weight: 700;
-    font-size: 12px;
+    color: var(--text-light);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conn-type-row.is-active .conn-type-label {
+    color: var(--text-white);
+}
+
+.conn-type-conn {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    flex: 0 0 auto;
+}
+
+.conn-type-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+}
+
+.conn-type-flags code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* Each column is a stack of labelled sections; exactly one of them per column
+   carries `conn-sect-grow` and swallows the leftover height. Everything else
+   keeps its natural size, so no field is ever stretched to fill a window. */
+.conn-col-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.conn-sect {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 0 0 auto;
+    min-height: 0;
+}
+
+.conn-sect-grow {
+    flex: 1 1 auto;
+}
+
+.conn-stats {
+    flex: 0 0 auto;
+}
+
+.conn-port-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+}
+
+.conn-port-grid .form-group {
+    margin: 0;
+    min-width: 0;
+}
+
+.conn-table-wrap {
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    overflow: auto;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 0 6px;
+}
+
+.conn-table {
+    font-size: 11.5px;
+}
+
+.conn-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-inset);
+    z-index: 1;
+}
+
+.conn-table code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
     color: var(--text-light);
 }
 
-.robot-type-pill .pill-subtitle {
-    font-size: 10px;
+.conn-td-desc {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conn-role-used {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--cyan);
+}
+
+.conn-role-free {
+    font-size: 11px;
     color: var(--text-muted);
 }
 
-.robot-type-pill.active .pill-title {
-    color: var(--text-white);
+.conn-empty {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    padding: 8px;
+}
+
+.conn-cam-pick {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.conn-cam-pick .form-group {
+    margin: 0;
+    min-width: 0;
+}
+
+/* The preview is the one element on this tab that reads better larger, so it
+   takes the spare height and keeps 4:3 instead of becoming a stretched band. */
+.conn-cam-preview {
+    flex: 1 1 auto;
+    min-height: 140px;
+    aspect-ratio: 4 / 3;
+    background: #000;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.conn-cam-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+}
+
+.conn-cam-preview span {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 10px;
+}
+
+.conn-cam-preview-sect {
+    min-height: 0;
+}
+
+.conn-cam-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 190px;
+    overflow-y: auto;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border);
+    padding: 4px;
+}
+
+/* The port counter turns yellow the moment an arm has no port, for the same
+   reason the training counters do: an incomplete setup must be visible
+   without reading the values. */
+.cal-arm-state.is-warn {
+    color: var(--yellow);
 }
 
 /* Removed setup card actions footer */
@@ -3275,7 +3457,7 @@ textarea {
    section above. Here we only tighten the offset for dense controls. */
 button:focus-visible,
 .activity-btn:focus-visible,
-.robot-type-pill:focus-visible {
+.conn-type-row:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
 }
@@ -3473,9 +3655,6 @@ textarea:focus-visible {
         margin: 0 12px;
     }
 
-    .robot-slider-track {
-        flex-wrap: wrap;
-    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -3661,10 +3840,6 @@ textarea:focus-visible {
    (camera preview, loss chart, prompt textarea, live telemetry) keep filling.
    ═══════════════════════════════════════════════════════════════════════ */
 
-.robot-type-pill .robot-pill-icon {
-    width: 22px;
-    height: 22px;
-}
 
 /* --- Policy architecture picker (replaces the plain <select>) --- */
 /* The picker sits in a flex:1/min-height:0 form-group, so the flexbox is
@@ -4079,6 +4254,53 @@ textarea:focus-visible {
    terminal dock with bare page showing in between, and Modely used 37% of a
    1710px page. They stretch now, and their content is laid out to use the
    room — see the three-column Modely panel in index.html. */
+
+/* Connect is a full-height three-column workspace, so the column grid has to
+   take the window's height — otherwise each column sizes to its content and
+   the grow sections (device list, hardware table, camera preview) have nothing
+   to absorb, leaving the dead space this tab was reworked to remove. Scoped to
+   this tab on purpose: the shared `.merge-col > .setup-block-content` rule
+   sizes columns to content, which is right wherever the panel is short. */
+#page-setup .setup-wizard-panel[data-tab-panel="connect"] .setup-block-content > .merge-cols {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+#page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-col > .conn-col-body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* A grid item's default `min-height: auto` means it cannot shrink below its
+   content, so the columns grew to 1022px inside a 441px row and everything
+   past the fold went out of view. Capping them hands the overflow to the
+   scroll containers inside (device list, hardware tables, camera list), which
+   is where it belongs. Only while the columns really sit side by side —
+   below 1100px they stack and the window's own content area scrolls, exactly
+   as on the other pages. */
+@media (min-width: 921px) {
+    #page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-col {
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    /* The body scrolls rather than hides: when a window is short enough that
+       even the natural-height sections do not fit, the grow section is already
+       at its minimum and the remainder has to stay reachable. Hiding it clipped
+       three column bodies mid-row at 1280x800. */
+    #page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-col > .conn-col-body {
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    /* Three columns are kept all the way down to the app's global stacking
+       break. Falling back to one column at 1100px stacked ~1000px of content
+       into a 528px window: everything was reachable by scrolling, but the
+       window showed a third of itself. */
+    #page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-cols-3 {
+        grid-template-columns: 1.15fr 1fr 1.15fr;
+    }
+}
 
 /* Kalibrace deliberately has NO max-width and DOES take the full height: the
    page is a two-column workspace (per-arm state | the running calibration),
@@ -4593,10 +4815,6 @@ textarea:focus-visible {
 
 /* v2.7 tile grids on narrow screens — must follow the base rules above */
 @media (max-width: 920px) {
-    .robot-slider-track {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
     .policy-pick {
         grid-template-columns: 1fr;
     }
