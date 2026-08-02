@@ -222,7 +222,7 @@ body {
 }
 
 .title-brand svg {
-    color: var(--cyan);
+    color: var(--text-light);
     filter: none;
 }
 
@@ -723,6 +723,7 @@ body {
 .setup-block-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -744,7 +745,7 @@ body {
 }
 
 .setup-block h3 svg {
-    color: var(--cyan);
+    color: var(--text-light);
     width: 14px;
     height: 14px;
     filter: none;
@@ -1911,7 +1912,7 @@ input[readonly] {
 }
 
 .datacollection-block-header svg {
-    color: var(--cyan);
+    color: var(--text-light);
     filter: none;
 }
 
@@ -2204,7 +2205,7 @@ input[readonly] {
 
 .tagging-header .sidebar-subtitle {
     margin: 0;
-    color: var(--cyan);
+    color: var(--text-light);
 }
 
 .tagging-steps {
@@ -3853,7 +3854,6 @@ textarea:focus-visible {
     gap: 8px;
     margin-top: 6px;
     min-height: 0;
-    overflow-y: auto;
     align-content: start;
 }
 
@@ -3887,6 +3887,137 @@ textarea:focus-visible {
     flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
+}
+
+
+
+/* The full procedure, on demand. Same words LeRobot prints, but at a size
+   meant to be read once rather than glanced past forever. */
+.cal-howto {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.cal-howto-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 5px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.cal-howto-why {
+    margin: 0 0 6px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-main);
+}
+
+.cal-howto-prompt {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    padding: 7px 9px;
+    background: rgba(0, 0, 0, 0.22);
+    word-break: break-word;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PHASE RAIL — where a multi-step run currently is
+   Calibration, recording, training and an orchestration run are all the
+   same shape: a fixed sequence of steps, one of which is happening now.
+   They used to describe that sequence as a static block of small
+   monospace listing every step at once, which reads as documentation
+   rather than as state — you could not tell from it what to do next.
+
+   The rail says where you are; the card below says what to do about it,
+   in ordinary type, with the buttons that answer it. Everything else,
+   including the tool's own verbatim prompts, is behind a button.
+   ═══════════════════════════════════════════════════════════════════ */
+.phase-rail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    list-style: none;
+    margin: 0 0 14px;
+    padding: 0;
+}
+
+.phase-rail li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.phase-rail-n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 19px;
+    height: 19px;
+    flex: 0 0 19px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.phase-rail li.is-done .phase-rail-n {
+    border-color: var(--border-light);
+    color: var(--text-light);
+}
+
+.phase-rail li.is-active {
+    color: var(--text-white);
+}
+
+.phase-rail li.is-active .phase-rail-n {
+    border-color: var(--text-light);
+    background: var(--text-light);
+    color: var(--bg-editor);
+}
+
+/* The one thing on screen that says what to do next. */
+.phase-now {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-bottom: 14px;
+}
+
+.phase-now-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+.phase-now-text {
+    margin: 0;
+    max-width: 62ch;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-main);
+}
+
+.phase-now-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -4351,9 +4482,24 @@ textarea:focus-visible {
     flex: 0 0 auto;
 }
 
+
+/* Leader and follower are the same card twice; stacking them made the column
+   144px taller than the page, so it grew its own scrollbar. Side by side they
+   fit, and the column uses width it already had. */
+.cal-arms-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    flex: 0 0 auto;
+}
+
+@media (max-width: 1250px) {
+    .cal-arms-row { grid-template-columns: minmax(0, 1fr); }
+}
+
 .cal-col > .cal-visual-sub {
     flex: 1 1 auto;
-    min-height: 170px;
+    min-height: 120px;
 }
 
 /* Under ~1000px the two columns stack; the run column keeps a usable height
@@ -4367,11 +4513,9 @@ textarea:focus-visible {
 }
 
 .cal-arm-card.is-calibrated {
-    border-left: 3px solid var(--green, #4caf50);
 }
 
 .cal-arm-card.is-default {
-    border-left: 3px solid var(--yellow, #ffa726);
 }
 
 .cal-arm-state {
@@ -5244,7 +5388,7 @@ body { min-width: 320px; }
 }
 
 .hf-io .hf-node-title {
-    color: var(--cyan);
+    color: var(--text-light);
 }
 
 .hf-arrow {
@@ -5564,7 +5708,7 @@ body { min-width: 320px; }
 .arm-visual-label {
     font-size: 11.5px;
     font-weight: 700;
-    color: var(--cyan);
+    color: var(--text-light);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     text-align: center;
@@ -5708,7 +5852,7 @@ body { min-width: 320px; }
 }
 
 .arm-id-badge strong {
-    color: var(--cyan);
+    color: var(--text-light);
 }
 
 .arm-visual-idle-hint {
@@ -5806,7 +5950,7 @@ body { min-width: 320px; }
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--cyan);
+    color: var(--text-light);
 }
 
 .teleop-sub-title-row {
@@ -5996,10 +6140,16 @@ body { min-width: 320px; }
    rows together instead of spreading them over the whole column. */
 .teleop-joints-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-auto-rows: 58px;
+    /* Six joints on one row rather than two rows of three: the session column
+       was 83px taller than the page and scrolled because of it. */
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-auto-rows: 54px;
     align-content: start;
     gap: 6px;
+}
+
+@media (max-width: 1500px) {
+    .teleop-joints-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 .joint-telemetry-box {
@@ -6109,7 +6259,7 @@ body { min-width: 320px; }
     font-weight: 700;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: var(--cyan);
+    color: var(--text-light);
 }
 
 .settings-pane-head {

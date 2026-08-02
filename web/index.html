@@ -7,8 +7,13 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
+<<<<<<< Updated upstream
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.72.0">
   <link rel="stylesheet" href="/static/styles.css?v=3.72.0">
+=======
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.75.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.75.0">
+>>>>>>> Stashed changes
 </head>
 <body>
 
@@ -374,6 +379,7 @@
 
                   <!-- Left column: per-arm state, each with its own run button ── -->
                   <div class="cal-col">
+                    <div class="cal-arms-row">
                     <section class="teleop-sub cal-arm-card" id="cal-arm-leader">
                       <div class="teleop-sub-title-row">
                         <h4 class="teleop-sub-title" data-i18n="lbl.leaderArm">Leader (řídicí)</h4>
@@ -390,7 +396,6 @@
                         <button class="btn btn-xs btn-primary" id="btn-calibrate-leader" onclick="App.calibrateArm('leader')">
                           <span data-i18n="btn.calibrateLeader">Kalibrovat leader</span> <span class="btn-port-hint" id="cal-tab-leader-port">-</span>
                         </button>
-                        <span class="cal-arm-hint" data-i18n-html="hint.calRunLeader">Spustí <code>lerobot-calibrate</code> s <code>--teleop.type/port/id</code>.</span>
                       </div>
                     </section>
 
@@ -410,9 +415,9 @@
                         <button class="btn btn-xs btn-primary" id="btn-calibrate-follower" onclick="App.calibrateArm('follower')">
                           <span data-i18n="btn.calibrateFollower">Kalibrovat follower</span> <span class="btn-port-hint" id="cal-tab-follower-port">-</span>
                         </button>
-                        <span class="cal-arm-hint" data-i18n-html="hint.calRunFollower">Spustí <code>lerobot-calibrate</code> s <code>--robot.type/port/id</code>.</span>
                       </div>
                     </section>
+                    </div>
 
                     <section class="teleop-sub">
                       <div class="teleop-sub-title-row">
@@ -459,28 +464,27 @@
                       <span class="cal-live-phase" id="cal-live-phase" data-i18n="cal.phaseIdle">nespuštěno</span>
                     </div>
 
-                    <!-- Idle: the four gates of device.calibrate(), quoted from
-                         LeRobot's own prompts so the buttons below read as
-                         answers to a specific question. -->
-                    <div id="cal-procedure" class="cal-proc">
-                      <ol class="cal-proc-list">
-                        <li>
-                          <span class="cal-proc-head" data-i18n="cal.step1.title">Existující soubor — jen když už je</span>
-                          <code class="cal-proc-prompt">Press ENTER to use provided calibration file associated with the id &lt;id&gt;, or type 'c' and press ENTER to run calibration:</code>
-                        </li>
-                        <li>
-                          <span class="cal-proc-head" data-i18n="cal.step2.title">Střed rozsahu</span>
-                          <code class="cal-proc-prompt">Move &lt;device&gt; to the middle of its range of motion and press ENTER....</code>
-                        </li>
-                        <li>
-                          <span class="cal-proc-head" data-i18n="cal.step3.title">Záznam rozsahů kloubů</span>
-                          <code class="cal-proc-prompt">Move all joints except 'wrist_roll' sequentially through their entire ranges of motion. Recording positions. Press ENTER to stop...</code>
-                        </li>
-                        <li>
-                          <span class="cal-proc-head" data-i18n="cal.step4.title">Uložení</span>
-                          <code class="cal-proc-prompt">Calibration saved to &lt;cache&gt;/robots|teleoperators/&lt;typ&gt;/&lt;id&gt;.json</code>
-                        </li>
-                      </ol>
+                    <!-- What to do right now. The four gates of
+                         device.calibrate() are a rail; only the step the run
+                         is sitting on is spelled out, and LeRobot's own
+                         wording lives behind the help button instead of in
+                         four blocks of monospace nobody reads. -->
+                    <ol class="phase-rail" id="cal-rail">
+                      <li data-step="1"><span class="phase-rail-n">1</span><span data-i18n="cal.step1.short">Soubor</span></li>
+                      <li data-step="2"><span class="phase-rail-n">2</span><span data-i18n="cal.step2.short">Střed rozsahu</span></li>
+                      <li data-step="3"><span class="phase-rail-n">3</span><span data-i18n="cal.step3.short">Rozsahy kloubů</span></li>
+                      <li data-step="4"><span class="phase-rail-n">4</span><span data-i18n="cal.step4.short">Uložení</span></li>
+                    </ol>
+
+                    <div class="phase-now">
+                      <h4 class="phase-now-title" id="cal-now-title" data-i18n="cal.now.idle.title">Kalibrace neběží</h4>
+                      <p class="phase-now-text" id="cal-now-text" data-i18n="cal.now.idle.text">Spusťte ji tlačítkem u ramene v levém sloupci. Postup vás pak provede krok za krokem.</p>
+                      <div class="phase-now-actions">
+                        <button class="btn btn-xs btn-primary" id="cal-btn-confirm" style="display:none;" onclick="App.confirmCalibrationStep()" data-i18n-title="tip.calConfirm" data-i18n="cal.confirm">Potvrdit (Enter)</button>
+                        <button class="btn btn-xs btn-secondary" id="cal-btn-recal" style="display:none;" onclick="App.forceNewCalibration()" data-i18n-title="tip.calForceNew" data-i18n="cal.recalibrate">Kalibrovat znovu (c)</button>
+                        <button class="btn btn-xs btn-danger" id="cal-btn-cancel" style="display:none;" onclick="App.cancelCalibration()" data-i18n-title="tip.calCancel" data-i18n="cal.cancel">Přerušit</button>
+                        <button class="btn btn-xs btn-secondary" onclick="App.openCalibrationHelp()" data-i18n="btn.calHowto">Jak kalibrace probíhá</button>
+                      </div>
                     </div>
 
                     <!-- Idle: what the bound calibration files actually store
@@ -522,17 +526,6 @@
                         <tbody id="calibration-live-tbody"></tbody>
                       </table>
                       <div id="cal-live-note" class="cal-live-note"></div>
-                      <div class="cal-live-actions">
-                        <button class="btn btn-xs btn-primary" onclick="App.confirmCalibrationStep()"
-                                data-i18n-title="tip.calConfirm"
-                                data-i18n="cal.confirm">Potvrdit (Enter)</button>
-                        <button class="btn btn-xs btn-secondary" onclick="App.forceNewCalibration()"
-                                data-i18n-title="tip.calForceNew"
-                                data-i18n="cal.recalibrate">Kalibrovat znovu (c)</button>
-                        <span class="panel-toolbar-spacer"></span>
-                        <button class="btn btn-xs btn-danger" onclick="App.cancelCalibration()"
-                                data-i18n-title="tip.calCancel" data-i18n="cal.cancel">Přerušit</button>
-                      </div>
                     </div>
                   </div>
 
@@ -663,7 +656,6 @@
                       <span class="tele-cal-file" id="tele-cal-file-follower">-</span>
                     </div>
                   </div>
-                  <div class="tele-cal-note" id="tele-cal-note" data-i18n="hint.teleCalUnknown">Otevřete projekt s nakonfigurovaným robotem.</div>
                 </section>
 
                 <!-- Teleop runtime settings -->
@@ -942,32 +934,25 @@
                     </div>
                   </div>
 
-                  <!-- Key map. Every row is a key the app really binds in its
-                       window keydown handler and the lerobot-record flag it ends
-                       up setting, so the table reads as documentation of the
-                       process, not as a promise the UI cannot keep. -->
-                  <div class="rec-keymap">
-                    <div class="rec-keymap-head">
-                      <span class="panel-toolbar-label" data-i18n="rec.keymapTitle">Klávesy během nahrávání</span>
-                      <span class="rec-keymap-note" data-i18n="rec.keymapNote">Fungují jen když je toto okno aplikace aktivní — Orchiday je převádí na řídicí příznaky procesu.</span>
+                  <!-- Recording is a loop of phases, not a page of settings:
+                       lerobot_record alternates capture with an unrecorded
+                       reset pause, and the marks only mean anything during
+                       capture. The rail says which one is live. -->
+                  <ol class="phase-rail" id="rec-rail">
+                    <li data-step="1"><span class="phase-rail-n">1</span><span data-i18n="rec.step1.short">Příprava</span></li>
+                    <li data-step="2"><span class="phase-rail-n">2</span><span data-i18n="rec.step2.short">Nahrávání epizody</span></li>
+                    <li data-step="3"><span class="phase-rail-n">3</span><span data-i18n="rec.step3.short">Reset scény</span></li>
+                    <li data-step="4"><span class="phase-rail-n">4</span><span data-i18n="rec.step4.short">Uložení datasetu</span></li>
+                  </ol>
+
+                  <div class="phase-now">
+                    <h4 class="phase-now-title" id="rec-now-title" data-i18n="rec.now.idle.title">Nahrávání neběží</h4>
+                    <p class="phase-now-text" id="rec-now-text" data-i18n="rec.now.idle.text">Vyberte dovednost vlevo, zkontrolujte nastavení a spusťte nahrávání tlačítkem dole.</p>
+                    <div class="phase-now-actions">
+                      <button class="btn btn-xs btn-secondary" onclick="App.openModal('modal-record-keys')" data-i18n="btn.recKeys">Klávesy během nahrávání</button>
                     </div>
-                    <table class="rec-keymap-table">
-                      <thead>
-                        <tr>
-                          <th data-i18n="rec.keymapColKeys">Klávesy</th>
-                          <th data-i18n="rec.keymapColAction">Co udělá</th>
-                          <th data-i18n="rec.keymapColFlag">LeRobot</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr><td><kbd>␣</kbd><kbd>M</kbd></td><td data-i18n="rec.keyMark">Označí hranici pod-úkolu</td><td>mark</td></tr>
-                        <tr><td><kbd>⌫</kbd><kbd>U</kbd></td><td data-i18n="rec.keyUnmark">Vrátí poslední značku</td><td>unmark</td></tr>
-                        <tr><td><kbd>→</kbd><kbd>N</kbd></td><td data-i18n="rec.keyNext">Uloží epizodu a pokračuje</td><td>exit_early</td></tr>
-                        <tr><td><kbd>←</kbd><kbd>R</kbd></td><td data-i18n="rec.keyRetry">Zahodí epizodu a opakuje ji</td><td>rerecord_episode</td></tr>
-                        <tr><td><kbd>Esc</kbd><kbd>Q</kbd></td><td data-i18n="rec.keyStop">Ukončí sběr a uloží dataset</td><td>stop_recording</td></tr>
-                      </tbody>
-                    </table>
                   </div>
+
 
               </div><!-- /#rec-active-panel -->
             </div><!-- /.datacollection-block-body -->
@@ -2539,6 +2524,73 @@
   </div>
 
   <!-- Modal Správa a Výběr kalibračních souborů -->
+  <div class="modal-overlay" id="modal-record-keys" role="dialog" aria-modal="true" aria-labelledby="modal-rec-keys-title">
+    <div class="modal-container" style="max-width: 640px; width: 100%;">
+      <div class="modal-header">
+        <h4 id="modal-rec-keys-title"><span data-i18n="rec.keymapTitle">Klávesy během nahrávání</span></h4>
+        <button class="modal-close-btn" onclick="App.closeModal('modal-record-keys')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="phase-now-text" data-i18n="rec.keymapNote">Fungují jen když je toto okno aplikace aktivní — Orchiday je převádí na řídicí příznaky procesu.</p>
+        <table class="rec-keymap-table" style="margin-top:12px;">
+      <thead>
+      <tr>
+      <th data-i18n="rec.keymapColKeys">Klávesy</th>
+      <th data-i18n="rec.keymapColAction">Co udělá</th>
+      <th data-i18n="rec.keymapColFlag">LeRobot</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr><td><kbd>␣</kbd><kbd>M</kbd></td><td data-i18n="rec.keyMark">Označí hranici pod-úkolu</td><td>mark</td></tr>
+      <tr><td><kbd>⌫</kbd><kbd>U</kbd></td><td data-i18n="rec.keyUnmark">Vrátí poslední značku</td><td>unmark</td></tr>
+      <tr><td><kbd>→</kbd><kbd>N</kbd></td><td data-i18n="rec.keyNext">Uloží epizodu a pokračuje</td><td>exit_early</td></tr>
+      <tr><td><kbd>←</kbd><kbd>R</kbd></td><td data-i18n="rec.keyRetry">Zahodí epizodu a opakuje ji</td><td>rerecord_episode</td></tr>
+      <tr><td><kbd>Esc</kbd><kbd>Q</kbd></td><td data-i18n="rec.keyStop">Ukončí sběr a uloží dataset</td><td>stop_recording</td></tr>
+      </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal('modal-record-keys')" data-i18n="btn.close">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-calibration-howto" role="dialog" aria-modal="true" aria-labelledby="modal-cal-howto-title">
+    <div class="modal-container" style="max-width: 720px; width: 100%;">
+      <div class="modal-header">
+        <h4 id="modal-cal-howto-title"><span data-i18n="h4.modal.calHowto">Jak kalibrace probíhá</span></h4>
+        <button class="modal-close-btn" onclick="App.closeModal('modal-calibration-howto')">✕</button>
+      </div>
+      <div class="modal-body">
+        <ol class="cal-howto">
+          <li>
+            <h5 class="cal-howto-head"><span class="phase-rail-n">1</span> <span data-i18n="cal.step1.short">Soubor</span></h5>
+            <p class="cal-howto-why" data-i18n-html="cal.step1.why">Když už pro dané <code>id</code> kalibrační soubor existuje, LeRobot se zeptá, jestli ho použít, nebo kalibrovat znovu. Orchiday odpovídá za vás — na „Kalibrovat znovu (c)“.</p>
+            <code class="cal-howto-prompt">Press ENTER to use provided calibration file associated with the id &lt;id&gt;, or type 'c' and press ENTER to run calibration:</code>
+          </li>
+          <li>
+            <h5 class="cal-howto-head"><span class="phase-rail-n">2</span> <span data-i18n="cal.step2.short">Střed rozsahu</span></h5>
+            <p class="cal-howto-why" data-i18n-html="cal.step2.why">Nastavte rameno rukou zhruba doprostřed jeho rozsahu pohybu a potvrďte. Z této polohy LeRobot počítá <code>Homing_Offset</code> každého motoru.</p>
+            <code class="cal-howto-prompt">Move &lt;device&gt; to the middle of its range of motion and press ENTER....</code>
+          </li>
+          <li>
+            <h5 class="cal-howto-head"><span class="phase-rail-n">3</span> <span data-i18n="cal.step3.short">Rozsahy kloubů</span></h5>
+            <p class="cal-howto-why" data-i18n-html="cal.step3.why">Projeďte každý kloub kromě <code>wrist_roll</code> celým rozsahem, tam a zpět. Tabulka vedle ukazuje živě MIN, aktuální pozici a MAX. Až budou rozpětí vypadat správně, potvrďte.</p>
+            <code class="cal-howto-prompt">Move all joints except 'wrist_roll' sequentially through their entire ranges of motion. Recording positions. Press ENTER to stop...</code>
+          </li>
+          <li>
+            <h5 class="cal-howto-head"><span class="phase-rail-n">4</span> <span data-i18n="cal.step4.short">Uložení</span></h5>
+            <p class="cal-howto-why" data-i18n-html="cal.step4.why">LeRobot zapíše soubor do své cache. Orchiday si ho zkopíruje do projektu, aby přežil vyčištění cache.</p>
+            <code class="cal-howto-prompt">Calibration saved to &lt;cache&gt;/robots|teleoperators/&lt;typ&gt;/&lt;id&gt;.json</code>
+          </li>
+        </ol>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal('modal-calibration-howto')" data-i18n="btn.close">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-calibration-files" role="dialog" aria-modal="true" aria-labelledby="modal-cal-files-title">
     <div class="modal-container" style="max-width: 750px; width: 100%;">
       <div class="modal-header">
@@ -3027,7 +3079,12 @@
   </div>
 
   <!-- Core application compiled logic script -->
+<<<<<<< Updated upstream
   <script src="/static/i18n.js?v=3.72.0" defer></script>
   <script src="/static/app.js?v=3.72.0" defer></script>
+=======
+  <script src="/static/i18n.js?v=3.75.0" defer></script>
+  <script src="/static/app.js?v=3.75.0" defer></script>
+>>>>>>> Stashed changes
 </body>
 </html>

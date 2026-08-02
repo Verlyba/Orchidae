@@ -2531,22 +2531,65 @@ const App = {
      * no calibration process is running and the procedure list is on screen. */
     setCalibrationPhase(phase) {
         const el = document.getElementById('cal-live-phase');
-        if (!el)
-            return;
         const key = phase === 'range' ? 'cal.phaseRange'
             : phase === 'start' ? 'cal.phaseStart'
                 : 'cal.phaseIdle';
-        el.textContent = this.t(key);
-        el.setAttribute('data-i18n', key);
-        el.classList.toggle('is-idle', phase === 'idle');
-        // Highlight the step the process is actually sitting on. Step 1 (reuse
-        // the stored file?) is never highlighted: it is already answered by the
-        // time any output reaches us, and it does not appear at all when no
-        // calibration file exists for the id.
-        const active = phase === 'range' ? 3 : phase === 'start' ? 2 : 0;
-        document.querySelectorAll('.cal-proc-list > li').forEach((li, i) => {
-            li.classList.toggle('is-active', i + 1 === active);
+        if (el) {
+            el.textContent = this.t(key);
+            el.setAttribute('data-i18n', key);
+            el.classList.toggle('is-idle', phase === 'idle');
+        }
+        // Step 1 (reuse the stored file?) is never the active one: it is already
+        // answered by the time any output reaches us, and it does not appear at
+        // all when no calibration file exists for the id.
+        const step = phase === 'range' ? 3 : phase === 'start' ? 2 : 0;
+        this.setPhase('cal-rail', step, {
+            title: phase === 'range' ? 'cal.now.range.title'
+                : phase === 'start' ? 'cal.now.start.title' : 'cal.now.idle.title',
+            text: phase === 'range' ? 'cal.now.range.text'
+                : phase === 'start' ? 'cal.now.start.text' : 'cal.now.idle.text',
+            titleEl: 'cal-now-title',
+            textEl: 'cal-now-text',
+            buttons: {
+                'cal-btn-confirm': phase !== 'idle',
+                'cal-btn-recal': phase === 'start',
+                'cal-btn-cancel': phase !== 'idle',
+            },
         });
+    },
+    /**
+     * Drive a phase rail and the card under it.
+     *
+     * Every multi-step run in the app (calibration, recording, training, an
+     * orchestration run) has the same shape, so they share one renderer: the
+     * rail marks steps before `step` done and `step` itself active, and the
+     * card says what to do about that step in ordinary type. `step` of 0 means
+     * nothing is running.
+     */
+    setPhase(railId, step, o) {
+        const rail = document.getElementById(railId);
+        if (rail) {
+            rail.querySelectorAll('li').forEach((li, i) => {
+                li.classList.toggle('is-active', i + 1 === step);
+                li.classList.toggle('is-done', step > 0 && i + 1 < step);
+            });
+        }
+        for (const [id, key] of [[o.titleEl, o.title], [o.textEl, o.text]]) {
+            const el = document.getElementById(id);
+            if (!el)
+                continue;
+            el.textContent = this.t(key);
+            el.setAttribute('data-i18n', key);
+        }
+        for (const [id, show] of Object.entries(o.buttons || {})) {
+            const b = document.getElementById(id);
+            if (b)
+                b.style.display = show ? '' : 'none';
+        }
+    },
+    /** LeRobot's own prompts, verbatim — on demand rather than on screen. */
+    openCalibrationHelp() {
+        this.openModal('modal-calibration-howto');
     },
     /** Joint-name → motor-ID legend for whichever side (leader/follower) is
      * currently being calibrated — reuses the arm_visual_config already
@@ -5811,6 +5854,16 @@ const App = {
             status.textContent = this.t(key);
             status.className = 'tag ' + (phase === 'record' ? 'tag-live' : 'tag-idle');
         }
+        // Same rail the calibration run uses: capture is step 2, the unrecorded
+        // reset pause step 3, and neither is running when the process is idle.
+        this.setPhase('rec-rail', phase === 'record' ? 2 : phase === 'reset' ? 3 : 0, {
+            title: phase === 'record' ? 'rec.now.record.title'
+                : phase === 'reset' ? 'rec.now.reset.title' : 'rec.now.idle.title',
+            text: phase === 'record' ? 'rec.now.record.text'
+                : phase === 'reset' ? 'rec.now.reset.text' : 'rec.now.idle.text',
+            titleEl: 'rec-now-title',
+            textEl: 'rec-now-text',
+        });
         // The phase decides whether the step list is a plan or a progress
         // indicator, so it has to be repainted with it.
         this.renderTaggingSteps(subSkills);
@@ -6188,7 +6241,6 @@ const App = {
      * use generic ranges, which is worth seeing BEFORE the arms start moving,
      * not after. */
     renderTeleopCalibrationStatus(cfg) {
-        const note = document.getElementById('tele-cal-note');
         for (const side of ['leader', 'follower']) {
             const row = document.getElementById(`tele-cal-row-${side}`);
             const deviceEl = document.getElementById(`tele-cal-device-${side}`);
@@ -6210,15 +6262,6 @@ const App = {
                 deviceEl.textContent = arm.device_type || '-';
             if (fileEl)
                 fileEl.textContent = calibrated ? arm.filename : this.t('hint.teleCalDefault');
-        }
-        if (note) {
-            const sides = cfg ? ['leader', 'follower'] : [];
-            const uncalibrated = sides.filter(s => cfg[s]?.source !== 'calibration' || !cfg[s]?.filename);
-            const key = !cfg ? 'hint.teleCalUnknown'
-                : uncalibrated.length ? 'hint.teleCalPartial'
-                    : 'hint.teleCalOk';
-            note.textContent = this.t(key);
-            note.setAttribute('data-i18n', key);
         }
     },
     /** Motor-ID legend shown ONCE for the whole stacked block — both arms
