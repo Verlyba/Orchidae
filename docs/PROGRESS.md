@@ -8,6 +8,97 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (17) — Priorita A: **neviditelný vodorovný scroll** schovával
+reálný obsah na skoro každém panelu, který skroluje svisle
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (už na špičce),
+`setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý (289 pytestů) —
+formálně žádná priorita A ve frontě. Fronta po (16) měla jako nejsilnější
+položku „skutečné vyplnění plochy" (Connect, prostřední sloupec) — než jsem
+se do toho pustil, prošel jsem podle zadání bod B (LeRobot ze zdrojáků, viz
+níže) a při tom prošel i frontend znovu okem, ne jen podle tabulky.
+
+**Nález, který frontu předběhl.** Na Teleoperaci jsem myší (`page.mouse.wheel`
+s `deltaX`, ne přiřazením `scrollLeft` — to funguje i na `overflow: hidden` a
+nic nedokazuje) zkusil vodorovný scroll gesture nad levým sloupcem
+(`#teleop-session-col`, `overflow-y: auto` bez `overflow-x`). Sloupec se
+posunul o 80 px doprava a **schoval nadpisy i hodnoty** („Konfigurace
+hardwaru" → „figurace hardwaru", vidět jen zbytek). Žádný scrollbar nebyl
+vidět (headless Chromium ho skrývá standardně, ale i v reálném prohlížeči by
+byl tenký a snadno přehlédnutelný) — jen obsah, který zmizí a nikdo neví proč.
+
+**Příčina je v CSS spec, ne v jednom prvku.** `overflow-y: auto` bez
+explicitního `overflow-x` nezůstává `overflow-x: visible` — podle
+CSS2.1 (`overflow` used-value computation) se `visible` na jedné ose vynutí
+na `auto`, jakmile druhá osa není `visible`. Sloupec tedy `auto`/`auto`, i
+když ho nikdo takhle nenavrhl. Co ho roztahovalo do šířky:
+`.info-tooltip-trigger::after` (ⓘ popup, `position: absolute; width: 260px`)
+— i s `opacity: 0` a `pointer-events: none` je to živý box, který se počítá
+do `scrollWidth` rodiče, jakmile ten rodič je scroll-kontejner. V appce je
+`.info-tooltip-trigger` na **57 místech** v `index.html`, tedy potenciálně
+v každém svisle scrollujícím panelu, který má aspoň jednu ⓘ nápovědu.
+
+**Rozsah, přeměřeno, ne odhadnuto.** `grep -c "overflow-y: auto" styles.css`
+= 29 výskytů, z toho jen **2** už párovaly `overflow-x` (`.merge-col >
+.setup-block-content` z běhu (13), a jeden další). **27 míst** bylo
+`auto`/vynucené-`auto` — sloupce Connectu, Kalibrace, Nastavení, modely
+Učení, seznam epizod, terminál, log wizardu, `.editor-area` (kořen KAŽDÉ
+stránky), zkrátka většina appky. Ověřeno na dvou dalších místech kromě
+Teleoperace (`#connect-robot-list` na Setupu) — stejný mechanismus, stejná
+oprava.
+
+**Oprava:** `overflow-x: hidden;` k VŠEM 27 místům, kde `overflow-y: auto`
+stálo samo — žádná hodnota rozvržení se neměnila, jen se ose, která nikdy
+neměla nic dělat, zabránilo dělat cokoliv. Vysvětlující komentář je u
+`.editor-area` (řádek ~572 v `styles.css`), aby další běh věděl, že párování
+je záměr, ne náhoda, a že nový scrollport ho musí dodržet taky.
+
+**Vedlejší riziko, které jsem hned ošetřil:** jakmile je `overflow-x: hidden`,
+dlouhý nezlomitelný token (cesta k souboru, hash, jeden dlouhý řádek ze
+stacktrace) by se dřív dal aspoň odscrollovat vodorovně — teď by se **tiše
+oříznul a zmizel**. Konzole (`.t-line`, appendConsole() v `app.ts`) a log
+kalibračního wizardu (`.wizard-log-terminal`) jsou jediná dvě místa, kam
+appka píše syrový, nekontrolovaný text (subprocess stdout), takže jsem tam
+přidal `overflow-wrap: anywhere` (u `.wizard-log-terminal` k existujícímu
+`white-space: pre-wrap`, který sám o sobě slova nelomí). Ostatních 25 míst
+nese jen appkou generovaný krátký text (karty, popisky, formuláře) a
+riziko tam není.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` **prochází celé** (289 pytestů beze změny — čistě
+  CSS zásah, žádný Python/TS soubor se nedotkl).
+- `bash scripts/measure-layout.sh` — čísla **identická** s během (16) na
+  všech 8 stránkách × 3 velikostech (`area%`, `ovfX`, `clipped`, `wide` beze
+  změny). Oprava je rozvržením neutrální, jak se čekalo — `overflow: hidden`
+  nikdy nic neposunul, jen zabránil pohybu.
+- **Reprodukce před/po s reálným wheel gestem** (Playwright
+  `page.mouse.wheel(deltaX, 0)`, ne `scrollLeft =`): před opravou `scrollLeft`
+  skočil na 80 a screenshot ukazuje uříznuté popisky; po opravě zůstává na 0
+  a screenshot je identický s neposunutým stavem. Ověřeno na Teleoperaci
+  (`#teleop-session-col`) i na Setup/Connect (`#connect-robot-list`).
+- `web/index.html` `?v=3.79.0` → `3.80.0` (jen `styles.css` se změnil,
+  `app.js`/`app.ts` beze změny — `verify.sh` krok „app.js up to date"
+  prošel bez rebuildu).
+
+**Priorita B (LeRobot ze zdrojáků), hotovo tento běh, nic k opravě nenašlo:**
+`git clone --depth 1 https://github.com/huggingface/lerobot /tmp/lerobot-src`
+dal **0.6.1** (shoduje se s běhy (11)–(16), PyPI index v cloudu pořád jen
+0.4.4 — bimanual katalog v `device_types.py`, klávesy záznamu v
+`lerobot_bridge.py`, kalibrační prompty a `HF_LEROBOT_CALIBRATION` cesty byly
+všechny znovu porovnány řádek po řádku proti `keyboard_input.py`,
+`lerobot_record.py`, `lerobot_calibrate.py`, `so_leader.py`/`so_follower.py`,
+`bi_so_follower.py` a `TrainPipelineConfig` — beze změny, appka odpovídá.
+Nic nového k zápisu, pouze potvrzení, že (13)–(16) měly pravdu.
+
+**Na fyzickém robotu zbývá vyzkoušet:** změna je čistě CSS (`overflow-x`,
+`overflow-wrap`), hardwaru se vůbec nedotýká. Za vyzkoušení nicméně stojí
+reálné trackpadové gesto (dvouprstý vodorovný swipe) na macOS/Windows —
+Playwright wheel-event je nejbližší simulace, ale skutečný trackpad driver
+se občas chová jinak než syntetická wheel událost.
+
+---
+
 ## 2026-08-02 (16) — Designová přestavba naskládala **stejný rám 3–4× přes sebe**
 (41 % výšky Connectu byl jen padding) a na Učení kreslily sloupce i pole **přes
 sebe**
