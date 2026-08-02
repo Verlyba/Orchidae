@@ -8,6 +8,147 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-02 (16) — Designová přestavba naskládala **stejný rám 3–4× přes sebe**
+(41 % výšky Connectu byl jen padding) a na Učení kreslily sloupce i pole **přes
+sebe**
+
+**Výchozí stav.** `setup-dev.sh` i `bash scripts/verify.sh` prošly celé
+(289 pytestů), priorita A tedy formálně prázdná. Fronta po (15) označovala za
+nejsilnější položku propad obsazenosti plochy po ručních commitech majitele
+(`15b282e`, `bad35f9`). Přeměřeno — čísla ve frontě sedí:
+`setup` 17/19/16 %, `projects` 20/21/21 %.
+
+**Příčinu jsem neurčoval od stolu.** Vyzkoušel jsem `web/` z commitu **před**
+těmi dvěma (`git checkout 21665e6 -- web/`) proti témuž fixture, takže rozdíl
+je měřený, ne odhadnutý:
+
+| stránka | před přestavbou | po ní |
+|---|---|---|
+| `setup` | 33 / 35 / 40 % | **17 / 19 / 16 %** |
+| `projects` | 29 / 35 / 45 % | **20 / 21 / 21 %** |
+| `uceni` | 38 / 42 / 51 % | 27 / 30 / 45 % |
+
+**Nález — jeden rám aplikovaný na každé úrovni zanoření**
+
+Napsal jsem sondu, která jde od kořene stránky k nejhlubšímu kreslícímu listu
+a sečte padding **všech** předků cestou. Na Connectu to bylo **7 rámů,
+258 px do šířky a 256 px do výšky — 41 % výšky stránky, než se nakreslí
+cokoliv**. Klíčové zjištění: `.setup-block-content` **je uvnitř sebe sama**
+(`.conn-col-body` tu třídu nese taky), takže se jeho `padding: 14px 6px`
+započítal dvakrát. Prošel jsem všechny instance té třídy v aplikaci a
+**každá jediná** sedí v rodiči, který už odsazuje (`.setup-block` 28/32,
+`.merge-col` 28/28/24, `.teleop-col` 12) — ta třída tedy nikdy nesměla nést
+vlastní rám.
+
+**Opravené duplicity** (žádná hodnota žádné karty se neměnila — majitelův
+vzhled zůstává, mizí jen jeho **opakování**):
+
+1. `.setup-block-content` → `padding: 0 6px`. Svislý rám pryč na každé úrovni;
+   zůstává boční 6px okap, protože `overflow-x` je tu `hidden` a bez něj se
+   ořízne outline zaostřeného pole.
+2. `.setup-block { margin-bottom: 16px }` je separátor pro `.help-scroll`
+   (blokový tok). Všude jinde drží okna `gap`, takže se margin sčítal s ním a
+   jen parkoval 16 px mrtvé plochy pod panelem → v gapovaných rodičích na 0.
+3. `.setup-block h3` má `margin: 4px 0 18px` pro titulek visící přímo z okna.
+   Uvnitř `.block-head-row` se sčítal s `margin-bottom: 12px` té řádky — hlavička
+   měřila **63 px pro 29px titulek**. Titulek uvnitř řádky má margin 0, řádka
+   nese 18 px (tedy přesně tolik, kolik má samostatný titulek).
+4. `.merge-col-title` měl `margin-bottom: 18px`, přestože `.merge-col` má
+   `gap: 20px` — pod linkou titulku bylo **38 px** místo 20. Rozestupy uvnitř
+   sloupce patří gapu, na jedno místo.
+
+**Priorita A — co se ukázalo, až když se plocha uvolnila (a co tam bylo i před tím)**
+
+Tohle nejsou kosmetické věci, tohle je **kreslení přes sebe**. Doloženo
+screenshoty, ne jen čísly:
+
+- **Učení @ 1280: sloupce kreslily jeden přes druhý.** `.merge-cols-3` padá na
+  1400 px na dva sloupce, takže třetí jde na druhý řádek — a protože je mřížka
+  `height: 100%`, oba řádky si výšku těla **rozdělily**: každý dostal 141 px na
+  245 px obsahu a druhý řádek se vykreslil přes první. Nově `min-height: 100%`
+  + `grid-auto-rows: minmax(260px, 1fr)`: jeden řádek se pořád roztáhne (1fr),
+  zalomený si drží použitelnou výšku a scrolluje tělo okna.
+- **`.merge-col` teď klipuje a scrolluje** (bylo `overflow: visible` mimo
+  Connect, tedy sloupec maloval mimo vlastní rámeček). Pravidlo, které pro to
+  Connect měl od (13), **přestalo být scopované na jednu záložku** — mají ho
+  všechna sloučená okna. Patička sloupce je `position: sticky; bottom: 0`, aby
+  primární akce zůstala na místě, což je celý důvod, proč sloupce scrollují
+  samostatně.
+- **Učení: `.rec-config-grid` malovala pole přes sebe i na 1600×900.** Příčina:
+  položka s `grid-column: span 2` **vynutí mřížce aspoň dva sloupce** bez ohledu
+  na šířku, takže `auto-fit` je k ničemu — sloupec Konfigurace je i na 1600 px
+  široký jen 280 px a druhý track se smrskl na **53 px**; jeho popisek a select
+  se vykreslily přes sousední pole. Nově `grid-column: 1 / -1` (vezme celý řádek
+  při libovolném počtu tracků a žádný nevyrobí) a `minmax(min(215px, 100%), 1fr)`.
+  `max-width: 600px` na těch širokých polích, aby se z nich ve staženém okně
+  nestal pruh přes celou šířku (`#train-extra-args` 739 px).
+- **Učení: výběr architektury (`.policy-pick`) maloval karty přes pole pod sebou.**
+  Sedí v `flex: 1; min-height: 0` skupině, takže se skupina smrskla pod pět karet
+  a ty s `overflow: visible` přetekly na „Tréninkové kroky" a „Batch size".
+  Nově skupina klipuje a karty scrollují. **Past, na kterou jsem si sáhl a stojí
+  za zapsání: `min-height: auto` dává flex položce obsahové minimum jen dokud má
+  `overflow: visible`.** Jakmile jsem skupině dal `overflow: hidden`, minimum
+  tiše spadlo na 0, skupina se složila **i s vlastním popiskem** a výběr
+  architektury z okna úplně zmizel. Musí tam být **explicitní** `min-height`
+  (84 px = popisek + jedna řada karet).
+- **Chyba, kterou jsem si během běhu zavedl a našel měřením:** po uvolnění
+  paddingu začal sloupec Kamery přetékat na 1024 px o 43 px — dvě poloviny
+  v `flex-direction: row` mají `min-width: auto` a odmítnou se zúžit.
+  `min-width: 0` (vodorovné dvojče pasti `min-height: 0` z (13)), plus pod
+  globálním zlomem 920 px se ty poloviny skládají pod sebe.
+
+**Menší opravy při práci**
+
+- Popisky obou tlačítek „Nastavit … rameno" se **usekávaly uprostřed slova**
+  („Nastavit Follower rameno (Vykoná") — nezalomitelná flex položka v klipujícím
+  sloupci. Teď se zalomí, šipka drží pravý okraj. Při té příležitosti dostala
+  obě `data-i18n` (`btn.setupLeaderArm`, `btn.setupFollowerArm`, cs i en) —
+  byla natvrdo česky.
+- Zrušeno 5 inline `style=""`, které přerážely vlastní třídu prvku (vzor z (15)):
+  `height: 120px` na `.conn-cam-preview` rušilo `aspect-ratio` a `flex: 1 1 auto`
+  té třídy, `height: 100%` na `.conn-cam-list` její `max-height`. Seznam kamer
+  nově pohlcuje volnou výšku místo zastavení na 190 px.
+
+**Ověřeno v cloudu**
+
+- `bash scripts/verify.sh` **prochází celé** (289 pytestů, i18n cs=en=1026 bez
+  duplicit, 0 duplicitních id, 9 panelů, 107 `App.*`).
+- **Obsazenost plochy**, stejný fixture, 1600×900 / 1280×800 / 1024×760:
+
+  | stránka | začátek běhu | konec |
+  |---|---|---|
+  | `setup` | 17 / 19 / 16 % | **19 / 23 / 25 %** |
+  | `projects` | 20 / 21 / 21 % | **22 / 22 / 23 %** |
+  | `uceni` | 27 / 30 / 45 % | **32 / 33 / 30 %** |
+  | `datasety` | 30 / 33 / 32 % | 30 / 33 / 33 % |
+  | ostatní | beze změny | beze změny |
+
+  **Svislý padding-rám:** Connect 41 % → 32 % výšky, `projects` 28 % → 24 %,
+  `uceni` 35 % → 31 %, `teleoperation` 37 % → 33 %.
+  **`ovfX = 0`, `clipped = 0`, `wide = 0` na všech osmi stránkách a všech třech
+  velikostech** (kromě známého `#settings-scene-desc`). Na začátku běhu byl
+  `clipped` na `setup` @1024.
+- **Screenshoty před/po** (ne jen čísla): na Connectu je vidět seznam zařízení
+  **2 → 5 řádků**, náhled kamery se vůbec poprvé vykreslí, a tlačítko „Nastavit
+  Follower" už není useknuté dolní hranou sloupce. Na Učení zmizelo překreslování
+  sloupců i polí.
+- **Anglický režim**: obě nová tlačítka se překládají a **vejdou se do sloupce**
+  (přetečení −74 px, tedy uvnitř).
+- **Čísla obsazenosti nejsou celý příběh, a je fér to napsat:** `uceni` @1024
+  spadlo z 45 % na 30 % **záměrně**. Dřív se tam mřížka skládala do jednoho
+  sloupce, což metriku nadhodnocuje (hustý sloupec), ale z okna je vidět třetina
+  — přesně to, proti čemu argumentoval běh (13) u Connectu. Teď jsou vidět dva
+  sloupce vedle sebe a zbytek se scrolluje.
+
+**Na fyzickém robotu zbývá vyzkoušet** (v cloudu nelze, netvrdím opak):
+změna je čistě layoutová, hardwaru se nedotýká. Za pohled okem stojí, jestli
+je `sticky` patička sloupce čitelná mimo Chromium (macOS/WebKit, Firefox) —
+`position: sticky` uvnitř scrollujícího flex sloupce je jediná konstrukce
+v téhle změně, která se mezi enginy chová různě. Totéž `min(215px, 100%)`
+v `minmax()` a `grid-auto-rows: minmax(260px, 1fr)`.
+
+---
+
 ## 2026-08-02 (15) — `verify.sh` na mainu **neprocházel**: brána zakazovala
 zaoblení, které do designu ručně přidal majitel projektu
 
@@ -1890,41 +2031,50 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 ## Otevřené věci (fronta pro další běhy)
 
 **Frontend**
-- **NEJSILNĚJŠÍ POLOŽKA PO (15): ruční přestavba UI majitelem (`15b282e`,
-  `bad35f9`) srazila obsazenost plochy zhruba na polovinu.** Přeměřeno v (15)
-  proti stejnému fixture jako dřív, tedy srovnatelně:
-
-  | stránka | zapsáno po (13) | naměřeno v (15) |
-  |---|---|---|
-  | `setup` | 31 / 35 / 43 % | **17 / 19 / 16 %** |
-  | `projects` | 26 / 33 / 43 % | **20 / 21 / 21 %** |
-  | `modelrun` | 24 / 33 / 37 % | 22 / 31 / 33 % |
-  | `datasety` | 33 / 40 / 40 % | 30 / 33 / 32 % |
-  | `uceni` | 45 / 32 / 38 % | 27 / 30 / 45 % |
-
-  Nejvíc to sebral `setup` a `projects` — tedy přesně práce, kterou běhy (8)
-  a (13) na vyplnění prázdné plochy odvedly. Příčinu neurčovat od stolu:
-  ty commity přidaly `padding: 28px 32px !important` na `.setup-block`
-  a `28px 28px 24px !important` na `.connect-col`/`.merge-col`, což je první
-  podezřelý (vnitřní odsazení plochu nezaplní, jen odsune obsah), ale
-  **změřit to, ne hádat**. `bash scripts/measure-layout.sh --pages setup`.
-  **Tohle je věc, kterou zadání označuje za hlavní problém** — a je to
-  největší jednotlivá regrese, jakou deník zatím zaznamenal.
-  Pozor: majitelův vzhled se **nemá vracet zpátky**, má se opravit rozvržení
-  uvnitř něj (zadání: „pouze vylepšit nebo opravit rozložení“).
+- ~~**NEJSILNĚJŠÍ POLOŽKA PO (15): ruční přestavba UI majitelem srazila
+  obsazenost plochy zhruba na polovinu**~~ — **z velké části vyřešeno 2026-08-02
+  (16)**. Příčina byla změřená, ne odhadnutá: **stejný rám aplikovaný na 3–4
+  úrovních zanoření**, hlavně `.setup-block-content` uvnitř sebe sama.
+  Connect 17/19/16 → **19/23/25 %**, `projects` → **22/22/23 %**,
+  `uceni` → **32/33/30 %**; svislý padding-rám Connectu 41 % → 32 % výšky.
+  Hodnoty žádné karty se neměnily — majitelův vzhled zůstal, zmizelo jeho
+  **opakování**. **Zbytek rámu už patří kartám samotným** (`.editor-area` 48,
+  `.setup-block` 56, `.merge-col` 52 px svisle) a to je majitelův záměr —
+  **nesahat na to bez jeho pokynu**.
+- **Zbývá skutečné vyplnění plochy, ne odstranění rámů.** Uvolněná výška se
+  z části proměnila ve slack, protože obsah má vlastní výšku a neroste.
+  Na Connectu je největší zbývající mrtvá plocha **prostřední sloupec
+  „Připojení ramen"** (dvě tlačítka a pod nimi ~150 px prázdna) a spodní pruh
+  okna. Recept z (5)/(13) platí: dát volnou výšku prvku, který má co ukázat
+  (tabulka, schéma), NE roztažením polí.
 - ~~`verify.sh` padal na zaoblených rozích~~ — vyřešeno 2026-08-02 (15).
   Brána teď povoluje `0` nebo `var(--radius-sm|md|lg)`. **Nová hodnota
   poloměru patří do `:root`, ne do pravidla** — o to jde. Blur, stín a záře
   zůstávají zakázané a majitel to sám potvrdil (`filter: none !important`
   na `.btn`).
+- **Natvrdo česky psané řetězce v Connectu, sloupec „Připojení ramen"** (přišly
+  s `15b282e`, ověřeno v (16) přepnutím do EN): titulek sloupce
+  `Připojení ramen` (`h4` bez `data-i18n`), `Leader Rameno (Řídicí)`,
+  `Follower Rameno (Vykonávací)`, `PŘIPOJENO`, `Změnit port` (2×).
+  Sedm klíčů, jeden blok — malá a dobře ohraničená položka.
+  (Obě tlačítka „Nastavit … rameno" hotová v (16).)
+- **Past z (16), obecná a snadno se na ni naletí znovu:** `min-height: auto`
+  dává flex položce obsahové minimum **jen dokud má `overflow: visible`**.
+  Jakmile položce dáš `overflow: hidden` (typicky aby nepřetékala), minimum
+  tiše spadne na 0 a položka se složí i s vlastním popiskem. Kdo klipuje,
+  musí dopsat **explicitní** `min-height`.
+- **Past z (16): `grid-column: span 2` zabíjí `auto-fit`.** Položka se spanem
+  vynutí mřížce aspoň dva tracky bez ohledu na šířku, takže se ve úzkém sloupci
+  druhý track smrskne a obsah se kreslí přes soused. Používat `1 / -1`, které
+  vezme celý řádek při libovolném počtu tracků a žádný nevyrobí.
 - **Inline `style=""` v `index.html` je 322×.** V (15) jeden takový atribut
   prokazatelně přerážel vlastní třídu prvku (`#cal-now-text`) — třída
   popisovala box, který se nikdy nevykreslil. Je to tichá past a je jich tam
   přes tři sta; stojí za samostatný běh, který je systematicky přesune do
   `styles.css`. Začít u těch, které kolidují s třídou, kterou prvek nese.
-- **`setup` @ 1024×760: `SECTION.merge-col` ořezává obsah** (255 > 205 px,
-  `overflow: hidden`). Naměřeno v (15), existuje to i před mou změnou.
-  Recept z (13): každý předek scrollportu potřebuje `min-height: 0`.
+- ~~`setup` @ 1024×760: `SECTION.merge-col` ořezává obsah~~ — vyřešeno
+  2026-08-02 (16). Sloupce klipují a scrollují, patička je `sticky`.
+  Na všech osmi stránkách a třech velikostech je `clipped = 0`.
 - ~~Tlačítka akcí sedí v `page-header-row`~~ — hotovo 2026-08-01 (2), vzor
   `.block-actions`.
 - ~~Teleoperace: `.setup-block` se ořezává při nízkém okně~~ — hotovo
@@ -2120,7 +2270,7 @@ zakrývá plochu `#setup-wizard-overlay` (skrýt a nastavit
 
 - **Roztažená pole přes celou šířku okna** — `scripts/measure-layout.sh` je hlásí
   ve sloupci `wide` (práh 620 px). Zbývá už jen `settings` `#settings-scene-desc`
-  726 px. `datasety` hotové od (9), `modelrun` od (10) (3 → 0), `uceni` od (12).
+  (691 px, přeměřeno v (16)). `datasety` hotové od (9), `modelrun` od (10) (3 → 0), `uceni` od (12).
   Přesně to, co zadání zakazuje.
   **Recept, který na `datasety` zabral:** pole do
   `grid-template-columns: repeat(auto-fit, minmax(215px, 1fr))` a jen dvě pole

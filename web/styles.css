@@ -701,6 +701,16 @@ body {
     position: relative;
 }
 
+/* margin-bottom above is the separator for .help-scroll, which stacks its
+   windows in normal block flow. Every other holder of a window lays out with
+   `gap`, so there the margin is a second separator that just parks dead space
+   under the panel — 16px off the bottom of a single-window page. */
+.setup-section > .setup-block,
+.setup-wizard-panel > .setup-block,
+.editor-area > .setup-block {
+    margin-bottom: 0;
+}
+
 .setup-block::before {
     content: '';
     display: none;
@@ -718,6 +728,14 @@ body {
     opacity: 1 !important;
 }
 
+/* The scrolling body of a window. It is NOT a card and must not carry a frame
+   of its own: measured across every page, each instance sits inside a parent
+   that already pads it (.setup-block 28/32, .merge-col 28/28/24,
+   .teleop-col 12). The 14px it used to add was therefore always a second
+   frame, and on pages where the class nests inside itself (Connect, Učení,
+   Datasety) a third one — 41 % of the Connect page's height went to stacked
+   padding alone. Only the 6px side gutter stays: overflow-x is hidden here,
+   so without it a focused control's outline would be clipped. */
 .setup-block-content {
     flex: 1;
     overflow-y: auto;
@@ -726,7 +744,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 20px;
-    padding: 14px 6px 14px 6px;
+    padding: 0 6px;
 }
 
 .setup-block h3 {
@@ -741,6 +759,14 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+/* The 4/18 margin above is for a title that hangs straight off the window.
+   Inside .block-head-row the row is the thing being spaced, so both margins
+   applied and the header grew to 63px for a 29px title. The row now carries
+   the 18px the design asks for, once. */
+.setup-block .block-head-row > h3 {
+    margin: 0 !important;
 }
 
 .setup-block h3 svg {
@@ -979,6 +1005,10 @@ input[readonly] {
     min-width: 0;
 }
 
+/* No margin: the column is a flex box with `gap: 20px`, so a margin here would
+   be a second separator stacked on the gap — 38px under the title's rule where
+   the design asks for 20. Spacing between a column's children belongs to the
+   column's gap, in one place. */
 .connect-col-title,
 .merge-col-title {
     font-size: 12.5px;
@@ -987,7 +1017,7 @@ input[readonly] {
     text-transform: uppercase;
     color: var(--text-light);
     padding-bottom: 12px;
-    margin: 4px 0 18px 0 !important;
+    margin: 0 !important;
     border-bottom: 1px solid var(--border-dark);
 }
 
@@ -997,8 +1027,15 @@ input[readonly] {
    every footer pinned at the bottom of its own column. */
 .setup-block-content > .merge-cols,
 .setup-block-content > .connect-cols {
-    min-height: 0;
-    height: 100%;
+    min-height: 100%;
+    /* `min-height`, not `height`, plus a floor under the row track. With a hard
+       `height: 100%` a grid that wrapped onto a second row split the body's
+       height between the rows — on Učení at 1280px each row got 141px for
+       245px of content, and since a column paints outside its own box the
+       second row drew straight over the first. One row still stretches to fill
+       (1fr); wrapped rows keep a usable height and the body scrolls, which is
+       what it is already set up to do. */
+    grid-auto-rows: minmax(260px, 1fr);
 }
 
 .merge-col,
@@ -1751,6 +1788,66 @@ input[readonly] {
     padding: 8px;
 }
 
+/* The two "set up an arm" buttons. The label used to be a nowrap flex item, so
+   at column widths under ~330px it was simply cut off mid-word by the column's
+   clip — "Nastavit Follower rameno (Vykoná". It now wraps and the arrow keeps
+   its place at the right edge. */
+.conn-arm-setup-btn {
+    width: 100%;
+    text-align: left;
+    padding: 16px 18px;
+    font-size: 14.5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.conn-arm-setup-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    font-weight: 600;
+    white-space: normal;
+    text-align: left;
+}
+
+.conn-arm-setup-label > svg {
+    flex: 0 0 auto;
+}
+
+.conn-arm-setup-arrow {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--accent);
+}
+
+/* Cameras column: pick + preview on the left, configured list on the right.
+   `min-width: 0` is what keeps the pair honest — a flex item defaults to
+   `min-width: auto` and refuses to shrink below its content, so at 1024px the
+   two halves pushed 137px past the column instead of narrowing. Same trap as
+   the `min-height: 0` one on scrollports, one axis over. Below the global
+   920px break the column is too narrow for two halves, so they stack. */
+.conn-cam-body {
+    flex-direction: row;
+    gap: 16px;
+}
+
+.conn-cam-side {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+@media (max-width: 920px) {
+    .conn-cam-body {
+        flex-direction: column;
+    }
+}
+
 .conn-cam-pick {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1796,11 +1893,14 @@ input[readonly] {
     min-height: 0;
 }
 
+/* The list is the growing half of its column: it takes the spare height rather
+   than stopping at a fixed 190px and leaving the rest of the card blank. */
 .conn-cam-list {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-height: 190px;
+    flex: 1 1 auto;
+    min-height: 90px;
     overflow-y: auto;
     background: var(--bg-sidebar);
     border: 1px solid var(--border);
@@ -1988,9 +2088,12 @@ input[readonly] {
    1600x900). The grid caps a field at one track; only the two fields that
    really carry long values (a filesystem path, a CLI argument string) take
    two, and even then they stay well under half the window. */
+/* `min(215px, 100%)` and not a bare 215px: in a column narrower than the track
+   floor, auto-fit still lays a 215px track and the fields hang out of the
+   window. With the min() the floor gives way and the grid drops to one track. */
 .rec-config-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr));
     gap: 10px 12px;
     align-items: start;
     flex-shrink: 0;
@@ -2001,15 +2104,23 @@ input[readonly] {
     min-width: 0;
 }
 
+/* `1 / -1`, never `span 2`. A `span 2` item forces the grid to have at least
+   two tracks no matter how narrow it is, which defeats `auto-fit` entirely:
+   Učení's configuration column is ~280px wide even at 1600x900, so the second
+   track was squeezed to 53px and its label and select painted straight over
+   the neighbouring field. `1 / -1` takes the full row whatever the track count
+   happens to be, so it can never manufacture a track that does not fit. */
 .rec-config-grid .rec-cfg-wide {
-    grid-column: span 2;
+    grid-column: 1 / -1;
+    /* Full row, but not a banner: when the grid resolves to a single track in a
+       stacked window the row is the whole window, and a text input drawn across
+       it is exactly what the brief rules out. A long CLI string still fits and
+       scrolls inside the field. */
+    max-width: 600px;
 }
 
-/* Under the stacking breakpoint a two-track span would overflow a one-track
-   grid, so the spans collapse with it. */
 @media (max-width: 920px) {
     .rec-config-grid { grid-template-columns: 1fr; }
-    .rec-config-grid .rec-cfg-wide { grid-column: auto; }
 }
 
 .rec-cfg-flags {
@@ -3855,13 +3966,35 @@ textarea:focus-visible {
    allowed to shrink it below its content height. Without min-height:0 +
    overflow the five cards spilled out of the block and rendered on top of
    the fields below them (steps / batch size / device). Scroll instead. */
+/* The group takes the spare height but clips: with visible overflow the five
+   architecture cards painted straight over "Tréninkové kroky" and "Batch size"
+   below them on Učení at 1600x900. Shrinking is correct here; spilling is not. */
+.policy-pick-group {
+    margin: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* An explicit floor, and it has to be explicit: `min-height: auto` gives a
+       flex item a content-based minimum ONLY while its overflow is `visible`,
+       so the `overflow: hidden` directly above silently drops that minimum to
+       zero — the group collapsed and clipped its own label, and the whole
+       architecture picker disappeared from the window. 84px is the label plus
+       one row of cards; the rest scrolls inside .policy-pick. */
+    min-height: 84px;
+}
+
+/* Scrolls rather than spills, and never collapses to nothing: at least one row
+   of cards has to stay on screen or the architecture cannot be chosen at all. */
 .policy-pick {
     display: grid;
     grid-template-columns: 1fr 1fr;
     grid-auto-rows: min-content;
     gap: 8px;
     margin-top: 6px;
-    min-height: 0;
+    flex: 1 1 auto;
+    min-height: 56px;
+    overflow-y: auto;
     align-content: start;
 }
 
@@ -4106,7 +4239,9 @@ textarea:focus-visible {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 12px;
+    /* 18px, matching the gap a bare .setup-block h3 leaves under its rule —
+       the title's own margin is zeroed inside the row so the two do not add. */
+    margin-bottom: 18px;
     flex-shrink: 0;
 }
 
@@ -4417,25 +4552,48 @@ textarea:focus-visible {
    is where it belongs. Only while the columns really sit side by side —
    below 1100px they stack and the window's own content area scrolls, exactly
    as on the other pages. */
+/* Above the stacking break a column is a fixed-height box that clips, and the
+   scrolling happens inside it. This was written for Connect's three-column
+   rebuild and scoped to that tab; the same geometry is what every merged
+   window has, so it is no longer page-scoped. Without the clip a column whose
+   content is taller than the row simply paints outside its own border. */
 @media (min-width: 921px) {
-    #page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-col {
+    .merge-cols > .merge-col,
+    .merge-cols-3 > .merge-col,
+    .connect-cols > .connect-col {
         min-height: 0;
-        overflow: hidden;
+        overflow-y: auto;
     }
 
     /* The body scrolls rather than hides: when a window is short enough that
        even the natural-height sections do not fit, the grow section is already
        at its minimum and the remainder has to stay reachable. Hiding it clipped
        three column bodies mid-row at 1280x800. */
-    #page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-col > .conn-col-body {
+    .merge-col > .setup-block-content,
+    .merge-col > .conn-col-body {
         min-height: 0;
         overflow-y: auto;
     }
 
-    /* Three columns are kept all the way down to the app's global stacking
-       break. Falling back to one column at 1100px stacked ~1000px of content
-       into a 528px window: everything was reachable by scrolling, but the
-       window showed a third of itself. */
+    /* Last resort, for the columns that have no scrolling body of their own
+       (Učení's target list is the scroller, and at 1280px it was already at its
+       90px floor while the fixed parts still needed another 37px). The column
+       scrolls, and the footer sticks to its bottom edge so the primary action
+       stays put — which is the whole reason these columns scroll per-column
+       instead of scrolling the window. */
+    .merge-col > .block-actions,
+    .connect-col > .block-actions {
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-inset);
+    }
+
+    /* Connect keeps three columns all the way down to the stacking break: its
+       three columns still read at ~300px, and falling to one column at 1100px
+       stacked ~1000px of content into a 528px window — everything reachable by
+       scrolling, but the window showing a third of itself. This stays scoped to
+       Connect: Učení's configuration fields collide below ~330px, so that page
+       is better off wrapping (the row floor above keeps the wrap honest). */
     #page-setup .setup-wizard-panel[data-tab-panel="connect"] .merge-cols-3 {
         grid-template-columns: 1.15fr 1fr 1.15fr;
     }

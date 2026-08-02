@@ -7,8 +7,8 @@
   <title>Orchiday OS — Robot Control Workbench</title>
   <!-- Without this the browser asks for /favicon.ico, which the server does not
        serve, and every single page load ends with a 404 in the console. -->
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.78.0">
-  <link rel="stylesheet" href="/static/styles.css?v=3.78.0">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3.79.0">
+  <link rel="stylesheet" href="/static/styles.css?v=3.79.0">
 </head>
 <body>
 
@@ -227,12 +227,12 @@
                       <!-- Leader Arm Setup Block -->
                       <div class="conn-arm-block" id="connect-card-leader">
                         <!-- Before Setup: Simple large button -->
-                        <button class="btn btn-secondary conn-arm-setup-btn" id="conn-btn-setup-leader" onclick="App.openArmPortSetupModal('leader')" style="width: 100%; text-align: left; padding: 16px 18px; font-size: 14.5px; display: flex; align-items: center; justify-content: space-between;">
-                          <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="btn btn-secondary conn-arm-setup-btn" id="conn-btn-setup-leader" onclick="App.openArmPortSetupModal('leader')">
+                          <span class="conn-arm-setup-label">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            <span style="font-weight: 600;">Nastavit Leader rameno (Řídicí)</span>
-                          </div>
-                          <span class="btn-text" style="font-size: 12px; color: var(--accent);">&rarr;</span>
+                            <span data-i18n="btn.setupLeaderArm">Nastavit Leader rameno (Řídicí)</span>
+                          </span>
+                          <span class="btn-text conn-arm-setup-arrow">&rarr;</span>
                         </button>
                         <!-- After Setup: Info details (hidden by default) -->
                         <div class="conn-arm-details teleop-sub" id="conn-details-leader" style="display: none; padding: 14px; gap: 10px;">
@@ -251,12 +251,12 @@
                       <!-- Follower Arm Setup Block -->
                       <div class="conn-arm-block" id="connect-card-follower" style="margin-top: 12px;">
                         <!-- Before Setup: Simple large button -->
-                        <button class="btn btn-secondary conn-arm-setup-btn" id="conn-btn-setup-follower" onclick="App.openArmPortSetupModal('follower')" style="width: 100%; text-align: left; padding: 16px 18px; font-size: 14.5px; display: flex; align-items: center; justify-content: space-between;">
-                          <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="btn btn-secondary conn-arm-setup-btn" id="conn-btn-setup-follower" onclick="App.openArmPortSetupModal('follower')">
+                          <span class="conn-arm-setup-label">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            <span style="font-weight: 600;">Nastavit Follower rameno (Vykonávací)</span>
-                          </div>
-                          <span class="btn-text" style="font-size: 12px; color: var(--accent);">&rarr;</span>
+                            <span data-i18n="btn.setupFollowerArm">Nastavit Follower rameno (Vykonávací)</span>
+                          </span>
+                          <span class="btn-text conn-arm-setup-arrow">&rarr;</span>
                         </button>
                         <!-- After Setup: Info details (hidden by default) -->
                         <div class="conn-arm-details teleop-sub" id="conn-details-follower" style="display: none; padding: 14px; gap: 10px;">
@@ -283,9 +283,9 @@
                   <section class="merge-col">
                     <h4 class="merge-col-title" data-i18n="blk.hw.cameras">Nakonfigurované USB Kamery</h4>
 
-                    <div class="setup-block-content conn-col-body" style="flex-direction: row; gap: 16px;">
+                    <div class="setup-block-content conn-col-body conn-cam-body">
                       <!-- Vlevo: Volba a náhled -->
-                      <div style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
+                      <div class="conn-cam-side">
                         <div class="conn-cam-pick">
                           <div class="form-group">
                             <label data-i18n="lbl.selectVideoPort">Vybrat video port</label>
@@ -302,12 +302,12 @@
                           </div>
                         </div>
 
-                        <div class="conn-sect conn-sect-grow conn-cam-preview-sect" style="min-height: 120px;">
+                        <div class="conn-sect conn-sect-grow conn-cam-preview-sect">
                           <div class="teleop-sub-title-row">
                             <h4 class="teleop-sub-title" data-i18n="hint.livePreview">Live náhled</h4>
                             <span class="cal-arm-state" id="hw-camera-preview-state" data-i18n="cam.previewIdle">vypnuto</span>
                           </div>
-                          <div id="hw-camera-preview-box" class="conn-cam-preview" style="height: 120px;">
+                          <div id="hw-camera-preview-box" class="conn-cam-preview">
                             <img id="hw-camera-preview-img" />
                             <span id="hw-camera-preview-placeholder" data-i18n="hint.camPreview">Vyberte port pro zobrazení náhledu</span>
                           </div>
@@ -315,13 +315,13 @@
                       </div>
 
                       <!-- Vpravo: Seznam nakonfigurovaných -->
-                      <div style="flex: 1; display: flex; flex-direction: column;">
-                        <div class="conn-sect" style="flex: 1;">
+                      <div class="conn-cam-side">
+                        <div class="conn-sect conn-sect-grow">
                           <div class="teleop-sub-title-row">
                             <h4 class="teleop-sub-title" data-i18n="hint.configuredCams">Nakonfigurované kamery:</h4>
                             <span class="cal-arm-state" id="hw-camera-count">-</span>
                           </div>
-                          <div id="hw-camera-list" class="conn-cam-list" style="height: 100%; overflow-y: auto;">
+                          <div id="hw-camera-list" class="conn-cam-list">
                             <div class="conn-empty" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
                           </div>
                         </div>
@@ -1153,7 +1153,7 @@
                     <h4 class="merge-col-title" data-i18n="blk.learn.config">Konfigurace Tréninku</h4>
               
                     <div class="setup-block-content" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
-                      <div class="form-group" style="margin:0; flex:1; display:flex; flex-direction:column; min-height:0;">
+                      <div class="form-group policy-pick-group">
                         <div class="label-with-tooltip">
                           <label id="policy-pick-label" data-i18n="lbl.policyArch">Model Policy (Architektura)</label>
                           <span class="info-tooltip-trigger" data-i18n-tooltip="tip.policyArch">ⓘ</span>
@@ -3076,7 +3076,7 @@
   </div>
 
   <!-- Core application compiled logic script -->
-  <script src="/static/i18n.js?v=3.78.0" defer></script>
-  <script src="/static/app.js?v=3.78.0" defer></script>
+  <script src="/static/i18n.js?v=3.79.0" defer></script>
+  <script src="/static/app.js?v=3.79.0" defer></script>
 </body>
 </html>
