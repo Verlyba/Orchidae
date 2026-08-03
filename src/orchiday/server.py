@@ -430,6 +430,8 @@ async def add_robot(body: RobotCreate):
         config = body.model_dump()
         pm.add_robot(config)
         return {"ok": True, "robot": config}
+    except InvalidSlug as e:
+        return JSONResponse(_slug_error_response(e), status_code=422)
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
@@ -504,6 +506,8 @@ async def add_camera(body: CameraCreate):
         config = body.model_dump()
         pm.add_camera(config)
         return {"ok": True, "camera": config}
+    except InvalidSlug as e:
+        return JSONResponse(_slug_error_response(e), status_code=422)
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 

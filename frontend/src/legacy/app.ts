@@ -2464,7 +2464,7 @@ export const App = {
     if (!cams.length) return;
     this.log('INFO', this.t('log.removingAllCams'));
     for (const c of cams) {
-      await this.api('DELETE', `/cameras/${c.id}`);
+      await this.api('DELETE', `/cameras/${encodeURIComponent(c.id)}`);
     }
     this.refreshProject();
   },
@@ -2510,19 +2510,28 @@ export const App = {
     }
 
     if (!id) return;
-    await this.api('POST', '/robots', { id, type, port, device_id: deviceId });
-    this.closeModal('modal-add-robot');
-    this.refreshProject();
+    const res = await this.api('POST', '/robots', { id, type, port, device_id: deviceId });
+    if (res.ok) {
+      this.closeModal('modal-add-robot');
+      this.refreshProject();
+    } else {
+      // A rejected id arrives as a reason CODE (see ProjectManager.add_robot) —
+      // render it through i18n instead of the raw "invalid slug: ..." string.
+      const msg = res.error_code
+        ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug: id, ...(res.error_params || {}) })
+        : (res.error || this.t('alert.unknownError'));
+      alert(msg);
+    }
   },
 
   async removeRobot(id: string): Promise<void> {
-    await this.api('DELETE', `/robots/${id}`);
+    await this.api('DELETE', `/robots/${encodeURIComponent(id)}`);
     this.refreshProject();
   },
 
   async calibrateRobot(id: string): Promise<void> {
     this.log('INFO', `Starting calibration for robot ${id}...`);
-    await this.api('POST', `/robots/${id}/calibrate`);
+    await this.api('POST', `/robots/${encodeURIComponent(id)}/calibrate`);
   },
 
   async calibrateArm(role: 'leader' | 'follower'): Promise<void> {
@@ -2797,7 +2806,7 @@ export const App = {
       const ok = confirm(this.t('cal.confirmUnmeasured', {list: this._calUnmeasured.join(', ')}));
       if (!ok) return;
     }
-    await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/confirm`);
+    await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/confirm`);
   },
 
   /** Answers LeRobot's "reuse stored calibration file?" prompt with 'c' to
@@ -2805,12 +2814,12 @@ export const App = {
   async forceNewCalibration(): Promise<void> {
     if (!this.calibratingRobotId) return;
     this.log('INFO', 'Vynucuji novou kalibraci (odesílám "c")…');
-    await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/recalibrate`);
+    await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/recalibrate`);
   },
 
   async cancelCalibration(): Promise<void> {
     if (!this.calibratingRobotId) return;
-    await this.api('POST', `/robots/${this.calibratingRobotId}/calibrate/cancel`);
+    await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/cancel`);
     this.hideCalibrationLivePanel();
   },
 
@@ -3130,18 +3139,27 @@ export const App = {
     if (!id) return;
     
     const parsedSource = (source === '' || isNaN(Number(source))) ? source : parseInt(source, 10);
-    await this.api('POST', '/cameras', { id, source: parsedSource, device_id: deviceId, role });
-    this.closeModal('modal-add-camera');
-    this.refreshProject();
+    const res = await this.api('POST', '/cameras', { id, source: parsedSource, device_id: deviceId, role });
+    if (res.ok) {
+      this.closeModal('modal-add-camera');
+      this.refreshProject();
+    } else {
+      // A rejected id arrives as a reason CODE (see ProjectManager.add_camera) —
+      // render it through i18n instead of the raw "invalid slug: ..." string.
+      const msg = res.error_code
+        ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug: id, ...(res.error_params || {}) })
+        : (res.error || this.t('alert.unknownError'));
+      alert(msg);
+    }
   },
 
   async removeCamera(id: string): Promise<void> {
-    await this.api('DELETE', `/cameras/${id}`);
+    await this.api('DELETE', `/cameras/${encodeURIComponent(id)}`);
     this.refreshProject();
   },
 
-  async startCamera(id: string): Promise<void> { await this.api('POST', `/cameras/${id}/start`); },
-  async stopCamera(id: string): Promise<void> { await this.api('POST', `/cameras/${id}/stop`); },
+  async startCamera(id: string): Promise<void> { await this.api('POST', `/cameras/${encodeURIComponent(id)}/start`); },
+  async stopCamera(id: string): Promise<void> { await this.api('POST', `/cameras/${encodeURIComponent(id)}/stop`); },
   async startAllProjectCameras(): Promise<void> {
     const cams = this.project?.cameras || [];
     for (const c of cams) {

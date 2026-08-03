@@ -81,6 +81,16 @@ from typing import Iterable
 # a LeRobot repo_id, so only a skill is subject to the `eval_` reservation.
 KIND_SKILL = "skill"
 KIND_PROJECT = "project"
+#: A robot/camera id is written verbatim into REST paths (`/api/robots/{id}`,
+#: `/api/cameras/{id}`) that FastAPI resolves one path segment at a time, and
+#: `ProjectManager.add_robot()` uses it as a directory name under `robots/`.
+#: An id containing "/" therefore does two different kinds of damage: it
+#: silently 404s every `{robot_id}`/`{camera_id}` route the frontend builds by
+#: string interpolation, and — for a robot — it changes which directory gets
+#: written to (or, with "..", writes outside the project). Same charset rule
+#: as KIND_PROJECT fixes both.
+KIND_ROBOT = "robot"
+KIND_CAMERA = "camera"
 
 # Reason codes. These are identifiers, not prose: the backend must not ship
 # translated sentences to the browser (a Czech string from the API showed up in

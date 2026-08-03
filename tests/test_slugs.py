@@ -215,6 +215,44 @@ def test_projects_already_on_disk_are_never_re_validated(project):
     assert "Eval_Legacy" in reopened["skills"]
 
 
+# ── Robot / camera ids share the rule: they are directory names AND REST path
+# segments, so "/" breaks both `ProjectManager.add_robot()`'s mkdir and every
+# `/api/robots/{robot_id}` route the frontend builds by string interpolation ──
+
+def test_add_robot_refuses_an_id_containing_a_slash(project):
+    with pytest.raises(InvalidSlug) as exc:
+        project.add_robot({"id": "arm/1", "type": "so100_follower"})
+    assert exc.value.problem.code == slugs.CHARSET
+    assert project.current_project.get("robots", []) == []
+    assert not (project.current_path / "robots" / "arm").exists()
+
+
+def test_add_robot_still_accepts_a_normal_identifier(project):
+    project.add_robot({"id": "my_follower_arm", "type": "so100_follower"})
+    assert project.current_project["robots"][0]["id"] == "my_follower_arm"
+    assert (project.current_path / "robots" / "my_follower_arm").is_dir()
+
+
+def test_add_robot_refuses_a_duplicate_id(project):
+    project.add_robot({"id": "arm", "type": "so100_follower"})
+    with pytest.raises(InvalidSlug) as exc:
+        project.add_robot({"id": "arm", "type": "so100_follower"})
+    assert exc.value.problem.code == slugs.DUPLICATE
+    assert len(project.current_project["robots"]) == 1
+
+
+def test_add_camera_refuses_an_id_containing_a_slash(project):
+    with pytest.raises(InvalidSlug) as exc:
+        project.add_camera({"id": "cam/overhead", "source": 0})
+    assert exc.value.problem.code == slugs.CHARSET
+    assert project.current_project.get("cameras", []) == []
+
+
+def test_add_camera_still_accepts_a_normal_identifier(project):
+    project.add_camera({"id": "global_scene_cam", "source": 0})
+    assert project.current_project["cameras"][0]["id"] == "global_scene_cam"
+
+
 # ── The wizard's preview must be the identity the runner uses ────────────────
 
 def test_repo_id_preview_comes_from_the_same_derivation_the_recorder_uses():

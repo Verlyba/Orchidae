@@ -8,6 +8,113 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (30) — Priorita A: robot/camera ID se slashem tiše rozbíjel
+REST routy a mohl zapsat mimo adresář robotů — teď se to validuje na vstupu
+stejným pravidlem, jaké už měly skilly a projekty
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (na špičce
+`6b4f142`, shodné s koncem běhu (29)). `setup-dev.sh` proběhl,
+`bash scripts/verify.sh` prošel celý (317 pytestů) — žádná priorita A
+viditelná ve `verify.sh`. Frontendová fronta z otevřených položek byla
+prověřena znovu a je **z velké části zastaralá**: `rec-tagging-steps`,
+`rec-episodes-list-container`, `skill-list-full` — nula výskytů v
+`app.ts`, migrace na React proběhla v bězích (22)/(23), jen se nesmazalo
+ze seznamu. Než jsem šel do fronty, poslal jsem Explore agenta, ať ověří
+současný stav místo důvěry starému zápisu — a našel skutečnou prioritu A,
+kterou `verify.sh` nemůže chytit, protože netestuje běžící server.
+
+### Nález: robot/camera ID nešlo escapované do REST cest ani se nevalidovalo
+
+`frontend/src/legacy/app.ts` stavěl `` `/robots/${id}` `` a
+`` `/cameras/${id}` `` (mazání, start/stop kamery, kalibrace a její
+confirm/recalibrate/cancel — 9 volání) prostou interpolací řetězce, bez
+`encodeURIComponent`. FastAPI routa `/api/robots/{robot_id}` matchuje **jeden**
+segment cesty — ID se `/` uvnitř proto tiše rozbilo na 404 na každém dalším
+volání. A `ProjectManager.add_robot()` používalo `robot_config["id"]` přímo
+jako název adresáře (`self.current_path / ROBOTS_DIR / robot_config["id"]`)
+bez jakékoli kontroly — `id` s `..` mohlo zapsat mimo adresář projektu, stejná
+třída chyby jako `../escaped` u skillů, kterou běh (14) už opravil pro
+`add_skill()`, ale ne pro roboty a kamery. Formulářová pole `#robot-id` /
+`#camera-id` jsou navíc obyčejný volný text bez jakéhokoli omezení znaků.
+Poslední commit (6b4f142) sám tohle přiznal jako "out of scope" u
+`startAllProjectCameras()` — dnešní běh to dotáhl na všech volajících, ne
+jen na tom jednom.
+
+### Oprava — validace na vstupu (root cause) + `encodeURIComponent` (obrana)
+
+`src/orchiday/core/slugs.py`: přibyly `KIND_ROBOT` / `KIND_CAMERA` (sdílí
+charset pravidlo s `KIND_PROJECT`, bez `eval_` rezervace, která patří jen
+skillům). `ProjectManager.add_robot()` / `add_camera()` teď volají
+`validate_slug(id, kind=…, taken=<existující ID>)` a při problému vyhodí
+`InvalidSlug` **předtím**, než se cokoli zapíše na disk — přesně vzor
+`add_skill()` z běhu (14). Vedlejší zisk: dřív šlo přidat dva roboty/kamery se
+stejným ID (`get_robot()` vracelo první, `remove_robot()` mazalo všechny
+shodné) — teď je to `DUPLICATE`, stejně jako u skillů.
+`src/orchiday/server.py`: `POST /api/robots` a `POST /api/cameras` chytají
+`InvalidSlug` a vrací `_slug_error_response()` (422), stejně jako
+`create_project()`. `app.ts`: `addRobot()` / `addCamera()` teď čtou
+`res.ok` a při chybě ukážou `slug.err.<code>` přes i18n místo tichého
+zavření modálu a refreshe (dřív se modál zavřel, ať skončilo API jakkoli).
+Všech 9 zbylých REST volání s ID v cestě (`removeRobot`, `calibrateRobot`,
+`confirm/recalibrate/cancel` kalibrace, `removeCamera`, `start/stopCamera`,
+`hwClearCameras`) dostalo `encodeURIComponent(id)` — obrana pro starší
+projekty se špatným ID na disku, které validace při vytváření nechá být
+(`validate_slug` běží jen při vzniku, ne při načtení — stejný princip jako
+u skillů/projektů).
+
+### Ověřeno v cloudu
+
+`bash scripts/verify.sh` prošel celý — **322 pytestů** (+5 nových:
+`test_add_robot_refuses_an_id_containing_a_slash`,
+`test_add_robot_still_accepts_a_normal_identifier`,
+`test_add_robot_refuses_a_duplicate_id`,
+`test_add_camera_refuses_an_id_containing_a_slash`,
+`test_add_camera_still_accepts_a_normal_identifier` v `tests/test_slugs.py`,
+vzor podle existujících testů `add_skill`). `frontend && npm run build`
+proběhl, `web/` je čerstvý (Vite fingerkujte assety obsahovým hashem —
+`index-Bfx90lCG.js`/`index-BWpqn3ib.css`, ruční `?v=` navíc není potřeba,
+na rozdíl od staré statické `web/index.html`, kterou tahle appka už
+nepoužívá). Navíc živý smoke test: nastartoval jsem
+`uvicorn orchiday.server:app`, založil projekt a poslal `POST /api/robots`
+s ID `arm/1` → **422 `charset`**, žádný adresář nevznikl; s validním ID
+uspělo a založilo `robots/my_follower_arm/`; opakování stejného ID → **422
+`duplicate`**; `POST /api/cameras` s `cam/overhead` → **422 `charset`**.
+Server log i odpovědi ověřeny přímo (`curl`), ne jen testem.
+
+### Co zbývá vyzkoušet na fyzickém robotu
+
+Nic z týhle změny se hardwaru nedotýká — je to čistě validace ID a URL
+encoding, žádný LeRobot příkaz se neposílá jinak než dřív. Netestováno (a
+netestovatelné v cloudu): žádná změna chování kalibrace/teleopu/sběru dat,
+jen že `calibrateRobot('my_arm')` sestaví stejnou cestu jako dřív (ID bez
+zvláštních znaků se `encodeURIComponent`em nezmění).
+
+### Otevřené věci, které tenhle běh přidává nebo potvrzuje
+
+- **Fronta „Otevřené věci" níže má zastaralé položky.** `rec-tagging-steps`,
+  `rec-episodes-list-container`, `skill-list-full`, „322 inline style="""
+  v `index.html`" — všechno už neplatí (ověřeno grepem dnes). Někdo by měl
+  příští běh strávit **jen** projitím fronty a smazáním toho, co už
+  neplatí, než se do ní přidá další věc navrch.
+- **`#robot-id` / `#camera-id` nemají žádnou live validaci ani návrh ID** —
+  na rozdíl od nové dovednosti/projektu, kde `/api/slug/check` barví pole
+  za psaní. Dnešní oprava řeší jen to, že špatné ID už nezpůsobí ticho
+  a rozbití; UX na úrovni skill wizardu (živý de/dis-able submit tlačítka,
+  `suggest_slug()` návrh z lidského jména) zůstává jako menší D položka.
+- **`slug.err.*` hlášky mluví o „složce datasetu" / `--dataset.repo_id`** —
+  přesné pro skill, přibližné pro projekt/robota/kameru (ty taky jsou
+  adresář, ale ne LeRobot repo_id). Stejná nepřesnost už existovala pro
+  `KIND_PROJECT` před dnešním během; robot/kamera ji teď sdílí. Menší
+  položka, kdyby to při dalším čtení uživatele zmátlo — rozdělit zprávu
+  podle `kind`.
+- **Bimanuální/CAN/network připojení (`CONN_BIMANUAL` atd.) pořád
+  nepodporováno** — potvrzeno Explore agentem jako reálně velká položka
+  (6+ míst v `lerobot_bridge.py`/`controller.py`, nová UI pole na dva
+  porty, schéma kalibrace pro dvě ramena), ne jeden běh. `bi_so_follower`
+  je nejužitečnější z nich.
+
+---
+
 ## 2026-08-03 (29) — Seznam nakonfigurovaných kamer na Connectu jede z React
 stavu — a s ním zmizela nekonzistentní escapovací mezera v ID/roli kamery a
 natvrdo česká značka „AKTIVNÍ"

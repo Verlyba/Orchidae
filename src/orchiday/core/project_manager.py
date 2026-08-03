@@ -31,7 +31,9 @@ from orchiday.core.constants import (
 from orchiday.core.config import AppConfig, RecentProjects
 from orchiday.core.events import event_bus
 from orchiday.core.slugs import (
+    KIND_CAMERA,
     KIND_PROJECT,
+    KIND_ROBOT,
     KIND_SKILL,
     InvalidSlug,
     validate_slug,
@@ -266,10 +268,26 @@ class ProjectManager:
     # ── Robot CRUD ───────────────────────────────────────────────────────
 
     def add_robot(self, robot_config: dict[str, Any]) -> None:
-        """Add a robot to the current project. Works with ANY LeRobot robot type."""
+        """Add a robot to the current project. Works with ANY LeRobot robot type.
+
+        Raises:
+            RuntimeError: If no project is open.
+            InvalidSlug: If the id is unusable — it becomes a directory name
+                under `robots/` (`ROBOTS_DIR / id`) and a path segment in
+                `/api/robots/{robot_id}` routes the frontend builds by string
+                interpolation. An id containing "/" used to write into (or
+                with "..", outside) the wrong directory and silently 404 every
+                REST call the frontend made against it afterwards.
+        """
         if self.current_project is None:
             raise RuntimeError("No project open")
         assert self.current_path is not None
+
+        existing = [r.get("id", "") for r in self.current_project.get("robots", [])]
+        problem = validate_slug(robot_config.get("id", ""), kind=KIND_ROBOT, taken=existing)
+        if problem is not None:
+            raise InvalidSlug(problem)
+
         self.current_project.setdefault("robots", []).append(robot_config)
         robot_dir = self.current_path / ROBOTS_DIR / robot_config["id"]
         robot_dir.mkdir(parents=True, exist_ok=True)
@@ -302,8 +320,23 @@ class ProjectManager:
     # ── Camera CRUD ──────────────────────────────────────────────────────
 
     def add_camera(self, camera_config: dict[str, Any]) -> None:
+        """Add a camera to the current project.
+
+        Raises:
+            RuntimeError: If no project is open.
+            InvalidSlug: If the id is unusable — it becomes a path segment in
+                `/api/cameras/{camera_id}` routes the frontend builds by
+                string interpolation, so one containing "/" used to silently
+                404 every REST call made against it afterwards.
+        """
         if self.current_project is None:
             raise RuntimeError("No project open")
+
+        existing = [c.get("id", "") for c in self.current_project.get("cameras", [])]
+        problem = validate_slug(camera_config.get("id", ""), kind=KIND_CAMERA, taken=existing)
+        if problem is not None:
+            raise InvalidSlug(problem)
+
         self.current_project.setdefault("cameras", []).append(camera_config)
         self.save_project()
         event_bus.camera_added.emit(camera_config)
