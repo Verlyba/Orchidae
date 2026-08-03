@@ -8,6 +8,91 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (33) — Priorita A: kalibrační tlačítka Potvrdit/Kalibrovat znovu/
+Přerušit tiše ignorovala neúspěšnou odpověď backendu — uživatel neměl šanci
+poznat, že kliknutí nic neudělalo
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (na špičce
+`3d1ec04`, shodné s koncem běhu 32). `setup-dev.sh` proběhl,
+`bash scripts/verify.sh` prošel celý (322 pytestů) hned na začátku — žádná
+priorita A viditelná v automatických kontrolách (server se během nich
+nespouští). Podle zavedeného postupu běhů (30)–(32) jsem poslal Explore
+agenta hledat totéž — tichá selhání, ignorované chybové odpovědi a dead-click
+handlery — v `server.py`, `project_manager.py` a `lerobot_bridge.py`, a
+zároveň ověřit, jestli je pořadí LeRobot příkazů (`exit_early`/
+`rerecord_episode`/`stop_recording`, ENTER vs `'c'` u kalibrace) pořád
+odpovídá zdrojákům LeRobotu.
+
+### Nález
+
+`confirmCalibrationStep()`, `forceNewCalibration()` a `cancelCalibration()`
+(`app.ts:2811-2836`, tlačítka v `SetupPage.tsx:603,612,621`) volaly
+`this.api(...)` na `POST /robots/{id}/calibrate/confirm|recalibrate|cancel`
+a **odpověď vůbec nekontrolovaly** — na rozdíl od sourozeneckého
+`sendRecordingAction()` (`app.ts:3434-3437`), který `res.ok === false`
+kontroluje a loguje WARN. Backend (`server.py:475-498`) vrací `{"ok": ok}`,
+kde `ok` je `False`, kdykoli `QProcess` kalibrace už neběží
+(`lerobot_bridge.py:1974`, `:1999`, `:2008-2011`) — typicky proto, že proces
+spadl (přetížení motoru, odpojený sériový port — scénáře, které
+`lerobot_cheatsheet.md` §D sám popisuje jako běžné) nebo už dřív skončil,
+zatímco kalibrační panel v UI zůstal otevřený. V téhle situaci klik na
+"Potvrdit"/"Kalibrovat znovu" neudělá vůbec nic a panel dál vypadá, že
+pracuje — uživatel nemá žádný signál, že se nic nestalo.
+
+Explore agent zároveň přečetl `lerobot_bridge.py` celý proti
+`lerobot_cheatsheet.md` a nenašel žádný nesoulad s reálným chováním
+LeRobotu (sentinel-file listener pro `exit_early`/`rerecord_episode`/
+`stop_recording` s `SystemExit(3)` při neshodě, správné rozlišení ENTER
+vs `'c'\n'` pro dvě různá stdin promptová hradla kalibrace) — priorita B je
+beze změny.
+
+### Oprava
+
+Všechny tři funkce teď čtou návratovou hodnotu `this.api(...)` a při
+`res.ok === false` zavolají `this.log('WARN', this.t('cal.actionFailed'))`
+— stejný vzor jako `sendRecordingAction`. `cancelCalibration()` pořád volá
+`hideCalibrationLivePanel()` bez ohledu na `ok` (skrýt panel je správná
+akce, i když backend hlásí, že proces už stejně neběžel). Nový i18n klíč
+`cal.actionFailed` (cs/en), vysvětluje, že kalibrace už neběží a proč.
+
+### Ověřeno v cloudu
+
+`npm run typecheck` čistý, `npm run build` proběhl (nové content-hash
+assety). `bash scripts/verify.sh` prošel celý (322 pytestů beze změny,
+i18n `cs=1061 en=1061` — jeden nový klíč, parita zachována).
+
+Živý smoke test proti reálně běžícímu `uvicorn` (ne simulace): založil jsem
+projekt a poslal přesně `POST /api/robots/{id}/calibrate/confirm`,
+`/recalibrate` a `/cancel` **bez jakéhokoli běžícího kalibračního procesu**
+(simulace spadlého/už skončeného procesu, panel by v UI zůstal otevřený) —
+všechny tři vrátily `{"ok": false}` bez jakéhokoli detailu chyby, přesně
+scénář, který frontend dřív tiše zahodil. Testovací projekt a server po
+ověření smazány/ukončeny.
+
+### Co zbývá vyzkoušet na fyzickém robotu
+
+Skutečný race: spustit kalibraci na reálném rameni, odpojit sériový port
+(nebo vyvolat přetížení motoru) uprostřed kalibrace tak, aby `QProcess`
+spadl, a ověřit, že kliknutí na "Potvrdit"/"Kalibrovat znovu"/"Přerušit"
+teď v logu ukáže WARN hlášku místo tichého nic. V cloudu nejde spustit
+skutečný LeRobot kalibrační proces ani ho nechat spadnout na hardwaru,
+takže tenhle konkrétní race je ověřený jen na úrovni API kontraktu
+(`{"ok": false}` bez procesu), ne end-to-end přes UI.
+
+### Otevřené věci, které tenhle běh potvrzuje
+
+- **`remove_robot`/`remove_camera` tiše no-opují** (z běhu 32,
+  `core/project_manager.py:299-310`, `:344-351`) — Explore agent dnes znovu
+  potvrdil, beze změny, pořád nízká závažnost (frontend vždy posílá přesné
+  `.id`). Kandidát na příští běh v kategorii E.
+- **`#robot-id`/`#camera-id` bez live validace** (z běhu 30) — beze změny.
+- **`slug.err.*` hlášky mluví o „složce datasetu"** i pro jiné typy slugů
+  (z běhu 30) — beze změny.
+- **Bimanuální/CAN připojení (`CONN_BIMANUAL`)** — potvrzeno Explore agentem
+  jako pořád nedotčené, velká položka, ne na jeden běh.
+
+---
+
 ## 2026-08-03 (32) — Priorita A: stejná třída díry (chybějící `encodeURIComponent`)
 našla se ještě jednou — kalibrační soubory a náhled kamery
 

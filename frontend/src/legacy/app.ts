@@ -2818,7 +2818,8 @@ export const App = {
       const ok = confirm(this.t('cal.confirmUnmeasured', {list: this._calUnmeasured.join(', ')}));
       if (!ok) return;
     }
-    await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/confirm`);
+    const res = await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/confirm`);
+    if (res && res.ok === false) this.log('WARN', this.t('cal.actionFailed'));
   },
 
   /** Answers LeRobot's "reuse stored calibration file?" prompt with 'c' to
@@ -2826,12 +2827,14 @@ export const App = {
   async forceNewCalibration(): Promise<void> {
     if (!this.calibratingRobotId) return;
     this.log('INFO', 'Vynucuji novou kalibraci (odesílám "c")…');
-    await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/recalibrate`);
+    const res = await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/recalibrate`);
+    if (res && res.ok === false) this.log('WARN', this.t('cal.actionFailed'));
   },
 
   async cancelCalibration(): Promise<void> {
     if (!this.calibratingRobotId) return;
-    await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/cancel`);
+    const res = await this.api('POST', `/robots/${encodeURIComponent(this.calibratingRobotId)}/calibrate/cancel`);
+    if (res && res.ok === false) this.log('WARN', this.t('cal.actionFailed'));
     this.hideCalibrationLivePanel();
   },
 
