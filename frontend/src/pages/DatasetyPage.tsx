@@ -1,7 +1,364 @@
-/** #page-datasety — migrated verbatim from the pre-React web/index.html. */
+/**
+ * #page-datasety — the collect tab is still the markup migrated verbatim from
+ * the pre-React web/index.html; the manage tab below renders from
+ * `state/datasets` instead of from innerHTML strings and `el.disabled = …`
+ * writes in `legacy/app.ts`.
+ */
 
 import { App } from '../legacy/app';
 import { initiallyDisabled } from '../util/initiallyDisabled';
+import { useDatasets, type DatasetsSnapshot } from '../state/datasets';
+
+/** Placeholder shown while a value is being fetched — never a blank field. */
+const PENDING = '…';
+
+/**
+ * "Správa datasetů" — one dataset picked from the project's skill tree, its
+ * on-disk facts, and every operation LeRobot offers over it.
+ *
+ * Which buttons are live is derived here from the published snapshot, not
+ * pushed in by `el.disabled = false` from app.ts: React decides whether to
+ * dispatch a click from PROPS, so a button whose props say `disabled` swallows
+ * clicks no matter what the DOM property says.
+ */
+function DatasetManagePanel() {
+  const ds: DatasetsSnapshot = useDatasets();
+  const busy = !!ds.busyOp;
+  // Every operation below rewrites or reads the dataset directory, so all of
+  // them need it to exist. Until the detail answer is in we do not know.
+  const opsEnabled = !!ds.info?.exists && !ds.detailLoading && !busy;
+  const opTitle = (key: string) => (ds.info?.exists ? App.t(key) : App.t('tip.dsOpsNeedDataset'));
+  const opLabel = (op: string, key: string) => (ds.busyOp === op ? App.t('btn.startingShort') : App.t(key));
+  const stat = (v: string) => (ds.detailLoading ? PENDING : v);
+  const info = ds.info;
+
+  const options = ds.datasets.map(d => (
+    <option key={d.repo_id} value={d.repo_id}>
+      {d.name} — {d.repo_id}{d.exists ? '' : ` (${App.t('val.dsNotRecorded')})`}
+    </option>
+  ));
+
+  return (
+    <div className="setup-section" style={{ gridTemplateColumns: "1fr" }}>
+      <div className="setup-block" style={{ display: "flex", flexDirection: "column" }}>
+        <div className="block-head-row">
+          <h3 style={{ margin: "0" }}>
+            <span data-i18n="blk.manage.title"></span>
+          </h3>
+        </div>
+        <div className="setup-block-content">
+          <div className="merge-cols">
+            <section className="merge-col">
+              <h4 className="merge-col-title" data-i18n="blk.ds.local">Lokální datasety dovedností</h4>
+              <div
+                className="setup-block-content"
+                style={{ flex: "1", display: "flex", flexDirection: "column", gap: "10px" }}
+              >
+                <div className="form-group">
+                  <div className="label-with-tooltip">
+                    <label htmlFor="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
+                    {' '}
+                    <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsSelect">ⓘ</span>
+                    {ds.refreshing ? (
+                      <span className="field-note pulse-light-cyan">{App.t('val.loadingShort')}</span>
+                    ) : null}
+                  </div>
+                  <select
+                    id="ds-select"
+                    value={ds.selectedRepo}
+                    onChange={(e) => App.dsSelect(e.target.value)}
+                    disabled={!ds.datasets.length}
+                  >
+                    {ds.datasets.length ? options : <option value="">{App.t('opt.noDatasets')}</option>}
+                  </select>
+                </div>
+                <div id="ds-info-box" className="ds-info-box">
+                  <div className="ds-stat">
+                    <span className="ds-stat-label" data-i18n="lbl.dsDiskState">Stav na disku</span>
+                    <strong id="ds-info-exists" className="ds-stat-value">
+                      {stat(info ? App.t(info.exists ? 'val.dsOnDisk' : 'val.dsMissing') : '—')}
+                    </strong>
+                  </div>
+                  <div className="ds-stat">
+                    <span className="ds-stat-label" data-i18n="lbl.episodes">Epizody</span>
+                    <strong id="ds-info-episodes" className="ds-stat-value">
+                      {stat(info?.exists ? String(info.episodes) : '—')}
+                    </strong>
+                  </div>
+                  <div className="ds-stat">
+                    <span className="ds-stat-label" data-i18n="lbl.dsFps">FPS</span>
+                    <strong id="ds-info-fps" className="ds-stat-value">
+                      {stat(info?.exists ? String(info.fps) : '—')}
+                    </strong>
+                  </div>
+                  <div className="ds-stat">
+                    <span className="ds-stat-label" data-i18n="lbl.dsSize">Velikost</span>
+                    <strong id="ds-info-size" className="ds-stat-value">
+                      {stat(info?.exists ? App.t('val.dsMegabytes', { n: info.sizeMb }) : '—')}
+                    </strong>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <div className="label-with-tooltip">
+                    <label htmlFor="ds-viz-episode" data-i18n="lbl.vizEpisode">Epizoda pro vizualizaci (Rerun)</label>
+                    {' '}
+                    <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsVizEpisode">ⓘ</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <input
+                      type="number"
+                      id="ds-viz-episode"
+                      defaultValue="0"
+                      min="0"
+                      style={{ width: "80px", fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
+                    />
+                    {' '}
+                    <button
+                      className="btn btn-xs btn-secondary"
+                      id="ds-btn-viz"
+                      onClick={() => App.dsVisualize()}
+                      disabled={!opsEnabled}
+                      title={opTitle('tip.dsVisualize')}
+                    >{App.t('btn.visualize')}</button>
+                    {' '}
+                    <button
+                      className="btn btn-xs btn-secondary"
+                      id="ds-btn-replay"
+                      onClick={() => App.startReplay()}
+                      disabled={!opsEnabled}
+                      title={opTitle('tip.dsReplay')}
+                    >{App.t('btn.replay')}</button>
+                    {' '}
+                    <button
+                      className="btn btn-xs btn-secondary"
+                      id="ds-btn-info"
+                      onClick={() => App.dsRunOp('info')}
+                      disabled={!opsEnabled}
+                      title={opTitle('tip.dsInfo')}
+                    >{opLabel('info', 'btn.detailInfo')}</button>
+                    {' '}
+                    <button
+                      className="btn btn-xs btn-secondary"
+                      id="ds-btn-stats"
+                      onClick={() => App.dsRunOp('recompute_stats')}
+                      disabled={!opsEnabled}
+                      title={opTitle('tip.dsStats')}
+                    >{opLabel('recompute_stats', 'btn.recomputeStats')}</button>
+                  </div>
+                </div>
+                <div
+                  className="form-group"
+                  style={{ borderTop: "1px solid var(--border)", paddingTop: "12px" }}
+                >
+                  <div className="label-with-tooltip">
+                    <label htmlFor="ds-hub-id" data-i18n="lbl.publishHub">Publikovat na Hugging Face Hub</label>
+                    {' '}
+                    <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubId">ⓘ</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      id="ds-hub-id"
+                      placeholder="uzivatel/nazev_datasetu"
+                      style={{ flex: "1", fontFamily: "var(--font-mono)", fontSize: "12.5px" }}
+                    />
+                    {' '}
+                    <input
+                      type="checkbox"
+                      id="ds-hub-private"
+                      defaultChecked={true}
+                      style={{ width: "14px", height: "14px" }}
+                    />
+                    {' '}
+                    <label
+                      htmlFor="ds-hub-private"
+                      style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: "700" }}
+                    >PRIVATE</label>
+                    {' '}
+                    <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubPrivate">ⓘ</span>
+                    {' '}
+                    <button
+                      className="btn btn-xs btn-primary"
+                      id="ds-btn-push"
+                      onClick={() => App.dsPush()}
+                      disabled={!opsEnabled}
+                      title={opTitle('tip.dsPush')}
+                    >{ds.busyOp === 'push' ? App.t('btn.dsPushing') : App.t('btn.pushHub')}</button>
+                  </div>
+                </div>
+              </div>
+              <div className="block-actions">
+                <button
+                  className="btn btn-xs btn-secondary"
+                  onClick={() => App.dsRefreshList()}
+                  disabled={ds.refreshing}
+                  title={App.t('tip.refreshList')}
+                >{ds.refreshing ? App.t('val.loadingShort') : App.t('btn.refreshList')}</button>
+                {' '}
+                <button
+                  className="btn btn-xs btn-secondary"
+                  onClick={() => App.importSkillModel()}
+                  data-i18n="btn.importModel"
+                  data-i18n-title="tip.importModel"
+                  title="Importovat natrénovaný model (checkpoint) z jiného zařízení"
+                >Importovat model</button>
+                {' '}
+                <button
+                  className="btn btn-xs btn-secondary"
+                  id="ds-btn-export-model"
+                  onClick={() => App.exportSkillModel(App.dsSelectedSkill())}
+                  disabled={!ds.modelExists || ds.detailLoading}
+                  title={App.t(ds.modelExists ? 'tip.exportModel' : 'tip.noModelYet')}
+                >{App.t('btn.exportModel')}</button>
+                {' '}
+                <button
+                  className="btn btn-xs btn-primary"
+                  id="ds-btn-split-steps"
+                  onClick={() => App.splitDatasetSteps()}
+                  disabled={!ds.splitStepsEnabled || ds.detailLoading || busy}
+                  title={App.t(ds.splitStepsTipKey)}
+                >{ds.busyOp === 'split_steps' ? App.t('btn.startingShort') : App.t('btn.splitSteps')}</button>
+              </div>
+            </section>
+            <section className="merge-col">
+              <h4 className="merge-col-title" data-i18n="blk.ds.ops">Operace s datasetem (lerobot-edit-dataset)</h4>
+              <div
+                className="setup-block-content"
+                style={{ flex: "1", display: "flex", flexDirection: "column", gap: "14px", overflowY: "auto" }}
+              >
+                <div className="ds-op-row">
+                  <div className="form-group" style={{ flex: "1" }}>
+                    <div className="label-with-tooltip">
+                      <label htmlFor="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
+                      {' '}
+                      <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsDelIndices">ⓘ</span>
+                    </div>
+                    <input
+                      type="text"
+                      id="ds-del-indices"
+                      placeholder="např. 0, 2, 5"
+                      style={{ fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
+                      data-i18n-ph="ph.delIndices"
+                    />
+                  </div>
+                  <button
+                    className="btn btn-xs btn-danger"
+                    id="ds-btn-del"
+                    onClick={() => App.dsDeleteEpisodes()}
+                    disabled={!opsEnabled}
+                    title={opTitle('tip.dsDelete')}
+                  >{opLabel('delete_episodes', 'btn.delete')}</button>
+                </div>
+                <div className="ds-op-row">
+                  <div className="form-group" style={{ flex: "1" }}>
+                    <div className="label-with-tooltip">
+                      <label htmlFor="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
+                      {' '}
+                      <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsNewTask">ⓘ</span>
+                    </div>
+                    <input
+                      type="text"
+                      id="ds-newtask"
+                      placeholder="např. Pick up the cube and place it in the bowl"
+                      style={{ fontSize: "13.5px" }}
+                    />
+                  </div>
+                  <button
+                    className="btn btn-xs btn-secondary"
+                    id="ds-btn-task"
+                    onClick={() => App.dsModifyTask()}
+                    disabled={!opsEnabled}
+                    title={opTitle('tip.dsRewriteTask')}
+                  >{opLabel('modify_tasks', 'btn.rewriteTask')}</button>
+                </div>
+                <div className="ds-op-row">
+                  <div className="form-group" style={{ width: "110px" }}>
+                    <div className="label-with-tooltip">
+                      <label htmlFor="ds-split-train" data-i18n="lbl.trainSplit">Train podíl</label>
+                      {' '}
+                      <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsSplitTrain">ⓘ</span>
+                    </div>
+                    <input
+                      type="number"
+                      id="ds-split-train"
+                      defaultValue="0.8"
+                      min="0.1"
+                      max="0.95"
+                      step="0.05"
+                      style={{ fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
+                    />
+                  </div>
+                  <div
+                    style={{ flex: "1", fontSize: "11.5px", color: "var(--text-muted)", alignSelf: "center" }}
+                    data-i18n-html="hint.dsSplit"
+                  >
+                    Rozdělí dataset na{' '}
+                    <code>train</code>
+                    /
+                    <code>val</code>
+                    {' '}části.
+                  </div>
+                  <button
+                    className="btn btn-xs btn-secondary"
+                    id="ds-btn-split"
+                    onClick={() => App.dsSplit()}
+                    disabled={!opsEnabled}
+                    title={opTitle('tip.dsSplitRun')}
+                  >{opLabel('split', 'btn.split')}</button>
+                </div>
+                <div className="ds-op-row">
+                  <div className="form-group" style={{ flex: "1" }}>
+                    <div className="label-with-tooltip">
+                      <label htmlFor="ds-merge-source" data-i18n="lbl.mergeWith">Sloučit s datasetem (repo id)</label>
+                      {' '}
+                      <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeSource">ⓘ</span>
+                    </div>
+                    <select
+                      id="ds-merge-source"
+                      value={ds.mergeRepo}
+                      onChange={(e) => App.dsSelectMergeSource(e.target.value)}
+                    >
+                      <option value="">{App.t('opt.selectSecondDs')}</option>
+                      {options}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ flex: "1" }}>
+                    <div className="label-with-tooltip">
+                      <label htmlFor="ds-merge-target" data-i18n="lbl.newRepoId">Nový repo id</label>
+                      {' '}
+                      <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeTarget">ⓘ</span>
+                    </div>
+                    <input
+                      type="text"
+                      id="ds-merge-target"
+                      placeholder="local/merged_dataset"
+                      style={{ fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
+                    />
+                  </div>
+                  <button
+                    className="btn btn-xs btn-secondary"
+                    id="ds-btn-merge"
+                    onClick={() => App.dsMerge()}
+                    disabled={!opsEnabled}
+                    title={opTitle('tip.dsMergeRun')}
+                  >{opLabel('merge', 'btn.merge')}</button>
+                </div>
+                <div
+                  style={{ fontSize: "11.5px", color: "var(--text-muted)", borderTop: "1px solid var(--border)", paddingTop: "8px", lineHeight: "1.5" }}
+                  data-i18n-html="desc.dsOps"
+                >
+                  Operace se provádějí{' '}
+                  <strong>na místě</strong>
+                  {' '}— LeRobot vytvoří zálohu původního datasetu. Průběh sledujte v terminálové konzoli. Po smazání epizod či úpravách doporučujeme spustit „Přepočítat statistiky“.
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function DatasetyPage() {
   return (
@@ -466,313 +823,12 @@ export function DatasetyPage() {
         {/* /.datacollection-grid */}
       </div>
       {/* /.setup-wizard-panel[collect] */}
-      {/* ── Tab 2: Správa datasetů ────────────────────────────────── */}
+      {/* ── Tab 2: Správa datasetů — rendered from state/datasets ──── */}
+      {/* The wrapper stays a plain, never-re-rendered element on purpose:
+          switchDatasetyTab() shows and hides it by writing style.display, and
+          a React re-render of the same style prop must not fight that. */}
       <div className="setup-wizard-panel" data-tab-panel="manage" style={{ display: "none" }}>
-        <div className="setup-section" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="setup-block" style={{ display: "flex", flexDirection: "column" }}>
-            <div className="block-head-row">
-              <h3 style={{ margin: "0" }}>
-                <span data-i18n="blk.manage.title"></span>
-              </h3>
-            </div>
-            <div className="setup-block-content">
-              <div className="merge-cols">
-                <section className="merge-col">
-                  <h4 className="merge-col-title" data-i18n="blk.ds.local">Lokální datasety dovedností</h4>
-                  <div
-                    className="setup-block-content"
-                    style={{ flex: "1", display: "flex", flexDirection: "column", gap: "10px" }}
-                  >
-                    <div className="form-group">
-                      <div className="label-with-tooltip">
-                        <label htmlFor="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
-                        {' '}
-                        <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsSelect">ⓘ</span>
-                      </div>
-                      <select id="ds-select" onChange={(event: any) => { App.dsOnSelect() }}>
-                        <option value="" data-i18n="opt.noDatasets">-- Žádné datasety --</option>
-                      </select>
-                    </div>
-                    <div id="ds-info-box" className="ds-info-box">
-                      <div className="ds-stat">
-                        <span className="ds-stat-label">Stav na disku</span>
-                        <strong id="ds-info-exists" className="ds-stat-value">—</strong>
-                      </div>
-                      <div className="ds-stat">
-                        <span className="ds-stat-label">Epizody</span>
-                        <strong id="ds-info-episodes" className="ds-stat-value">—</strong>
-                      </div>
-                      <div className="ds-stat">
-                        <span className="ds-stat-label">FPS</span>
-                        <strong id="ds-info-fps" className="ds-stat-value">—</strong>
-                      </div>
-                      <div className="ds-stat">
-                        <span className="ds-stat-label">Velikost</span>
-                        <strong id="ds-info-size" className="ds-stat-value">—</strong>
-                      </div>
-                    </div>
-                    <div className="form-group">
-                      <div className="label-with-tooltip">
-                        <label htmlFor="ds-viz-episode" data-i18n="lbl.vizEpisode">Epizoda pro vizualizaci (Rerun)</label>
-                        {' '}
-                        <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsVizEpisode">ⓘ</span>
-                      </div>
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <input
-                          type="number"
-                          id="ds-viz-episode"
-                          defaultValue="0"
-                          min="0"
-                          style={{ width: "80px", fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
-                        />
-                        {' '}
-                        <button
-                          className="btn btn-xs btn-secondary"
-                          id="ds-btn-viz"
-                          onClick={(event: any) => { App.dsVisualize() }}
-                          ref={initiallyDisabled}
-                          data-i18n="btn.visualize"
-                        >Vizualizovat</button>
-                        {' '}
-                        <button
-                          className="btn btn-xs btn-secondary"
-                          id="ds-btn-replay"
-                          onClick={(event: any) => { App.startReplay() }}
-                          ref={initiallyDisabled}
-                          title="Přehraje epizodu na reálném follower rameni (lerobot-replay)"
-                          data-i18n="btn.replay"
-                        >Přehrát na rameni</button>
-                        {' '}
-                        <button
-                          className="btn btn-xs btn-secondary"
-                          id="ds-btn-info"
-                          onClick={(event: any) => { App.dsRunOp('info') }}
-                          ref={initiallyDisabled}
-                          title="Vypíše metadata datasetu do konzole"
-                          data-i18n="btn.detailInfo"
-                        >Detailní info</button>
-                        {' '}
-                        <button
-                          className="btn btn-xs btn-secondary"
-                          id="ds-btn-stats"
-                          onClick={(event: any) => { App.dsRunOp('recompute_stats') }}
-                          ref={initiallyDisabled}
-                          title="Přepočítá normalizační statistiky (nutné po ruční úpravě dat)"
-                          data-i18n="btn.recomputeStats"
-                        >Přepočítat statistiky</button>
-                      </div>
-                    </div>
-                    <div
-                      className="form-group"
-                      style={{ borderTop: "1px solid var(--border)", paddingTop: "12px" }}
-                    >
-                      <div className="label-with-tooltip">
-                        <label htmlFor="ds-hub-id" data-i18n="lbl.publishHub">Publikovat na Hugging Face Hub</label>
-                        {' '}
-                        <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubId">ⓘ</span>
-                      </div>
-                      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                        <input
-                          type="text"
-                          id="ds-hub-id"
-                          placeholder="uzivatel/nazev_datasetu"
-                          style={{ flex: "1", fontFamily: "var(--font-mono)", fontSize: "12.5px" }}
-                        />
-                        {' '}
-                        <input
-                          type="checkbox"
-                          id="ds-hub-private"
-                          defaultChecked={true}
-                          style={{ width: "14px", height: "14px" }}
-                        />
-                        {' '}
-                        <label
-                          htmlFor="ds-hub-private"
-                          style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: "700" }}
-                        >PRIVATE</label>
-                        {' '}
-                        <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsHubPrivate">ⓘ</span>
-                        {' '}
-                        <button
-                          className="btn btn-xs btn-primary"
-                          id="ds-btn-push"
-                          onClick={(event: any) => { App.dsPush() }}
-                          ref={initiallyDisabled}
-                          data-i18n="btn.pushHub"
-                        >Push na Hub</button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="block-actions">
-                    <button
-                      className="btn btn-xs btn-secondary"
-                      data-i18n="btn.refreshList"
-                      onClick={(event: any) => { App.dsRefreshList() }}
-                      data-i18n-title="tip.refreshList"
-                      title="Znovu načte seznam datasetů a jejich stav na disku"
-                    >Obnovit seznam</button>
-                    {' '}
-                    <button
-                      className="btn btn-xs btn-secondary"
-                      data-i18n="btn.importModel"
-                      onClick={(event: any) => { App.importSkillModel() }}
-                      data-i18n-title="tip.importModel"
-                      title="Importovat natrénovaný model (checkpoint) z jiného zařízení"
-                    >Importovat model</button>
-                    {' '}
-                    <button
-                      className="btn btn-xs btn-secondary"
-                      id="ds-btn-export-model"
-                      onClick={(event: any) => { App.exportSkillModel(App.dsSelectedSkill()) }}
-                      ref={initiallyDisabled}
-                      data-i18n="btn.exportModel"
-                      data-i18n-title="tip.exportModel"
-                      title="Exportovat natrénovaný model vybrané dovednosti"
-                    >Exportovat model</button>
-                    {' '}
-                    <button
-                      className="btn btn-xs btn-primary"
-                      id="ds-btn-split-steps"
-                      onClick={(event: any) => { App.splitDatasetSteps() }}
-                      ref={initiallyDisabled}
-                      data-i18n="btn.splitSteps"
-                      data-i18n-title="tip.splitSteps"
-                      title="Rozdělit dataset podle značek kroků na dílčí datasety pro trénink orchestrace"
-                    >Rozdělit podle kroků</button>
-                  </div>
-                </section>
-                <section className="merge-col">
-                  <h4 className="merge-col-title" data-i18n="blk.ds.ops">Operace s datasetem (lerobot-edit-dataset)</h4>
-                  <div
-                    className="setup-block-content"
-                    style={{ flex: "1", display: "flex", flexDirection: "column", gap: "14px", overflowY: "auto" }}
-                  >
-                    <div className="ds-op-row">
-                      <div className="form-group" style={{ flex: "1" }}>
-                        <div className="label-with-tooltip">
-                          <label htmlFor="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
-                          {' '}
-                          <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsDelIndices">ⓘ</span>
-                        </div>
-                        <input
-                          type="text"
-                          id="ds-del-indices"
-                          placeholder="např. 0, 2, 5"
-                          style={{ fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
-                          data-i18n-ph="ph.delIndices"
-                        />
-                      </div>
-                      <button
-                        className="btn btn-xs btn-danger"
-                        id="ds-btn-del"
-                        onClick={(event: any) => { App.dsDeleteEpisodes() }}
-                        ref={initiallyDisabled}
-                        data-i18n="btn.delete"
-                      >Smazat</button>
-                    </div>
-                    <div className="ds-op-row">
-                      <div className="form-group" style={{ flex: "1" }}>
-                        <div className="label-with-tooltip">
-                          <label htmlFor="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
-                          {' '}
-                          <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsNewTask">ⓘ</span>
-                        </div>
-                        <input
-                          type="text"
-                          id="ds-newtask"
-                          placeholder="např. Pick up the cube and place it in the bowl"
-                          style={{ fontSize: "13.5px" }}
-                        />
-                      </div>
-                      <button
-                        className="btn btn-xs btn-secondary"
-                        id="ds-btn-task"
-                        onClick={(event: any) => { App.dsModifyTask() }}
-                        ref={initiallyDisabled}
-                        data-i18n="btn.rewriteTask"
-                      >Přepsat task</button>
-                    </div>
-                    <div className="ds-op-row">
-                      <div className="form-group" style={{ width: "110px" }}>
-                        <div className="label-with-tooltip">
-                          <label htmlFor="ds-split-train" data-i18n="lbl.trainSplit">Train podíl</label>
-                          {' '}
-                          <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsSplitTrain">ⓘ</span>
-                        </div>
-                        <input
-                          type="number"
-                          id="ds-split-train"
-                          defaultValue="0.8"
-                          min="0.1"
-                          max="0.95"
-                          step="0.05"
-                          style={{ fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
-                        />
-                      </div>
-                      <div
-                        style={{ flex: "1", fontSize: "11.5px", color: "var(--text-muted)", alignSelf: "center" }}
-                        data-i18n-html="hint.dsSplit"
-                      >
-                        Rozdělí dataset na{' '}
-                        <code>train</code>
-                        /
-                        <code>val</code>
-                        {' '}části.
-                      </div>
-                      <button
-                        className="btn btn-xs btn-secondary"
-                        id="ds-btn-split"
-                        onClick={(event: any) => { App.dsSplit() }}
-                        ref={initiallyDisabled}
-                        data-i18n="btn.split"
-                      >Rozdělit</button>
-                    </div>
-                    <div className="ds-op-row">
-                      <div className="form-group" style={{ flex: "1" }}>
-                        <div className="label-with-tooltip">
-                          <label htmlFor="ds-merge-source" data-i18n="lbl.mergeWith">Sloučit s datasetem (repo id)</label>
-                          {' '}
-                          <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeSource">ⓘ</span>
-                        </div>
-                        <select id="ds-merge-source">
-                          <option value="" data-i18n="opt.selectSecondDs">-- Vyberte druhý dataset --</option>
-                        </select>
-                      </div>
-                      <div className="form-group" style={{ flex: "1" }}>
-                        <div className="label-with-tooltip">
-                          <label htmlFor="ds-merge-target" data-i18n="lbl.newRepoId">Nový repo id</label>
-                          {' '}
-                          <span className="info-tooltip-trigger" data-i18n-tooltip="tip.dsMergeTarget">ⓘ</span>
-                        </div>
-                        <input
-                          type="text"
-                          id="ds-merge-target"
-                          placeholder="local/merged_dataset"
-                          style={{ fontFamily: "var(--font-mono)", fontSize: "13.5px" }}
-                        />
-                      </div>
-                      <button
-                        className="btn btn-xs btn-secondary"
-                        id="ds-btn-merge"
-                        onClick={(event: any) => { App.dsMerge() }}
-                        ref={initiallyDisabled}
-                        data-i18n="btn.merge"
-                      >Sloučit</button>
-                    </div>
-                    <div
-                      style={{ fontSize: "11.5px", color: "var(--text-muted)", borderTop: "1px solid var(--border)", paddingTop: "8px", lineHeight: "1.5" }}
-                      data-i18n-html="desc.dsOps"
-                    >
-                      Operace se provádějí{' '}
-                      <strong>na místě</strong>
-                      {' '}— LeRobot vytvoří zálohu původního datasetu. Průběh sledujte v terminálové konzoli. Po smazání epizod či úpravách doporučujeme spustit „Přepočítat statistiky“.
-                    </div>
-                  </div>
-                </section>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DatasetManagePanel />
       </div>
       {/* /.setup-wizard-panel[manage] */}
     </div>

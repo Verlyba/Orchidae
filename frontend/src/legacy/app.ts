@@ -74,6 +74,11 @@ interface WSMessage {
 
 import { I18N } from './i18n';
 import { publishProjects as publishProjectsSnapshot } from '../state/projects';
+import {
+  publishDatasets as publishDatasetsSnapshot,
+  getDatasetsSnapshot,
+  type DatasetEntry,
+} from '../state/datasets';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -265,12 +270,13 @@ export const App = {
       // would otherwise keep the previous language.
       if (this.activeSkill) this.selectSkill(this.activeSkill);
       else this.renderStepPlan();
-      // Both lists live inside a tab of a bigger page, so the page id is what
-      // decides whether they are on screen (they used to be looked up under
-      // ids that no element carries, which made a language switch leave the
-      // dataset list and the resume-skill picker in the previous language).
-      const dsPage = document.getElementById('page-datasety');
-      if (dsPage && dsPage.classList.contains('active-page')) this.dsRefreshList();
+      // The dataset tab now renders from state and resolves its own strings at
+      // render time, so a language switch is a repaint — republishing the
+      // snapshot is enough and no longer costs a refetch of the listing.
+      this.publishDatasets({});
+      // The resume-skill picker is still built in JS, so it does need a rebuild
+      // (it used to be looked up under an id that no element carries, which
+      // left it in the previous language).
       const trainPage = document.getElementById('page-uceni');
       if (trainPage && trainPage.classList.contains('active-page')) {
         this.advPopulateResumeSkills();
@@ -967,6 +973,10 @@ export const App = {
     page.querySelectorAll('.setup-wizard-panel').forEach(panel => {
       (panel as HTMLElement).style.display = (panel as HTMLElement).dataset.tabPanel === tab ? '' : 'none';
     });
+    // Episodes recorded on the collect tab change what the manage tab shows
+    // (a dataset appears on disk, the episode count grows), so re-read it on
+    // the way in rather than showing the state from before the take.
+    if (tab === 'manage') this.dsRefreshList();
   },
 
   /** Switches between the Učení wizard's Imitační učení / Pokročilé tabs. */
@@ -1078,87 +1088,124 @@ export const App = {
   },
 
   // ── Dataset Management page ─────────────────────────────────────────
-  _dsList: [] as any[],
+  // The whole "Správa datasetů" tab is rendered by `pages/DatasetyPage.tsx`
+  // from `state/datasets`. Nothing below writes into the DOM: it fetches,
+  // decides, and publishes a snapshot.
+
+  /** Bumped on every selection change; a late reply with a stale token is dropped. */
+  _dsDetailToken: 0,
+  /** Same for the listing: two refreshes can overlap (tab switch + button). */
+  _dsListToken: 0,
+
+  /** Hand the dataset-management tab its state. */
+  publishDatasets(next: Record<string, any> = {}): void {
+    publishDatasetsSnapshot(next);
+  },
 
   async dsRefreshList(): Promise<void> {
-    const res = await this.api('GET', '/datasets/list');
-    this._dsList = res?.datasets || [];
-    const sel = document.getElementById('ds-select') as HTMLSelectElement | null;
-    const mergeSel = document.getElementById('ds-merge-source') as HTMLSelectElement | null;
-    if (!sel) return;
-    const prev = sel.value;
-    const opts = this._dsList.map((d: any) =>
-      `<option value="${this.esc(d.repo_id)}" data-skill="${this.esc(d.skill)}">${this.esc(d.name)} — ${this.esc(d.repo_id)}${d.exists ? '' : ' (zatím nenahráno)'}</option>`
-    ).join('');
-    sel.innerHTML = opts || '<option value="">-- Žádné datasety v projektu --</option>';
-    if (mergeSel) mergeSel.innerHTML = '<option value="">-- Vyberte druhý dataset --</option>' + opts;
-    if (prev && this._dsList.some((d: any) => d.repo_id === prev)) sel.value = prev;
+    // A listing walks the dataset directories, which is not instant on a
+    // network drive — say so instead of leaving the old list looking current.
+    const token = ++this._dsListToken;
+    this.publishDatasets({ refreshing: true });
+    let list: DatasetEntry[] = [];
+    try {
+      const res = await this.api('GET', '/datasets/list');
+      list = (res?.datasets || []) as DatasetEntry[];
+    } catch (err: any) {
+      // A failed listing must not leave the panel spinning forever; report it
+      // and fall through with an empty list.
+      this.log('ERROR', `Seznam datasetů se nepodařilo načíst: ${err?.message || err}`);
+    }
+    // Refreshes overlap in practice (opening the page fires one, switching to
+    // the manage tab fires another). Only the newest one may publish —
+    // otherwise the older reply clears `refreshing` while a request is still
+    // running, and the panel claims to be current when it is not.
+    if (token !== this._dsListToken) return;
+    const prev = getDatasetsSnapshot();
+    // Keep the selection when the dataset is still there; otherwise fall back
+    // to the first row, which is what replacing the <option>s used to do.
+    const keep = list.some(d => d.repo_id === prev.selectedRepo);
+    const selectedRepo = keep ? prev.selectedRepo : (list[0]?.repo_id || '');
+    const mergeRepo = list.some(d => d.repo_id === prev.mergeRepo) ? prev.mergeRepo : '';
+    this.publishDatasets({ datasets: list, loaded: true, refreshing: false, selectedRepo, mergeRepo });
     this.dsOnSelect();
   },
 
+  /** Pick the dataset every operation on this tab applies to. */
+  dsSelect(repoId: string): void {
+    this.publishDatasets({ selectedRepo: repoId });
+    this.dsOnSelect();
+  },
+
+  /** Pick the second dataset of a merge. */
+  dsSelectMergeSource(repoId: string): void {
+    this.publishDatasets({ mergeRepo: repoId });
+  },
+
   dsSelectedRepo(): string {
-    return (document.getElementById('ds-select') as HTMLSelectElement | null)?.value || '';
+    return getDatasetsSnapshot().selectedRepo;
   },
 
   dsSelectedSkill(): string {
-    const sel = document.getElementById('ds-select') as HTMLSelectElement | null;
-    return sel?.selectedOptions[0]?.getAttribute('data-skill') || '';
+    const s = getDatasetsSnapshot();
+    return s.datasets.find(d => d.repo_id === s.selectedRepo)?.skill || '';
   },
 
+  /**
+   * Load everything the panel needs about the selected dataset: whether it is
+   * on disk (drives every operation), whether a policy was trained for it
+   * (drives "Exportovat model") and whether it can be split by step marks.
+   *
+   * Three round trips, so it publishes `detailLoading` first — and carries a
+   * token, because clicking through the list faster than the server answers
+   * used to let an older reply overwrite a newer selection.
+   */
   async dsOnSelect(): Promise<void> {
+    const token = ++this._dsDetailToken;
+    const fresh = () => token === this._dsDetailToken;
     const skill = this.dsSelectedSkill();
-    const setVal = (id: string, v: string) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = v;
-    };
-    // Dataset operations only make sense for a dataset that exists on disk
-    const setOpsEnabled = (enabled: boolean) => {
-      ['ds-btn-viz', 'ds-btn-replay', 'ds-btn-info', 'ds-btn-stats', 'ds-btn-push',
-       'ds-btn-del', 'ds-btn-task', 'ds-btn-split', 'ds-btn-merge'].forEach(id => {
-        const btn = document.getElementById(id) as HTMLButtonElement | null;
-        if (btn) {
-          btn.disabled = !enabled;
-          btn.title = enabled ? '' : 'Dataset zatím není nahraný na disku — nejprve nahrajte demonstrace (Sběr dat).';
-        }
-      });
-    };
-    const exportBtn = document.getElementById('ds-btn-export-model') as HTMLButtonElement | null;
-    const splitBtn = document.getElementById('ds-btn-split-steps') as HTMLButtonElement | null;
     if (!skill) {
-      ['ds-info-exists', 'ds-info-episodes', 'ds-info-fps', 'ds-info-size'].forEach(id => setVal(id, '—'));
-      setOpsEnabled(false);
-      if (exportBtn) exportBtn.disabled = true;
-      if (splitBtn) splitBtn.disabled = true;
+      this.publishDatasets({
+        detailLoading: false, info: null, modelExists: false,
+        splitStepsEnabled: false, splitStepsTipKey: 'tip.splitNeedsDataset',
+      });
       return;
     }
-    const info = await this.api('GET', `/skills/${skill}/dataset_info`);
-    setVal('ds-info-exists', info?.exists ? 'Na disku ✓' : 'Nenalezen');
-    setVal('ds-info-episodes', info?.exists ? String(info.num_episodes) : '—');
-    setVal('ds-info-fps', info?.exists ? String(info.fps) : '—');
-    setVal('ds-info-size', info?.exists ? `${info.size_mb} MB` : '—');
-    setOpsEnabled(!!info?.exists);
-    // "Export model" is only meaningful once a policy has been trained for this skill
-    if (exportBtn) {
+    this.publishDatasets({ detailLoading: true });
+    try {
+      const raw = await this.api('GET', `/skills/${skill}/dataset_info`);
+      if (!fresh()) return;
+      const info = {
+        exists: !!raw?.exists,
+        episodes: Number(raw?.num_episodes || 0),
+        fps: Number(raw?.fps || 0),
+        sizeMb: Number(raw?.size_mb || 0),
+      };
+      this.publishDatasets({ info });
+
+      // "Export model" is only meaningful once a policy has been trained.
       const status = await this.api('GET', `/skills/${skill}/policy_status`);
-      exportBtn.disabled = !status?.exists;
-      exportBtn.title = status?.exists ? '' : this.t('tip.noModelYet');
-    }
-    // "Split by steps" needs: dataset on disk + >=2 ordered sub-skills + step marks
-    if (splitBtn) {
+      if (!fresh()) return;
+      this.publishDatasets({ modelExists: !!status?.exists });
+
+      // "Split by steps" needs: dataset on disk + >=2 ordered sub-skills +
+      // at least one episode carrying marks.
       let enabled = false;
-      let tip = '';
-      if (info?.exists) {
+      let tipKey = 'tip.splitNeedsDataset';
+      if (info.exists) {
         const marks = await this.api('GET', `/skills/${skill}/step_marks`);
+        if (!fresh()) return;
         const nSteps = (marks?.steps || []).length;
         const nMarked = Object.keys(marks?.episodes || {}).length;
-        if (nSteps < 2) tip = this.t('tip.splitNeedsSubskills');
-        else if (nMarked === 0) tip = this.t('tip.splitNeedsMarks');
-        else { enabled = true; tip = this.t('tip.splitSteps'); }
-      } else {
-        tip = this.t('tip.splitNeedsDataset');
+        if (nSteps < 2) tipKey = 'tip.splitNeedsSubskills';
+        else if (nMarked === 0) tipKey = 'tip.splitNeedsMarks';
+        else { enabled = true; tipKey = 'tip.splitSteps'; }
       }
-      splitBtn.disabled = !enabled;
-      splitBtn.title = tip;
+      this.publishDatasets({ splitStepsEnabled: enabled, splitStepsTipKey: tipKey });
+    } catch (err: any) {
+      if (fresh()) this.log('ERROR', `Stav datasetu se nepodařilo zjistit: ${err?.message || err}`);
+    } finally {
+      if (fresh()) this.publishDatasets({ detailLoading: false });
     }
   },
 
@@ -1166,10 +1213,15 @@ export const App = {
     const skill = this.dsSelectedSkill();
     if (!skill) { alert(this.t('msg.selectDatasetFirst')); return; }
     this.log('INFO', this.t('log.splitStart', {s: skill}));
-    const res = await this.api('POST', '/datasets/split_steps', { skill_slug: skill });
-    if (res && res.ok === false) {
-      this.log('ERROR', this.t('log.splitFail', {e: res.error || '?'}));
-      alert(res.error || 'Split failed');
+    this.publishDatasets({ busyOp: 'split_steps' });
+    try {
+      const res = await this.api('POST', '/datasets/split_steps', { skill_slug: skill });
+      if (res && res.ok === false) {
+        this.log('ERROR', this.t('log.splitFail', {e: res.error || '?'}));
+        alert(res.error || 'Split failed');
+      }
+    } finally {
+      this.publishDatasets({ busyOp: '' });
     }
   },
 
@@ -1177,13 +1229,20 @@ export const App = {
     const repo = this.dsSelectedRepo();
     if (!repo && operation !== 'merge') { alert('Nejprve vyberte dataset.'); return; }
     this.toggleTerminalOpen();
-    const res = await this.api('POST', '/datasets/edit', {
-      operation, repo_id: operation === 'merge' ? '' : repo, new_repo_id: newRepoId, params
-    });
-    if (res && res.ok === false) {
-      this.log('ERROR', `Operace '${operation}' selhala: ${res.error}`);
-    } else {
-      this.log('INFO', `Operace '${operation}' spuštěna — průběh v terminálu.`);
+    // The POST only starts the LeRobot process, but starting it means spawning
+    // a subprocess — the button has to show that the click landed.
+    this.publishDatasets({ busyOp: operation });
+    try {
+      const res = await this.api('POST', '/datasets/edit', {
+        operation, repo_id: operation === 'merge' ? '' : repo, new_repo_id: newRepoId, params
+      });
+      if (res && res.ok === false) {
+        this.log('ERROR', `Operace '${operation}' selhala: ${res.error}`);
+      } else {
+        this.log('INFO', `Operace '${operation}' spuštěna — průběh v terminálu.`);
+      }
+    } finally {
+      this.publishDatasets({ busyOp: '' });
     }
   },
 
@@ -1210,7 +1269,7 @@ export const App = {
 
   dsMerge(): void {
     const source = this.dsSelectedRepo();
-    const other = (document.getElementById('ds-merge-source') as HTMLSelectElement | null)?.value || '';
+    const other = getDatasetsSnapshot().mergeRepo;
     const target = (document.getElementById('ds-merge-target') as HTMLInputElement | null)?.value.trim() || '';
     if (!source || !other) { alert(this.t('alert.selectBothDs')); return; }
     if (source === other) { alert(this.t('alert.selectTwoDiff')); return; }
@@ -1225,9 +1284,16 @@ export const App = {
     if (!repo) { alert('Nejprve vyberte dataset.'); return; }
     if (!hubId.includes('/')) { alert(this.t('alert.hubIdFormat')); return; }
     this.toggleTerminalOpen();
-    const res = await this.api('POST', '/datasets/push', { repo_id: repo, hub_id: hubId, private: priv });
-    if (res && res.ok === false) this.log('ERROR', `Push selhal: ${res.error}`);
-    else this.log('INFO', `Nahrávání datasetu na Hub spuštěno — průběh v terminálu.`);
+    // Uploading is the slowest thing on this tab; the button says "Nahrávám…"
+    // until the transfer process is actually up and writing to the console.
+    this.publishDatasets({ busyOp: 'push' });
+    try {
+      const res = await this.api('POST', '/datasets/push', { repo_id: repo, hub_id: hubId, private: priv });
+      if (res && res.ok === false) this.log('ERROR', `Push selhal: ${res.error}`);
+      else this.log('INFO', `Nahrávání datasetu na Hub spuštěno — průběh v terminálu.`);
+    } finally {
+      this.publishDatasets({ busyOp: '' });
+    }
   },
 
   dsVisualize(): void {

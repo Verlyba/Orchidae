@@ -8,6 +8,106 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (21) — Správa datasetů jede ze skutečného React stavu; s tím
+odešly dva tiché závody a přibyly indikátory průběhu
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (už na špičce
+`70df858`), `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý
+(292 pytestů, 10 kroků) — žádná priorita A ve frontě. Pokračování bodu F
+(React) podle otevřené položky 1 z minula: **Datasety**.
+
+### Co se změnilo
+
+Karta **„Správa datasetů"** se kreslí z `state/datasets.ts`, ne z řetězců
+`innerHTML` a zápisů `el.disabled = …`. Nový soubor drží snapshot (výpis,
+vybraný dataset, druhý dataset pro merge, fakta z disku, existence modelu,
+možnost splitu podle kroků, běžící operace), `app.ts` ho publikuje jedinou
+metodou `App.publishDatasets()` a `DatasetManagePanel` v `DatasetyPage.tsx` je
+jediné, co ho vykresluje. Oba `<select>` jsou řízené (`App.dsSelect` /
+`dsSelectMergeSource`), takže `dsSelectedRepo()` a `dsSelectedSkill()` už
+nečtou DOM ani atribut `data-skill` na `<option>`.
+
+Zmizelo skládání `<option>` v `dsRefreshList()` a celý imperativní blok
+`dsOnSelect()` (`setVal` × 4, `setOpsEnabled` nad devíti id, dvě ruční
+`btn.title`).
+
+**Dva závody, které tam byly a nikdo je neviděl.** Obojí jsou tiché: nic
+nespadne, jen se ukáže špatný stav.
+
+1. *Detail vs. rychlé klikání.* `dsOnSelect()` dělá tři round tripy za sebou.
+   Když uživatel přepnul dataset dřív, než doběhly, starší odpověď přepsala
+   novější výběr — panel pak ukazoval fakta jiného datasetu, než byl vybraný.
+   Řeší to `_dsDetailToken`.
+2. *Dvě obnovení výpisu naráz.* Otevření stránky spustí `dsRefreshList()` a
+   přepnutí na kartu taky. Starší odpověď zhasla `refreshing` v okamžiku, kdy
+   ještě běžel novější request — panel tvrdil, že je aktuální, a nebyl. Řeší to
+   `_dsListToken`. **Tenhle jsem si nevymyslel: napřed spadl test indikátoru
+   průběhu** (`{"label":"Obnovit seznam","disabled":false}` tam, kde mělo být
+   „Načítám…"), a teprve hledání proč to nesvítí ukázalo, že problém není
+   v indikátoru, ale v tom, co ho zhasíná.
+
+**Průběh je konečně vidět** (zadání ho vyžaduje u všeho, co trvá):
+`refreshing` → tlačítko „Obnovit seznam" říká „Načítám…" a je zamčené, u
+popisku pole svítí stejná poznámka (`.field-note`); `detailLoading` → čtyři
+readouty ukazují `…` místo starých hodnot; `busyOp` → tlačítko konkrétní
+operace říká „Spouštím…" (u pushe „Nahrávám…") do doby, než POST doběhne.
+Předtím tři řetězené requesty probíhaly za panelem, který vypadal nečinně.
+
+**Přepnutí jazyka už nepřenačítá dataset z disku.** Snapshot nese i18n
+**klíče**, ne hotové věty (`splitStepsTipKey`), takže `setLang()` stačí
+republish. `rerenderDynamic()` kvůli tomu už nevolá `dsRefreshList()` —
+jazyk se přepínal přes síť a přes výpis adresářů.
+
+**Sedm českých řetězců natvrdo je pryč** (položka z fronty „natvrdo česky
+psané řetězce … `dsRefreshList`"): „(zatím nenahráno)", „Na disku ✓",
+„Nenalezen", popisky readoutů „Stav na disku / FPS / Velikost" (ty neměly
+`data-i18n` vůbec) a tooltip „Dataset zatím není nahraný na disku…".
+Navíc dostalo klíč devět `title=`, které byly česky natvrdo v markupu
+(`tip.dsReplay`, `tip.dsInfo`, `tip.dsStats`, `tip.dsPush`, `tip.dsDelete`,
+`tip.dsRewriteTask`, `tip.dsSplitRun`, `tip.dsMergeRun`, `tip.dsVisualize`) —
+a protože se teď skládají ze stavu, každé tlačítko říká **buď co udělá, nebo
+proč nejde** (`tip.dsOpsNeedDataset`).
+
+**Malá synchronizace dat navíc:** přepnutí na kartu „Správa datasetů" teď
+výpis znovu načte. Epizody nahrané na kartě Sběr dat mění přesně to, co tahle
+karta ukazuje (dataset se objeví na disku, roste počet epizod), a dosud se
+ukazoval stav z doby před natáčením.
+
+### Ověřeno v cloudu
+
+Sonda v prohlížeči nad běžícím backendem a fixture projektem (tři datasety;
+`dataset_info` zpožděné o 400 ms a odpovídající `exists: true`, protože
+v kontejneru nic nahraného není) — **17/17**:
+
+- výpis i merge picker se plní ze stavu, nenahraný dataset je označený;
+- readouty ukazují stažená fakta (`Na disku ✓ / 12 / 30 / 42.5 MB`);
+- **klik dorazí k `App` u všech deseti akcí panelu** — to je ta past z (20),
+  proto se to měří, ne odhaduje;
+- „Rozdělit podle kroků" je živé při 2 krocích a označené epizodě, „Exportovat
+  model" zůstává zamčené bez natrénované policy, obě s vysvětlujícím `title`;
+- pozdní odpověď nepřepíše novější výběr; indikátory průběhu svítí; prázdný
+  projekt zamkne operace a řekne „-- Žádné datasety --";
+- přepnutí do EN překreslí celý panel (popisky, hodnoty, `<option>`, tooltipy)
+  **bez jediného dalšího requestu** na `/datasets/list`;
+- konzole čistá (kromě importu fontů z Googlu — kontejner je bez internetu).
+
+Dál: `bash scripts/verify.sh` prochází celý; smoke přes všech 8 stránek + obě
+karty Datasetů + oba jazyky bez chyby v konzoli; `scripts/measure-layout.sh`
+(`datasety`, `projects`) dává **stejná čísla jako HEAD** (30/33/33 %, 0 ořezů,
+0 roztažených) a samostatné měření karty „Správa datasetů" starým i novým
+buildem vedle sebe je **shodné do procenta** (36/45/83 %).
+
+**Na fyzickém robotu zbývá vyzkoušet:** všechny operace téhle karty spouštějí
+LeRobot nad skutečnými daty a v cloudu žádná nahraná data nejsou — ověřeno je
+jen, že klik dorazí k `App.*` a s jakými argumenty. Vyzkoušet: `info`,
+`recompute_stats`, `delete_episodes`, `modify_tasks`, `split`, `merge`, push na
+Hub, `lerobot-replay` na rameni, vizualizaci v Rerun a hlavně **rozdělení
+podle značek kroků** na dataset, který má opravdu značky. Stejně tak, že
+readouty (epizody, FPS, velikost) sedí na to, co je na disku po skutečném
+natáčení.
+
+---
+
 ## 2026-08-02 (20) — **18 tlačítek v celé appce bylo mrtvých** (React zahazoval
 kliknutí) + stránka Projekty přepsaná na skutečný React stav
 
@@ -2466,6 +2566,23 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
 ## Otevřené věci (fronta pro další běhy)
 
 **Frontend**
+- **Další stránka na React stav: karta „Sběr dat & Dovednosti"** (Datasety,
+  tab `collect`). Po (21) je `manage` hotová; zbytek `innerHTML` na téhle
+  stránce je strom dovedností (`skill-list-full`), seznam epizod
+  (`rec-episodes-list-container`) a značkovací sloupec (`rec-tagging-steps`,
+  `rec-step-verdict`). Pozor na stejný tvar pasti jako `disabled`:
+  `value` / `checked` / `selected`.
+- **Roztažená pole na kartě „Správa datasetů" při 1024×760** — změřeno v (21)
+  a **není to regrese, je to i na HEADu**: `SELECT#ds-select` 738 px,
+  `INPUT#ds-del-indices` 662 px, `INPUT#ds-newtask` 630 px (práh 620).
+  Pod globálním zlomem se `.merge-cols` složí do jednoho sloupce a všechna
+  pole dostanou plnou šířku panelu — přesně to, co zadání zakazuje. Recept
+  z (9): `grid-template-columns: repeat(auto-fit, minmax(215px, 1fr))`,
+  `max-width` na sekci **ne**. (Obsazenost té karty je 36 / 45 / 83 %, takže
+  nejde o mrtvou plochu, jen o šířku polí.)
+- Karta „Správa datasetů" má při 1600×900 a 1280×800 `ovfX = 2` (vodorovný
+  přesah uvnitř klipujícího prvku, 1 při 1024×760). Také to je i na HEADu,
+  ale zatím není dohledané, který prvek to je.
 - ~~**NEJSILNĚJŠÍ POLOŽKA PO (15): ruční přestavba UI majitelem srazila
   obsazenost plochy zhruba na polovinu**~~ — **z velké části vyřešeno 2026-08-02
   (16)**. Příčina byla změřená, ne odhadnutá: **stejný rám aplikovaný na 3–4
@@ -2641,7 +2758,9 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   v HTML a banner Task Latche ho opravdu používá.)
   Buď doplnit chybějící UI (indikátor stavu WS/robota by se hodil), nebo smazat.
 - Natvrdo česky psané řetězce v dynamicky generovaném HTML (mimo i18n):
-  `dsRefreshList`, `advPopulateResumeSkills`, wizard `wizard-opt-found-*`.
+  `advPopulateResumeSkills`, wizard `wizard-opt-found-*`.
+  (`dsRefreshList` a celá karta „Správa datasetů" hotové od (21) — včetně
+  devíti `title=`, které byly česky natvrdo přímo v markupu.)
   (Seznam epizod v `selectSkill` hotový od (9), `renderInferenceSubtasks`
   a celý sloupec workeru od (10), celá stránka Učení od (12), dropdowny portů
   a kamer + `calibrateArm()` od (13).)

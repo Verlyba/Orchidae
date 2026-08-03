@@ -130,6 +130,32 @@ subscribes with `useSyncExternalStore` and is the only thing that paints it.
 rather than context because the publisher is not a component and cannot call
 hooks.
 
+**Datasety → "Správa datasetů" is the second.** `state/datasets.ts` holds the
+listing, the picked dataset, the on-disk facts, whether a policy exists and
+whether the step split is possible; `legacy/app.ts` publishes through
+`App.publishDatasets()` and `DatasetManagePanel` in `DatasetyPage.tsx` paints
+it. The two `<select>`s are controlled (`App.dsSelect` / `dsSelectMergeSource`)
+instead of being filled with `<option>` strings, and every `ds-btn-*` derives
+its `disabled` and its `title` from the snapshot instead of being poked by
+`el.disabled = …`.
+
+Two things that only became possible once the panel had state, and are worth
+copying to the next page:
+
+- **In-flight is part of the state.** `refreshing` and `detailLoading` say so
+  in the UI (the refresh button reads "Načítám…", the readouts show `…`), and
+  `busyOp` marks the operation whose POST is still on the wire. Before, three
+  chained round trips happened behind a panel that looked idle.
+- **Requests carry a token.** `_dsListToken` / `_dsDetailToken` are bumped on
+  every new request and a reply whose token is stale is dropped. Overlapping
+  requests are normal here (opening the page refreshes, so does switching to
+  the tab), and without this an older reply overwrites a newer selection or
+  clears `refreshing` while a request is still running.
+
+Snapshots hold i18n **keys**, never finished sentences: `App.t()` runs at render
+time, so `setLang()` only has to republish. That also removed the refetch of
+the whole dataset listing that a language switch used to trigger.
+
 Everywhere else **the logic layer is still imperative**. `legacy/app.ts`
 drives the UI by `getElementById` and `innerHTML`, exactly as before, and
 those parts of the React tree are rendered once and never re-rendered — which
@@ -143,5 +169,6 @@ is why it is safe for app.ts to mutate them. Concretely:
 - `<React.StrictMode>` is off: it would mount twice and run `init()` twice,
   opening two WebSockets.
 
-Datasets is the next page worth converting — it holds the largest amount of
+The next page worth converting is the **Datasety collect tab** — the skill
+tree, the episode list and the tagging column are the largest amount of
 dynamic `innerHTML` left.
