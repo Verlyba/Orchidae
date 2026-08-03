@@ -8,6 +8,135 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (29) — Seznam nakonfigurovaných kamer na Connectu jede z React
+stavu — a s ním zmizela nekonzistentní escapovací mezera v ID/roli kamery a
+natvrdo česká značka „AKTIVNÍ"
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (origin/main byl
+force-pushed zpět na špičku `9629e95`, shodnou s tím, na čem tenhle branch
+skončil minule — žádná rozjetá historie). `setup-dev.sh` proběhl,
+`bash scripts/verify.sh` prošel celý (317 pytestů, 10 kroků) — žádná
+priorita A ve frontě. Pokračování bodu F/otevřené položky 1 z běhu (28):
+**karty kamer na Connectu** (`renderCameras()`, `#hw-camera-list`) —
+poslední zbývající kus `innerHTML` na kartě Connect vedle Kalibrace.
+
+### Rozsah, vybraný záměrně užší než celá otevřená položka
+
+Průzkum (Explore agent) našel, že `renderCameras()` píše do **tří** různých
+cílů: dokovaný živý grid kamer (`.cameras-dock-body`,
+`#tele-cam-feed-placeholder-N` v `BottomDock.tsx`, stavový `<img>` napojený
+na skutečný MJPEG stream), seznam nakonfigurovaných kamer na Connectu
+(`#hw-camera-count` + `#hw-camera-list`) a dva potvrzeně **mrtvé** cíle
+(`#cam-feed-placeholder-1`/`-2` — žádný takový prvek nikde v současném JSX,
+ověřeno `grep`em). Dok má navíc živý streamovaný `<img>` řízený imperativně
+(`hwOnCameraPortChange()`), což je jiná třída problému než statický seznam.
+Dnešní běh migroval **jen `#hw-camera-list` + `#hw-camera-count`** (přesný
+analog už hotového `DeviceTypeList`/`state/connect.ts`) a smazal ty dva
+mrtvé cíle; dokovaný live grid v `BottomDock.tsx` a live-náhled
+(`hw-camera-preview-*`) zůstávají na příště — přesně jak radil průzkum, aby
+šlo dnešní změnu ověřit end-to-end, ne nechat rozdělanou.
+
+### Dvě chyby, které se cestou našly (stejná třída jako u stromu dovedností
+běh (23) a seznamu typů zařízení)
+
+1. **Nekonzistentní escapování v kartě kamery.** `c.id` v titulku karty byl
+   escapovaný (`this.esc(c.id)`), ale `c.role` a `c.source` na stejném
+   řádku ne — a offline popisek (`'Kamera ' + c.id + ' (' + c.role + ')
+   offline'`) neescapoval nic. `id`/`role` jde z `CameraCreate` bez
+   jakéhokoli omezení formátu (`server.py:224-230`, čistý `str`), takže to
+   nebyla teoretická díra. React teď dostává `camera.id`/`camera.role` jako
+   JS hodnoty přímo do `onClick`/JSX textu, ne poskládané do řetězce —
+   totéž, co migraci na React dělá u předchozích karet, zmizelo to samo
+   sebou, ne ručním doescapováním.
+2. **Značka „AKTIVNÍ" byla natvrdo česky**, i když i18n klíč `tag.active`
+   (cs/en) už existoval a nikdo ho nepoužíval. Po přepnutí jazyka do
+   angličtiny badge zůstávala „AKTIVNÍ" — teď jde přes `App.t('tag.active')`
+   a překládá se.
+
+Zbytek `renderCameras()` (dok, live placeholdery) beze změny logiky, jen
+`c.id` v sestavovaném `<img src="/api/cameras/${c.id}/feed">` teď jde přes
+`encodeURIComponent()` místo syrové konkatenace (stejná třída díry, opravena
+i tam, kam se dnešní migrace nesahá — jednořádková oprava, ne redesign).
+
+### Co se změnilo
+
+Nový `frontend/src/state/cameras.ts` (stejný store-not-context vzor jako
+`state/connect`, `state/skills`, `state/collect`, `state/trainTargets`) drží
+seznam nakonfigurovaných kamer + `activeCameraIds` + `loaded` (aby šlo
+odlišit „projekt ještě nenačten" od „projekt má 0 kamer" — bez toho by
+`CameraCount` lhala „0" ještě než se stihl otevřít první projekt).
+`App.renderCameras()` teď volá `publishCameras(...)` místo skládání
+`innerHTML`; `SetupPage.tsx` má nové `CameraCard`/`CameraList`/`CameraCount`,
+jediné, co `#hw-camera-list`/`#hw-camera-count` vykreslují.
+
+### Ověřeno v cloudu
+
+Reálný backend + reálný build (`npm run build`) + Playwright nad čerstvě
+založeným projektem se dvěma kamerami (jedna normální, jedna s útočným
+ID/rolí `cam_wrist"><svg onload=alert(1)>` / `wrist"><script>evil<span>`) —
+**7/8**, osmý „fail" je zdokumentovaný šum bez internetu (Google Fonts
+`ERR_CONNECTION_RESET`, stejné jako od běhu (9)/(22)):
+
+- obě karty se vykreslí se správným ID/rolí/zdrojem;
+- **0 injektovaných `<svg>`/`<script>` prvků** — útočný řetězec je v DOMu
+  jako čistý text (2 `<svg>` v seznamu = přesně ty dvě ikony fotoaparátu u
+  karet, ne třetí od útočného payloadu);
+- klik na kartu zavolá `App.hwOnSelectConfiguredCamera(id)` beze změny
+  chování;
+- badge „AKTIVNÍ" se objeví po simulaci `activeCameras` + `renderCameras()`
+  a **přeloží se na „ACTIVE"** po `App.setLang('en')` — dřív by zůstala
+  česky napořád;
+- tlačítko ✕ smaže přesně jednu kartu (`stopPropagation` funguje, karta pod
+  ním se nevybere);
+- žádná nová konzolová chyba mimo zdokumentovaný šum.
+
+**Vedlejší nález, mimo dnešní rozsah, zapsáno pro příště:** `startAllProjectCameras()`
+(volá se automaticky při každém otevření/refreshi projektu) posílá
+`POST /api/cameras/{id}/start` pro každou nakonfigurovanou kameru — pokud
+`id` obsahuje `/` (nic to nezakazuje, `CameraCreate.id` je čistý `str`),
+REST cesta se rozpadne a request skončí 404. Netestoval jsem to jako
+security díru (server tam nic nebezpečného neudělá), jen jako funkční bug —
+kamera s `/` v ID by se nikdy nespustila automaticky. Malá položka, backend.
+
+`cd frontend && npm run typecheck` čistý, `npm run build` proběhl
+(`build-manifest.json` aktuální, obsahové hash jméno assetů se mění samo —
+žádné ruční `?v=` není potřeba, potvrzeno od běhu (24)). `bash
+scripts/verify.sh` **prochází celý** (317 pytestů beze změny — čistě
+frontend + i18n). Počet unikátních element ID klesl 447 → 445 (zmizely
+statické `hw-camera-count`/`hw-camera-list`, teď existují jen jako React
+komponenty, ne jako pevné DOM id).
+
+**Na fyzickém robotu zbývá vyzkoušet:** samotný živý stream kamery
+(`GET /api/cameras/{id}/feed`) se v cloudu nedá ověřit doopravdy — appka
+nemá k dispozici žádnou reálnou USB kameru (ověřeno jen tím, že request
+neselže tvrdě, ne že se doopravdy zobrazí obraz). Nezměněno dnešním během,
+ale relevantní pro navazující práci: dokovaný live grid (`BottomDock.tsx`)
+a live-náhled portu (`hw-camera-preview-*`) zůstávají imperativní
+`innerHTML`/`img.src` kód, takže totéž ověření na reálném hardwaru bude
+potřeba znovu, až se migrují ony.
+
+**Otevřeno pro příště:**
+1. Dokovaný živý grid kamer (`BottomDock.tsx`, `.cameras-dock-body`,
+   `#tele-cam-feed-placeholder-N`) a live-náhled portu na Connectu
+   (`hw-camera-preview-*`, `hwOnCameraPortChange()`) — obojí pořád
+   imperativní `innerHTML`/`img.src`, potřebuje efekt, ne jen čistý render
+   (stream, ne statická data). Poslední velký kus téhle karty; pak zbývá
+   ještě celá **Kalibrace** (tabulky kloubů, živý kalibrační panel, klávesy
+   Enter/c, fázové přechody) — nejsložitější zbývající kus vůbec.
+2. `startAllProjectCameras()` 404 na ID obsahující `/` (viz nález výše) —
+   malá backendová položka, buď zakázat `/` v `CameraCreate.id`, nebo
+   `id`/-encoded cestu opravit.
+3. Mrtvý kód `updateConnectCmdPreview()` / `renderDetectedHardware()`
+   (nález z běhu 26, `renderCameras()` na něj pořád volá beze změny) —
+   pořád nerozhodnuto, smazat nebo obnovit jako React komponentu.
+4. `saveSettingsState()`/`onTelePortChange()` pořád dva samostatné
+   `POST /settings` round-tripy za sebou (běh 28) — nekritické.
+5. Zbytek beze změny: `StrictMode`, otázka na majitele z běhu (18) jak appku
+   spouští (port 4173), patička „Umístění projektů" (běh 20), bundle pořád
+   jeden ~744 kB chunk (`manualChunks`, běh 25+).
+
+---
+
 ## 2026-08-03 (28) — „Nastavit Leader/Follower rameno" na Connectu bylo
 dvojnásobně rozbité: chybějící cíl zápisu i špatné jméno pole v modálu —
 opraveno a ověřeno end-to-end, včetně toho, že to dřív vypadalo opraveně a

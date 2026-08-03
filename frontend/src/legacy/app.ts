@@ -99,6 +99,7 @@ import {
   type TrainRowProgress,
 } from '../state/trainTargets';
 import { publishConnect } from '../state/connect';
+import { publishCameras } from '../state/cameras';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -3036,8 +3037,8 @@ export const App = {
                 ${this.esc(c.id)} (${this.esc(c.role)})
               </span>
               <div id="tele-cam-feed-placeholder-${i + 1}" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-                ${isActive 
-                  ? '<img src="/api/cameras/' + c.id + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />'
+                ${isActive
+                  ? '<img src="/api/cameras/' + encodeURIComponent(c.id) + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />'
                   : '<span style="font-size: 9px; color: var(--text-muted);">Kamera ' + this.esc(c.id) + ' offline</span>'
                 }
               </div>
@@ -3059,64 +3060,25 @@ export const App = {
       dockBody.innerHTML = dockHtml;
     }
 
-    // The Connect tab shows how many of the scanned video devices the project
-    // actually uses, so it repaints whenever that set changes.
-    const camCount = document.getElementById('hw-camera-count');
-    if (camCount) camCount.textContent = String(cams.length);
+    // The Connect tab's configured-camera count and card list are React
+    // state now (state/cameras.ts) — App just publishes the snapshot,
+    // SetupPage.tsx's <CameraCount/>/<CameraList/> are the only things that
+    // render them. The docked live-camera grid above stays innerHTML for now.
+    publishCameras({ cameras: cams, activeCameraIds: this.activeCameras || [], loaded: true });
     this.renderDetectedHardware();
 
-    const el = document.getElementById('hw-camera-list');
-    if (!el) return;
-
-    if (!cams.length) {
-      el.innerHTML = '<div class="conn-empty">' + this.esc(this.t('hint.noCamsConfigured')) + '</div>';
-
-      const placeholder1 = document.getElementById('cam-feed-placeholder-1');
-      if (placeholder1) placeholder1.innerHTML = '<span>' + this.t('hint.noCamInProject') + '</span>';
-      const placeholder2 = document.getElementById('cam-feed-placeholder-2');
-      if (placeholder2) placeholder2.innerHTML = '<span>' + this.t('hint.noCamInProject') + '</span>';
-      return;
-    }
-    const host = location.host || 'localhost:8000';
-    
-    // Render list in setup page
-    el.innerHTML = cams.map(c => {
-      const isActive = (this.activeCameras || []).includes(c.id);
-      return `
-        <div class="camera-card" onclick="App.hwOnSelectConfiguredCamera('${c.id}')" style="cursor: pointer; padding: 10px 12px;">
-          <div class="camera-card-head" style="margin-bottom: 0;">
-            <span class="camera-card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg> <strong>${this.esc(c.id)}</strong> <span class="camera-card-role">(${c.role})</span> — Source: ${c.source}</span>
-            <div class="camera-card-actions">
-              ${isActive
-                ? '<span class="arm-status-badge" style="background: rgba(76, 175, 80, 0.15); color: var(--green); margin-right: 6px;">AKTIVNÍ</span>'
-                : ''
-              }
-              <button class="btn btn-xs btn-danger btn-icon" onclick="event.stopPropagation(); App.removeCamera('${c.id}')" title="${App.t('btn.delete')}">✕</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    // Update dynamic live stream streams inside Learning workflow panel and Teleoperation panel
+    // Update dynamic live stream feeds inside the docked camera panel
+    // (Teleoperation/Learning) — the Connect card's own list no longer needs
+    // this loop, React re-renders it from the published snapshot instead.
     cams.forEach((c, idx) => {
       const isActive = (this.activeCameras || []).includes(c.id);
-      
-      const placeholder = document.getElementById('cam-feed-placeholder-' + (idx + 1));
-      if (placeholder) {
-        if (isActive) {
-          placeholder.innerHTML = '<img src="/api/cameras/' + c.id + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />';
-        } else {
-          placeholder.innerHTML = '<span>Kamera ' + c.id + ' (' + c.role + ') offline</span>';
-        }
-      }
 
       const telePlaceholder = document.getElementById('tele-cam-feed-placeholder-' + (idx + 1));
       if (telePlaceholder) {
         if (isActive) {
-          telePlaceholder.innerHTML = '<img src="/api/cameras/' + c.id + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />';
+          telePlaceholder.innerHTML = '<img src="/api/cameras/' + encodeURIComponent(c.id) + '/feed" onload="App.adjustCameraAspectRatio(this)" style="width:100%; height:100%; object-fit:cover;" />';
         } else {
-          telePlaceholder.innerHTML = '<span>Kamera ' + c.id + ' (' + c.role + ') offline</span>';
+          telePlaceholder.innerHTML = '<span>Kamera ' + this.esc(c.id) + ' (' + this.esc(c.role) + ') offline</span>';
         }
       }
     });

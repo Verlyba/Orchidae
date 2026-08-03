@@ -2,6 +2,7 @@
 
 import { App } from '../legacy/app';
 import { useConnect, usableCount, type DeviceType } from '../state/connect';
+import { useCameras, type Camera } from '../state/cameras';
 
 /** One row: what LeRobot calls this device, how it connects, and whether
  * this single-serial-port setup can actually drive it. Unsupported rows stay
@@ -62,6 +63,73 @@ function DeviceTypeCount() {
   const s = useConnect();
   if (!s.deviceTypes.length) return <>-</>;
   return <>{App.t('lbl.nOfMDrivable', { n: usableCount(s), m: s.deviceTypes.length })}</>;
+}
+
+/** One camera the project has added — click selects it for the live preview
+ * (`App.hwOnSelectConfiguredCamera`), the ✕ removes it. Passing `camera.id`
+ * straight to the handlers (instead of building an `onclick="...('${id}')"`
+ * string) is what closes the escaping gap the legacy `innerHTML` version had:
+ * a camera id/role with `<`/`"` in it used to be able to break out of the
+ * markup, now it's just a JS value. */
+function CameraCard({ camera, active }: { camera: Camera; active: boolean }) {
+  return (
+    <div
+      className="camera-card"
+      style={{ cursor: 'pointer', padding: '10px 12px' }}
+      onClick={() => App.hwOnSelectConfiguredCamera(camera.id)}
+    >
+      <div className="camera-card-head" style={{ marginBottom: 0 }}>
+        <span className="camera-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          {' '}
+          <strong>{camera.id}</strong> <span className="camera-card-role">({camera.role})</span> — Source: {camera.source}
+        </span>
+        <div className="camera-card-actions">
+          {active && (
+            <span className="arm-status-badge" style={{ background: 'rgba(76, 175, 80, 0.15)', color: 'var(--green)', marginRight: 6 }}>
+              {App.t('tag.active')}
+            </span>
+          )}
+          <button
+            className="btn btn-xs btn-danger btn-icon"
+            onClick={(e: any) => { e.stopPropagation(); App.removeCamera(camera.id); }}
+            title={App.t('btn.delete')}
+          >✕</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The cameras the project has actually added, one card per camera. Reads
+ * from `state/cameras`, published by `App.renderCameras()` on project load
+ * and on every camera add/remove/start/stop. */
+function CameraList() {
+  const s = useCameras();
+  if (!s.loaded) {
+    return <div className="conn-empty">{App.t('hint.noCamerasYet')}</div>;
+  }
+  if (!s.cameras.length) {
+    return <div className="conn-empty">{App.t('hint.noCamsConfigured')}</div>;
+  }
+  return (
+    <>
+      {s.cameras.map(c => (
+        <CameraCard key={c.id} camera={c} active={s.activeCameraIds.includes(c.id)} />
+      ))}
+    </>
+  );
+}
+
+/** Count next to "Nakonfigurované kamery:" — "-" before any project has
+ * loaded (so it doesn't lie and claim zero before it actually knows),
+ * the real count once `renderCameras()` has published a snapshot. */
+function CameraCount() {
+  const s = useCameras();
+  return <>{s.loaded ? s.cameras.length : '-'}</>;
 }
 
 export function SetupPage() {
@@ -318,11 +386,9 @@ export function SetupPage() {
                       <div className="conn-sect conn-sect-grow">
                         <div className="teleop-sub-title-row">
                           <h4 className="teleop-sub-title" data-i18n="hint.configuredCams">Nakonfigurované kamery:</h4>
-                          <span className="cal-arm-state" id="hw-camera-count">-</span>
+                          <span className="cal-arm-state"><CameraCount /></span>
                         </div>
-                        <div id="hw-camera-list" className="conn-cam-list">
-                          <div className="conn-empty" data-i18n="hint.noCamerasYet">Žádné kamery.</div>
-                        </div>
+                        <div className="conn-cam-list"><CameraList /></div>
                       </div>
                     </div>
                   </div>
