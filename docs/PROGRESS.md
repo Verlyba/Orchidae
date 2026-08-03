@@ -8,6 +8,97 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (34) — Priorita E: `slug.err.*` hlášky lhaly o tom, čím se
+zamítnutý identifikátor stane — robot/kamera dostávaly text napsaný pro dovednost
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (na špičce
+`3cda1cd`, konec běhu 33). `setup-dev.sh` proběhl, `bash scripts/verify.sh`
+prošel celý (322 pytestů) hned na začátku — žádná priorita A viditelná v
+automatických kontrolách. Fronta „Otevřené věci" ani zápis běhu (33) nehlásily
+nic nového v kategorii A/B nad rámec toho, co už je tam zapsané jako velké
+položky (bimanuál/CAN) — vybral jsem tedy explicitně zapsanou položku
+kategorie E z běhu (30)/(33): `slug.err.*` hlášky vozí prózu napsanou pro
+dovednost (skill) a ukazují se beze změny i při zamítnutí ID robota, kamery
+nebo projektu.
+
+### Nález
+
+`_slug_error_response()` (`server.py:190`) posílala jen `error_code` +
+`error_params`, bez informace o tom, o jaký druh objektu šlo. Frontend
+(`app.ts`, 6 volání) proto vždycky sáhl po stejném klíči `slug.err.<code>`
+bez ohledu na to, jestli zamítnuté ID patřilo projektu, robotovi, kameře
+nebo dovednosti. Tři z těch hlášek (`i18n.ts:761-767`) přitom popisovaly
+konkrétně dovednost/dataset:
+- `empty`/`charset` tvrdily „je to název složky datasetu“ / „hodnota
+  --dataset.repo_id“ — pravda pro dovednost, ale robot je jen složka bez
+  datasetové identity a **kamera nemá složku vůbec žádnou** (`add_camera()`
+  v `project_manager.py:322-342` nikdy nevolá `mkdir`, jen zapíše záznam do
+  `project.json`).
+- `duplicate` tvrdila „vytvořením by se přepsala stávající **dovednost**“ —
+  doslovně nepravdivé při zamítnutí duplicitního ID robota nebo kamery.
+- `tooLong` mluvila o „cestě k datasetu“ i pro kameru, která žádnou cestu
+  nemá.
+
+Nešlo o rozbité chování (validace samotná je od běhu (30)/(14) v pořádku,
+špatné ID pořád backend odmítne), ale o hlášku, která by uživatele matla
+nebo lhala o příčině — přesně to, co běh (30) při zavedení `KIND_ROBOT`/
+`KIND_CAMERA` nechal jako menší položku ve frontě.
+
+### Oprava
+
+`_slug_error_response(exc, kind)` teď bere `kind` a posílá ho v odpovědi
+(`server.py`); všech pět volajících míst (`create_project`, `add_robot`,
+`add_camera`, `create_skill`, `setup_finish`) předává svůj skutečný druh
+(`KIND_PROJECT`/`KIND_ROBOT`/`KIND_CAMERA`/`KIND_SKILL`). `app.ts` má nový
+`slugErrKey(code, kind)`, který pro pět kódů, jejichž text popisuje, čím se
+identifikátor STANE (`empty`, `charset`, `tooLong`, `windowsReserved`,
+`duplicate`), sestaví klíč `slug.err.<code>.<kind>`; `startChar` a
+`evalPrefix` nic takového netvrdí a zůstávají společné. Všech 6 volání v
+`app.ts` (projekt ×2, robot, kamera, dovednost, živá kontrola `/api/slug/
+check`) teď posílá svůj `kind` místo dřívějšího plošného klíče. `i18n.ts`
+dostalo čtyři varianty (skill/project/robot/camera) místo jedné pro každý
+z pěti kódů — kamera navíc nemluví o „složce“ vůbec, jen o cestě API
+`/api/cameras/{id}`, protože žádná složka nevzniká.
+
+### Ověřeno v cloudu
+
+`npm run typecheck` čistý. `bash scripts/verify.sh` prošel celý — **322
+pytestů beze změny**, i18n `cs=1076 en=1076` (+15 klíčů: −5 staré obecné,
++20 nové čtyřvariantní, parita zachována). `npm run build` proběhl, `web/`
+je čerstvý.
+
+Živý smoke test proti reálně běžícímu `uvicorn`: založil jsem projekt a
+postupně poslal `POST /api/robots` s ID obsahujícím `/` (→ `charset`,
+`kind: "robot"`), pak platné ID a jeho duplicitu (→ `duplicate`,
+`kind: "robot"`); `POST /api/cameras` s prázdným ID (→ `empty`,
+`kind: "camera"`) a s duplicitou (→ `duplicate`, `kind: "camera"`);
+`POST /api/skills` s duplicitou (→ `duplicate`, `kind: "skill"`). Všech pět
+odpovědí neslo správný `kind` v JSON těle, přesně podle druhu objektu.
+Testovací projekt a server po ověření smazány/ukončeny.
+
+### Co zbývá vyzkoušet na fyzickém robotu
+
+Nic — čistě text chybové hlášky a jedno nové pole v JSON odpovědi, žádný
+LeRobot příkaz ani hardwarová cesta se nemění. Netestovatelné v cloudu jen
+proto, že žádná část týhle změny hardware nepoužívá, ne proto, že by se
+tomu bylo možné vyhnout.
+
+### Otevřené věci, které tenhle běh potvrzuje
+
+- **`#robot-id`/`#camera-id` bez live validace** (z běhu 30) — beze změny;
+  `checkSlug()`/`runSlugCheck()` pořád berou jen `'project' | 'skill'`,
+  robot/kamera se validují až při odeslání formuláře, ne za psaní.
+  `slugErrKey()` už na rozšíření o tyto dva druhy je připravený (mapa
+  `perKind` funguje pro libovolný ze čtyř `kind`), takže rozšíření
+  `/api/slug/check` na `KIND_ROBOT`/`KIND_CAMERA` je teď čistě backendová
+  a formulářová práce, ne i18n práce navíc.
+- **`remove_robot`/`remove_camera` tiše no-opují** (z běhu 32) — beze
+  změny, pořád nízká závažnost.
+- **Bimanuální/CAN připojení (`CONN_BIMANUAL`)** — beze změny, velká
+  položka, ne na jeden běh.
+
+---
+
 ## 2026-08-03 (33) — Priorita A: kalibrační tlačítka Potvrdit/Kalibrovat znovu/
 Přerušit tiše ignorovala neúspěšnou odpověď backendu — uživatel neměl šanci
 poznat, že kliknutí nic neudělalo

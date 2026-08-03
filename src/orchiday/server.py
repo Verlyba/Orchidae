@@ -46,7 +46,9 @@ if _qt_app is None:
 from orchiday.core.project_manager import ProjectManager
 from orchiday.core.events import event_bus
 from orchiday.core.slugs import (
+    KIND_CAMERA,
     KIND_PROJECT,
+    KIND_ROBOT,
     KIND_SKILL,
     MAX_LEN,
     InvalidSlug,
@@ -187,12 +189,15 @@ def _get_controller():
     return _controller
 
 
-def _slug_error_response(exc: InvalidSlug) -> dict[str, Any]:
+def _slug_error_response(exc: InvalidSlug, kind: str) -> dict[str, Any]:
     """Turn a rejected identifier into a response the page can translate.
 
     `error` stays for callers that only log the body; `error_code` /
     `error_params` are what the wizard renders, so the wording lives in i18n
-    and not in the API.
+    and not in the API. `kind` lets the page pick a message that describes
+    what the identifier actually *is* (a skill is a LeRobot dataset folder; a
+    robot is a folder with no dataset identity; a camera has no folder at
+    all) instead of a single skill-flavoured sentence for every caller.
     """
     problem = exc.problem
     return {
@@ -200,6 +205,7 @@ def _slug_error_response(exc: InvalidSlug) -> dict[str, Any]:
         "error": f"invalid slug: {problem.code}",
         "error_code": problem.code,
         "error_params": dict(problem.params),
+        "kind": kind,
     }
 
 
@@ -370,7 +376,7 @@ async def create_project(body: ProjectCreate):
         data = pm.create_project(body.name, body.slug, p_dir, scene_description=body.scene_description)
         return {"ok": True, "project": data}
     except InvalidSlug as e:
-        return JSONResponse(_slug_error_response(e), status_code=422)
+        return JSONResponse(_slug_error_response(e, KIND_PROJECT), status_code=422)
     except FileExistsError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
 
@@ -431,7 +437,7 @@ async def add_robot(body: RobotCreate):
         pm.add_robot(config)
         return {"ok": True, "robot": config}
     except InvalidSlug as e:
-        return JSONResponse(_slug_error_response(e), status_code=422)
+        return JSONResponse(_slug_error_response(e, KIND_ROBOT), status_code=422)
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
@@ -507,7 +513,7 @@ async def add_camera(body: CameraCreate):
         pm.add_camera(config)
         return {"ok": True, "camera": config}
     except InvalidSlug as e:
-        return JSONResponse(_slug_error_response(e), status_code=422)
+        return JSONResponse(_slug_error_response(e, KIND_CAMERA), status_code=422)
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
@@ -744,7 +750,7 @@ async def create_skill(body: SkillCreate):
         pm.add_skill(body.slug, skill_data)
         return {"ok": True, "skill": skill_data}
     except InvalidSlug as e:
-        return JSONResponse(_slug_error_response(e), status_code=422)
+        return JSONResponse(_slug_error_response(e, KIND_SKILL), status_code=422)
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
@@ -2162,7 +2168,7 @@ async def setup_finish(body: SetupFinishConfig):
         # over the length cap still needs a real response instead of a raw
         # 500 — same shape /api/projects uses, so the wizard can render it
         # through i18n instead of showing "invalid slug: start_char".
-        return JSONResponse(_slug_error_response(e), status_code=422)
+        return JSONResponse(_slug_error_response(e, KIND_PROJECT), status_code=422)
     except Exception as e:
         log.exception("Setup finish error: %s", e)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)

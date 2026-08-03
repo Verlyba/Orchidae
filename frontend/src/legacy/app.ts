@@ -1753,7 +1753,7 @@ export const App = {
       // A rejected identifier arrives as a reason CODE, so the sentence comes
       // from i18n rather than from the API.
       const msg = r.error_code
-        ? this.t(`slug.err.${this.camelSlugCode(r.error_code)}`, { slug, ...(r.error_params || {}) })
+        ? this.t(this.slugErrKey(r.error_code, 'project'), { slug, ...(r.error_params || {}) })
         : (r.error || this.t('alert.unknownError'));
       this.log('ERROR', msg);
       alert(`${this.t('alert.createProjectFailed')} ${msg}`);
@@ -2530,7 +2530,7 @@ export const App = {
       // A rejected id arrives as a reason CODE (see ProjectManager.add_robot) —
       // render it through i18n instead of the raw "invalid slug: ..." string.
       const msg = res.error_code
-        ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug: id, ...(res.error_params || {}) })
+        ? this.t(this.slugErrKey(res.error_code, 'robot'), { slug: id, ...(res.error_params || {}) })
         : (res.error || this.t('alert.unknownError'));
       alert(msg);
     }
@@ -3171,7 +3171,7 @@ export const App = {
       // A rejected id arrives as a reason CODE (see ProjectManager.add_camera) —
       // render it through i18n instead of the raw "invalid slug: ..." string.
       const msg = res.error_code
-        ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug: id, ...(res.error_params || {}) })
+        ? this.t(this.slugErrKey(res.error_code, 'camera'), { slug: id, ...(res.error_params || {}) })
         : (res.error || this.t('alert.unknownError'));
       alert(msg);
     }
@@ -4981,7 +4981,7 @@ export const App = {
           // A rejected identifier comes back as a reason CODE, not a sentence,
           // so the message reads the same in both languages.
           const msg = res.error_code
-            ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug, ...(res.error_params || {}) })
+            ? this.t(this.slugErrKey(res.error_code, 'skill'), { slug, ...(res.error_params || {}) })
             : res.error;
           alert(`${this.t('alert.createSkillFailed')} ${msg}`);
           this.log('ERROR', `${this.t('alert.createSkillFailed')} ${msg}`);
@@ -5760,7 +5760,7 @@ export const App = {
     } else {
       statusEl.className = 'slug-status is-bad';
       const params: Record<string, string> = { slug, ...(res?.params || {}) };
-      const reason = this.t(`slug.err.${this.camelSlugCode(res?.code || 'empty')}`, params);
+      const reason = this.t(this.slugErrKey(res?.code || 'empty', kind), params);
       const hint = res?.suggestion && res.suggestion !== slug
         ? ' ' + this.t('slug.suggestion', { suggestion: res.suggestion })
         : '';
@@ -5771,6 +5771,22 @@ export const App = {
   /** `windows_reserved` -> `windowsReserved`, so reason codes map onto i18n keys. */
   camelSlugCode(code: string): string {
     return String(code).replace(/_([a-z])/g, (_m, c) => c.toUpperCase());
+  },
+
+  /**
+   * What a rejected identifier is describes what it BECOMES on disk, and that
+   * differs by kind: a skill slug is a LeRobot dataset folder, a project/robot
+   * slug is a plain folder with no dataset identity, and a camera id has no
+   * folder at all (it only ever appears in a REST path and project.json). A
+   * message written for one keeps being technically wrong for the others, so
+   * these codes carry a kind-specific i18n key; the rest (`startChar`,
+   * `evalPrefix`) do not mention what the identifier becomes and stay generic.
+   */
+  slugErrKey(code: string, kind: string): string {
+    const camel = this.camelSlugCode(code);
+    const perKind = new Set(['empty', 'charset', 'tooLong', 'windowsReserved', 'duplicate']);
+    const safeKind = ['skill', 'project', 'robot', 'camera'].includes(kind) ? kind : 'skill';
+    return perKind.has(camel) ? `slug.err.${camel}.${safeKind}` : `slug.err.${camel}`;
   },
 
   setSlugState(slugId: string, valid: boolean): void {
@@ -7345,7 +7361,7 @@ export const App = {
         // A rejected identifier arrives as a reason CODE (see createProject()) —
         // render it through i18n instead of the raw "invalid slug: ..." string.
         const msg = res.error_code
-          ? this.t(`slug.err.${this.camelSlugCode(res.error_code)}`, { slug: name, ...(res.error_params || {}) })
+          ? this.t(this.slugErrKey(res.error_code, 'project'), { slug: name, ...(res.error_params || {}) })
           : (res.error || this.t('alert.unknownError'));
         alert('Chyba při dokončení setupu: ' + msg);
       }
