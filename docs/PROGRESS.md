@@ -8,6 +8,105 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (31) — Priorita A: dokončení opravy z běhu (30) — skill/dataset
+slug ve REST cestách šel dál syrovou interpolací, a jeden z případů byl horší
+než 404: DELETE hlásilo `{"ok": true}`, aniž by cokoliv smazal
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (na špičce
+`fedc74f`, shodné s koncem běhu (30)). `setup-dev.sh` proběhl,
+`bash scripts/verify.sh` prošel celý (322 pytestů) — žádná priorita A
+viditelná ve `verify.sh` (nemůže — netestuje běžící server). Než jsem šel do
+otevřené fronty, poslal jsem Explore agenta ověřit, jestli položky 1–4 z
+minulého běhu pořád platí, a hledat cokoliv rozbité, co `verify.sh` nechytí —
+přesně postup, co doporučil běh (30).
+
+### Nález: run (30) opravil 9 volání pro roboty/kamery, ale stejná třída díry
+zůstala nedotčená pro skilly/datasety
+
+`frontend/src/legacy/app.ts` staví `` `/skills/${slug}` `` a
+`` `/skills/${datasetSlug}/dataset_info}` `` (+ `policy_status`, `step_marks`,
+`export_model`, `delete_episode` — 11 volání) pořád prostou interpolací, bez
+jakéhokoli escapování. `add_skill()` validuje slug při vzniku už od běhu (14),
+ale `validate_slug` se neuplatní na starší/ručně upravená data na disku —
+stejný princip, jaký run (30) sám pojmenoval jako důvod, proč dát
+`encodeURIComponent` i tam, kde vytváření samo o sobě už chráněné je.
+
+**Ověřeno živě, ne jen odvozeno.** Nastartoval jsem `uvicorn`, založil projekt
+a ručně (mimo API, jako simulace staršího/ručně upraveného projektu) vložil
+skill se slugem `bad#skill` do `project.json` + odpovídající adresář.
+Zavolal jsem přesně to, co by prohlížeč poslal na `DELETE /api/skills/${slug}`
+beze změny (`node -e 'fetch(...)'`, stejné pravidlo skládání URL jako `fetch`
+v prohlížeči): **odpověď byla `200 {"ok": true}`, ale adresář `bad#skill/` i
+záznam v `project.json` zůstaly beze změny** — `#` je URL fragment, prohlížeč
+ho z requestu úplně utne, server tak dostal `DELETE /api/skills/bad` (skill
+`bad` neexistuje), a `remove_skill()` na neexistující skill nehlásí chybu
+(jen filtruje seznam a `if skill_dir.exists(): rmtree`, obojí no-op). Tohle je
+horší než tichý 404 z běhu (30) — je to tiché **false positive**: uživatel
+klikne na Smazat, appka řekne „hotovo", ale skill i jeho nahraná data zůstanou
+přesně tam, kde byla.
+
+Druhý scénář: `parent/dataset_info` pro dvouúrovňový slug `parent/child#weird`
+(legitimní tvar pro pod-kroky, viz `dataset_repo_id()`) — nekódovaná verze
+dala **404** (fragment usekl `weird/dataset_info`, cesta se nedala smatchovat
+vůbec), zatímco cílová oprava musí zachovat oddělující `/` (routy typu
+`{skill_slug:path}` ho očekávají doslovně — celý řetězec zakódovat by `/`
+změnilo na `%2F` a rozbilo přesně to, co dneska funguje).
+
+### Oprava
+
+Nová `App._encodeSkillPath(slug)` (`app.ts`, vedle `api()`): rozdělí slug na
+`/`, každý segment zvlášť projede `encodeURIComponent`, spojí zpět `/` —
+zachová záměrné dvouúrovňové `parent/step` cesty, ale chrání každý segment
+před `#`, `?`, `%` a podobnými znaky, co by se do URL dostaly nezakódované.
+Použito na všech 9 voláních směřujících na `{skill_slug:path}` routy
+(`dataset_info` ×4, `policy_status` ×2, `step_marks`, `export_model`,
+`delete_episode`). Pro dvě volání na plochou (jednosegmentovou)
+`/api/skills/{skill_slug}` routu (`PUT` v `submitSkillWizard()`, `DELETE` v
+`deleteSkill()`) stačí prostý `encodeURIComponent()` — tahle rout nikdy
+slash neočekává, přesně jako oprava robotů/kamer v běhu (30).
+
+### Ověřeno v cloudu
+
+`cd frontend && npm run typecheck` čistý, `npm run build` proběhl (`web/`
+přebudováno, manifest aktuální). `bash scripts/verify.sh` prochází celý
+(322 pytestů beze změny — tahle oprava je čistě frontend URL-building, žádná
+nová backendová validace se nepřidávala, protože `add_skill()` už chráněná je
+od běhu 14). Živý smoke test proti reálně běžícímu `uvicorn` (ne jen
+simulace): scénář `bad#skill` výše (DELETE) a scénář `parent/child#weird`
+(GET dataset_info) — v obou případech stará (nekódovaná) verze URL selhala
+tiše nebo na 404, nová (`encodeURIComponent`/`_encodeSkillPath`) verze
+zasáhla správný skill a vrátila očekávaná data / smazala správný adresář.
+Testovací projekt a server po ověření smazány/ukončeny, nezůstalo nic v
+repu ani mimo něj.
+
+### Co zbývá vyzkoušet na fyzickém robotu
+
+Nic — stejně jako u běhu (30), tahle oprava je čistě URL-encoding na
+frontendu, žádný LeRobot příkaz se nesestavuje jinak než dřív. Netestováno (a
+netestovatelné v cloudu): žádná hardwarová cesta se týkala.
+
+### Otevřené věci, které tenhle běh potvrzuje nebo přidává
+
+- **`#robot-id`/`#camera-id` nemají live validaci** (z běhu 30) — pořád
+  platí, Explore agent dnes potvrdil (`AddRobotModal.tsx:29`,
+  `AddCameraModal.tsx:29` — prostý `<input>` bez `onInput`/`/api/slug/check`,
+  na rozdíl od skill wizardu na `app.ts:5718`). Menší D položka.
+- **`slug.err.*` hlášky mluví o „složce datasetu"** i pro
+  projekt/robota/kameru (z běhu 30) — pořád platí (`i18n.ts:759-762`,
+  `1856-1862`), beze změny dnes.
+- **Bimanuální/CAN připojení (`CONN_BIMANUAL`)** — potvrzeno Explore agentem
+  znovu jako nedotčené (`lerobot_bridge.py`, `device_types.py`,
+  `constants.py` — katalogová metadata existují, žádný bridge/controller kód
+  je nezpracovává). Pořád velká položka, ne na jeden běh.
+- **Nová položka pro příště:** `slug`/`datasetSlug` hodnoty, které appka
+  posílá na `/datasets/split_steps` a podobné endpointy v **JSON těle**
+  (ne v URL cestě), nepotřebují URL-encoding (JSON to zvládá samo) — jen jsem
+  to chtěl výslovně zapsat, ať příští běh neduplikuje kontrolu téhle větve,
+  kterou jsem dnes taky procházel (`skill_slug: skill` v `/datasets/split_steps`
+  volání, beze změny, správně).
+
+---
+
 ## 2026-08-03 (30) — Priorita A: robot/camera ID se slashem tiše rozbíjel
 REST routy a mohl zapsat mimo adresář robotů — teď se to validuje na vstupu
 stejným pravidlem, jaké už měly skilly a projekty

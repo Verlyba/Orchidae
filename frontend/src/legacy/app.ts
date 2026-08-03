@@ -1219,7 +1219,7 @@ export const App = {
     }
     this.publishDatasets({ detailLoading: true });
     try {
-      const raw = await this.api('GET', `/skills/${skill}/dataset_info`);
+      const raw = await this.api('GET', `/skills/${this._encodeSkillPath(skill)}/dataset_info`);
       if (!fresh()) return;
       const info = {
         exists: !!raw?.exists,
@@ -1230,7 +1230,7 @@ export const App = {
       this.publishDatasets({ info });
 
       // "Export model" is only meaningful once a policy has been trained.
-      const status = await this.api('GET', `/skills/${skill}/policy_status`);
+      const status = await this.api('GET', `/skills/${this._encodeSkillPath(skill)}/policy_status`);
       if (!fresh()) return;
       this.publishDatasets({ modelExists: !!status?.exists });
 
@@ -1239,7 +1239,7 @@ export const App = {
       let enabled = false;
       let tipKey = 'tip.splitNeedsDataset';
       if (info.exists) {
-        const marks = await this.api('GET', `/skills/${skill}/step_marks`);
+        const marks = await this.api('GET', `/skills/${this._encodeSkillPath(skill)}/step_marks`);
         if (!fresh()) return;
         const nSteps = (marks?.steps || []).length;
         const nMarked = Object.keys(marks?.episodes || {}).length;
@@ -1553,6 +1553,18 @@ export const App = {
   },
 
   // ── API Communicator ────────────────────────────────────────────────
+  /**
+   * Percent-encode a skill/dataset slug for a `/skills/…` REST path. A
+   * sub-step's slug is legitimately `parent/step` (see `dataset_repo_id()`
+   * server-side) — encoding the whole string would turn that separating `/`
+   * into `%2F` and break the `{skill_slug:path}` routes that expect it.
+   * Escaping per segment keeps the split but still guards each segment
+   * against '#', '?', '%' and the like reaching the URL unescaped.
+   */
+  _encodeSkillPath(slug: string): string {
+    return slug.split('/').map(encodeURIComponent).join('/');
+  },
+
   async api(method: string, path: string, body?: any): Promise<any> {
     const host = location.host || 'localhost:8000';
     const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
@@ -4328,7 +4340,7 @@ export const App = {
       const parentSlug = details[s]?.parent_slug || '';
       const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
       try {
-        const info = await this.api('GET', `/skills/${datasetSlug}/dataset_info`);
+        const info = await this.api('GET', `/skills/${this._encodeSkillPath(datasetSlug)}/dataset_info`);
         if (token !== this._skillBadgeToken) return;
         publishBadge(s, {
           status: 'ready',
@@ -4619,7 +4631,7 @@ export const App = {
     this.publishCollect({ detailLoading: true });
 
     // Fetch LeRobot dataset info dynamically — episode count, size, rows.
-    this.api('GET', `/skills/${datasetSlug}/dataset_info`)
+    this.api('GET', `/skills/${this._encodeSkillPath(datasetSlug)}/dataset_info`)
       .then(info => {
         // The tree's badge for this row asks this exact endpoint for this
         // exact number, so record it here too. That is what keeps the tree
@@ -4650,7 +4662,7 @@ export const App = {
       });
 
     // Fetch policy status to see if it is trained!
-    this.api('GET', `/skills/${s}/policy_status`)
+    this.api('GET', `/skills/${this._encodeSkillPath(s)}/policy_status`)
       .then(res => {
         if (fresh()) this.publishCollect({ policy: res?.exists ? 'trained' : 'untrained' });
       })
@@ -4924,7 +4936,7 @@ export const App = {
       // EDIT MODE
       this.log('INFO', `${this.t('log.savingSkill')} '${name}' (slug: ${this.skillWizardEditSlug})...`);
       try {
-        const res = await this.api('PUT', `/skills/${this.skillWizardEditSlug}`, {
+        const res = await this.api('PUT', `/skills/${encodeURIComponent(this.skillWizardEditSlug)}`, {
           name,
           slug: this.skillWizardEditSlug,
           description: desc,
@@ -5031,7 +5043,7 @@ export const App = {
 
   exportSkillModel(slug: string): void {
     this.log('INFO', this.t('log.modelExport') + ' ' + slug);
-    this._triggerDownload(`/api/skills/${slug}/export_model`);
+    this._triggerDownload(`/api/skills/${this._encodeSkillPath(slug)}/export_model`);
   },
 
   importSkillModel(): void {
@@ -5061,7 +5073,7 @@ export const App = {
   async deleteSkill(slug: string): Promise<void> {
     if (confirm(`Opravdu chcete smazat '${slug}' a všechna jeho nahraná data?`)) {
       try {
-        const res = await this.api('DELETE', `/skills/${slug}`);
+        const res = await this.api('DELETE', `/skills/${encodeURIComponent(slug)}`);
         if (res && res.error) {
           alert(`Chyba při odebírání: ${res.error}`);
           return;
@@ -5122,7 +5134,7 @@ export const App = {
     if (confirm(`Opravdu chcete smazat epizodu ${idx} z datasetu local/${datasetSlug}? Tato akce změní uložená Parquet data a nelze ji vzít zpět!`)) {
       try {
         this.log('INFO', `Mažu epizodu ${idx} z datasetu local/${datasetSlug}...`);
-        const res = await this.api('POST', `/skills/${datasetSlug}/delete_episode`, {
+        const res = await this.api('POST', `/skills/${this._encodeSkillPath(datasetSlug)}/delete_episode`, {
           episode_index: idx
         });
         if (res && res.error) {
@@ -5170,7 +5182,7 @@ export const App = {
     this.openModal('modal-manage-episodes');
 
     try {
-      const info = await this.api('GET', `/skills/${datasetSlug}/dataset_info`);
+      const info = await this.api('GET', `/skills/${this._encodeSkillPath(datasetSlug)}/dataset_info`);
       if (sizeEl) sizeEl.textContent = `${info.size_mb || '0.00'} MB`;
 
       if (listContainer) {
