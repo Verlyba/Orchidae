@@ -8,6 +8,98 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (35) — Priorita D: „Správa datasetů" roztahovala select a dva
+textové vstupy na celou šířku panelu pod 1100 px, přesně proti zadání
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (špička `2a0094d`,
+konec běhu 34). `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý
+(322 pytestů) hned na začátku. Fronta neobsahovala žádnou novou položku
+kategorie A/B nad rámec velkého bimanuál/CAN úkolu (zapsaný jako „ne na jeden
+běh"), takže jsem šel na nejsilnější zapsanou položku kategorie D: „Roztažená
+pole na kartě `Správa datasetů` při 1024×760", zapsanou v (21) s konkrétními
+píxely (`ds-select` 738 px, `ds-del-indices` 662 px, `ds-newtask` 630 px proti
+prahu 620 px) a s poznámkou, že recept z (9) na ni ještě nebyl použit.
+
+### Nález
+
+`scripts/measure_layout.mjs` měří jen výchozí tab stránky `datasety` (`collect`),
+ne tab `manage` — stejná mezera jako u `setup/models` v (13). Napsal jsem
+jednorázový probe skript (Playwright, stejný postup jako `measure-layout.sh`:
+založit projekt, otevřít, přepnout `App.switchDatasetyTab('manage')`) a
+naměřil na HEADu při 1024×760: `ds-select` 872 px, `ds-del-indices` 796 px,
+`ds-newtask` 764 px — stejná třída chyby jako v (21), o něco horší čísla
+(jiná šířka sidebaru/fixture, ale směr stejný).
+
+Příčina: `.merge-cols` se pod 1100 px zlomem složí do jednoho sloupce
+(`app.css:1040-1044`), takže `.merge-col` zabere celou šířku panelu. Tři pole
+byla v obyčejném `.form-group` (flex column, `align-items: stretch` výchozí),
+dvě z nich navíc s explicitním `flex: "1"` — bez jakéhokoli stropu se
+`<select>`/`<input>` natáhly na celou šířku sloupce. Ostatní pole na téže
+stránce (`ds-viz-episode`, `ds-split-train`) tenhle strop už měly (`width:
+"80px"` / `"110px"` na `form-group`), a `ds-merge-source`/`ds-merge-target`
+unikly jen proto, že sdílejí řádek ve dvou — tři konkrétní pole ne.
+
+### Oprava
+
+`frontend/src/pages/DatasetyPage.tsx`: `ds-select` dostal `max-width: 420px`
+(čitelná délka názvu datasetu, ne šířka okna), `ds-del-indices` (krátký
+seznam indexů jako „0, 2, 5") `max-width: 220px` místo `flex: "1"`,
+`ds-newtask` (`single_task` věta, stejný druh hodnoty jako `rec-task-desc`
+na kartě sběru dat) `max-width: 600px` — stejný strop jako `.rec-cfg-wide`
+používá pro `rec-task-desc`/`rec-extra-args`, aby stejný druh pole vypadal
+stejně na obou kartách místo dvou různých čísel bez důvodu. Žádnou novou CSS
+třídu jsem nezaváděl — `.rec-config-grid`/`rec-cfg-wide` je stavěná na čisté
+mřížky polí bez tlačítka vedle sebe, kdežto tahle sekce má u každého pole svůj
+akční button v řádku (`ds-op-row`), stejný vzor jako `ds-split-train`
+o pár řádků výš — cílenější oprava (`max-width` přímo na `form-group`) je tu
+konzistentnější s tím, co už na téže stránce je.
+
+### Ověřeno v cloudu
+
+`npm run typecheck` čistý, `npm run build` proběhl (nový hash JS bundlu,
+CSS beze změny — nezměnil jsem žádné styly). `bash scripts/verify.sh` prošel
+celý, beze změny v počtu testů/i18n klíčů (jde jen o inline `style`, žádný
+nový text).
+
+Živé přeměření proti reálně běžícímu `uvicorn` (stejný probe skript jako výše,
+smazán po použití): `ds-select`/`ds-del-indices`/`ds-newtask` teď drží
+420/220/600 px na všech třech velikostech (1600×900, 1280×800, 1024×760) —
+strop drží bez ohledu na okno, ne jen nad zlomem 1100 px. `scripts/
+measure-layout.sh --pages datasety` (výchozí tab `collect`) beze změny,
+0 `wide`, 0 `clipped`, `overflowX` 0.
+
+### Co zbývá vyzkoušet na fyzickém robotu
+
+Nic — čistě šířka tří polí v inline stylu, žádný LeRobot příkaz ani hardwarová
+cesta se nemění.
+
+### Otevřené věci, které tenhle běh potvrzuje nebo přidává
+
+- **Segfault ve `verify.sh` uvnitř pytestu se znovu objevil, pořád jen
+  občas.** Stejný známý závod jako v bězích (24)–(27) (vlákno
+  `_test_lm_connection()` v `controller.py`, `daemon=True` thread emituje na
+  `event_bus` signál, který mezitím zanikl s testem) — `for i in 1..3; do
+  pytest tests/ -q; done` proběhlo po prvním pádu třikrát čistě (322 pytestů
+  pokaždé). Netýká se dnešní změny (žádný Python soubor se dnes neměnil).
+  Nefixoval jsem to znovu — je to pořád nereprodukovatelné na požádání, ale
+  zapisuji znovu, protože se to objevilo potřetí za pět běhů (24, 27, 35):
+  kdyby se to objevilo znovu, `controller.py:259`/`_test_lm_connection` je
+  místo, kam se dívat, ne generický flaking.
+- **Nová položka:** `scripts/measure_layout.mjs` neměří tab `manage` na
+  `datasety` (jen výchozí `collect`) ani tab `models` na `setup` (známo z
+  (13)) — obě mezery se dají zavřít stejným způsobem: po `changeTab()`
+  zavolat i příslušný `switch*Tab()` a měřit dvakrát. Nejde o velký úkol,
+  ale dokud to chybí, `measure-layout.sh` mlčky přehlíží přesně tu stránku,
+  o které zadání mluví nejvíc (roztažená pole).
+- **Karta „Správa datasetů" má `ovfX = 2`** (1600×900, 1280×800) — beze
+  změny, pořád nedohledaný prvek (z (21)).
+- **`remove_robot`/`remove_camera` tiše no-opují** (z běhu 32) — beze změny,
+  pořád nízká závažnost, pořád kandidát na kategorii E.
+- **Bimanuální/CAN připojení (`CONN_BIMANUAL`)** — beze změny, velká
+  položka, ne na jeden běh.
+
+---
+
 ## 2026-08-03 (34) — Priorita E: `slug.err.*` hlášky lhaly o tom, čím se
 zamítnutý identifikátor stane — robot/kamera dostávaly text napsaný pro dovednost
 
@@ -4066,14 +4158,13 @@ compileall, i18n parita, duplicitní id, `App.*` odkazy z HTML).
   (`rec-episodes-list-container`) a značkovací sloupec (`rec-tagging-steps`,
   `rec-step-verdict`). Pozor na stejný tvar pasti jako `disabled`:
   `value` / `checked` / `selected`.
-- **Roztažená pole na kartě „Správa datasetů" při 1024×760** — změřeno v (21)
-  a **není to regrese, je to i na HEADu**: `SELECT#ds-select` 738 px,
-  `INPUT#ds-del-indices` 662 px, `INPUT#ds-newtask` 630 px (práh 620).
-  Pod globálním zlomem se `.merge-cols` složí do jednoho sloupce a všechna
-  pole dostanou plnou šířku panelu — přesně to, co zadání zakazuje. Recept
-  z (9): `grid-template-columns: repeat(auto-fit, minmax(215px, 1fr))`,
-  `max-width` na sekci **ne**. (Obsazenost té karty je 36 / 45 / 83 %, takže
-  nejde o mrtvou plochu, jen o šířku polí.)
+- ~~**Roztažená pole na kartě „Správa datasetů" při 1024×760**~~ — hotovo
+  2026-08-03 (35). `SELECT#ds-select`, `INPUT#ds-del-indices`,
+  `INPUT#ds-newtask` dostaly `max-width` na svém `.form-group` (420 / 220 /
+  600 px) místo `flex: 1` bez stropu. `ds-newtask` sdílí strop 600 px s
+  `.rec-cfg-wide` (stejný druh pole — `single_task` věta — jako `rec-task-desc`
+  na kartě sběru dat). Obsazenost karty beze změny (36/45/83 %, jde jen
+  o šířku polí, ne o plochu).
 - Karta „Správa datasetů" má při 1600×900 a 1280×800 `ovfX = 2` (vodorovný
   přesah uvnitř klipujícího prvku, 1 při 1024×760). Také to je i na HEADu,
   ale zatím není dohledané, který prvek to je.

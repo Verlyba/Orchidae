@@ -61,7 +61,7 @@ function DatasetManagePanel() {
                 className="setup-block-content"
                 style={{ flex: "1", display: "flex", flexDirection: "column", gap: "10px" }}
               >
-                <div className="form-group">
+                <div className="form-group" style={{ maxWidth: "420px" }}>
                   <div className="label-with-tooltip">
                     <label htmlFor="ds-select" data-i18n="lbl.dsFromTree">Dataset (z projektového stromu dovedností)</label>
                     {' '}
@@ -234,7 +234,7 @@ function DatasetManagePanel() {
                 style={{ flex: "1", display: "flex", flexDirection: "column", gap: "14px", overflowY: "auto" }}
               >
                 <div className="ds-op-row">
-                  <div className="form-group" style={{ flex: "1" }}>
+                  <div className="form-group" style={{ maxWidth: "220px" }}>
                     <div className="label-with-tooltip">
                       <label htmlFor="ds-del-indices" data-i18n="lbl.deleteEpisodes">Smazat epizody (indexy oddělené čárkou)</label>
                       {' '}
@@ -257,7 +257,11 @@ function DatasetManagePanel() {
                   >{opLabel('delete_episodes', 'btn.delete')}</button>
                 </div>
                 <div className="ds-op-row">
-                  <div className="form-group" style={{ flex: "1" }}>
+                  {/* Same cap as .rec-cfg-wide (600px) — this is the same kind of
+                      field (a single_task sentence), just editing an existing
+                      dataset instead of a new recording, and the app should
+                      treat the two consistently. */}
+                  <div className="form-group" style={{ flex: "1", maxWidth: "600px" }}>
                     <div className="label-with-tooltip">
                       <label htmlFor="ds-newtask" data-i18n="lbl.changeTaskAnno">Změnit textovou anotaci úkolu (všechny epizody)</label>
                       {' '}
