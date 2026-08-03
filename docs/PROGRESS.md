@@ -8,6 +8,151 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (27) — Vlákno `_test_lm_connection` padalo na `RuntimeError:
+Signal source has been deleted` — teď to přežije
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (origin/main byl
+force-pushed zpět na špičku `1fa8aec`, shodnou s tím, na čem tento branch
+skončil minule). `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel
+celý (313 pytestů, 10 kroků) — žádná priorita A ve frontě podle checklistu.
+
+**Změna zadání během běhu.** Uživatel poslal zprávu přímo do téhle relace:
+souběžně běží lokální relace, která má na starosti frontend — tenhle běh se
+má soustředit na optimalizaci a backend. Frontendové soubory
+(`frontend/src/**`) jsem proto tento běh nesahal, i když jsem cestou narazil
+na vážnou frontendovou chybu (viz níže) — zapsáno pro tu lokální relaci /
+příští běh, ne opraveno tady.
+
+### Nález mimo rozsah dnešní opravy, ale Priorita A — zapsáno pro frontend
+
+Při zkoumání otevřené položky 1 (karty připojení ramen na Setup → Connect)
+se ukázalo, že `#tele-leader-port` a `#tele-follower-port` (selecty, ze
+kterých čte `updateArmStatusCards()`, `saveArmPortFromModal()`,
+`saveSettingsState()`, `onTelePortChange()` a `startTeleop()`) **nikde
+neexistují** v současném JSX (`grep` přes celé `frontend/src` — nula
+výskytů jako `id=`, jen jako `getElementById` čtenáři). Zbylo tam jen
+`tele-leader-type`/`tele-follower-type` (skryté inputy, ty existují).
+Důsledek:
+
+1. Tlačítko „Nastavit Leader/Follower rameno" → modál `ArmPortSetupModal` →
+   „Uložit port" → `saveArmPortFromModal()` zapisuje do neexistujícího
+   selectu → **port se nikde neuloží**. Karta „Připojení ramen" tak nikdy
+   nepřejde do stavu „připojeno", ať uživatel udělá cokoliv.
+2. Horší: `saveSettingsState()` (volá ji mj. `selectRobot()` — přesně to,
+   co běh (26) migroval na React stav) čte `followerPort`/`leaderPort` z
+   týchž neexistujících selectů → vždy `''` → posílá na `/api/settings`
+   `follower_port: ''`, `leader_port: ''`. Backend (`SettingsConfig`,
+   oprava z běhu 23) rozlišuje „nezasláno" (`None`) od „zasláno prázdné"
+   (`''`) — ale tenhle payload posílá výslovně prázdný řetězec, ne `None`,
+   takže podmínka `if body.follower_port is not None` je pravdivá a
+   **port se smaže**. Efekt: kliknutí na typ zařízení v Connect (nebo
+   změna cesty k LeRobotu/Pythonu v Nastavení, nebo úprava složky pro
+   ukládání datasetu — cokoliv, co zavolá `saveSettingsState()`) **potichu
+   vynuluje porty ramen nastavené v Rychlém setupu.**
+
+Nereprodukoval jsem to zásahem do UI (mimo rozsah), ale ověřil jsem
+statickou analýzou: `grep -rn "id=\"tele-leader-port\"" frontend/src/`
+nedává nic, zatímco `document.getElementById('tele-leader-port')` má přes
+20 čtenářů/zapisovatelů v `app.ts`. Backendová strana (`if body.follower_port
+is not None`) je v `src/orchiday/server.py` kolem řádku 1658. Pro frontend
+session: nejjednodušší oprava je pravděpodobně přidat skryté
+`<input type="hidden" id="tele-leader-port">` /
+`id="tele-follower-port"` do `SetupPage.tsx` vedle `tele-leader-type` /
+`tele-follower-type` (stejný vzor, co už tam je) a nechat
+`saveArmPortFromModal()` / `setDropdownOrCustomValue()` (které to očekávají
+jako zdroj pravdy) je poprvé skutečně najít — všechna navazující logika
+(`updateArmStatusCards`, `saveSettingsState`, `startTeleop`) už to čte
+správně, jen z prázdna.
+
+### Co se opravilo (backend, priorita A + E)
+
+`verify.sh` v minulých třech bězích (24, 25, 26) hlásil nereprodukovatelný
+segfault/výjimku ve vlákně `_test_lm_connection()` (`controller.py`).
+Dnes se to povedlo chytit napřímo: `for i in 1..5; do pytest tests/; done`
+spadlo na běhu 4 s:
+
+```
+Exception in thread Thread-46 (_test_lm_connection):
+  File ".../controller.py", line 280, in _test_lm_connection
+    event_bus.model_connection_fail.emit("vlm_inspector", msg_vlm)
+RuntimeError: Signal source has been deleted
+
+During handling of the above exception, another exception occurred:
+  File ".../controller.py", line 283, in _test_lm_connection
+    event_bus.model_connection_fail.emit("llm_ceo", str(e))
+RuntimeError: Signal source has been deleted
+```
+
+Mechanismus: `_test_lm_connection()` běží na daemon vlákně, spuštěném z
+`_on_project_opened()`/`_on_model_configured()`, a dělá skutečné HTTP volání
+na LLM/VLM endpoint (typicky `connection refused` proti neběžícímu LM
+Studiu). Než se to HTTP volání vrátí, `event_bus` (na kterém to hlásí
+výsledek) může být na straně Qt/testovacího hostitele v nekonzistentním
+stavu (přesný spouštěč se nepodařilo izolovat — `event_bus` je proces-wide
+singleton, ale `TestClient` v `test_settings_broadcast.py` je jediné místo,
+které přes reálný `OrchidayController` skutečně otevírá projekt a tím
+vlákno spouští) — `.emit()` pak hodí `RuntimeError`. Původní kód to
+**nechytal vůbec** pro první `emit()` v `try`, a i kdyby chytal, `except
+Exception` handler **sám znovu emitoval na stejný mrtvý signál** — a tenhle
+druhý `emit()` už nic nechytalo, takže unikl z vlákna nezachycený.
+
+Oprava: `_test_lm_connection()` má teď lokální `emit(signal, *args)`
+wrapper, který volá `signal.emit(*args)` a chytá jen `RuntimeError` (ne
+`Exception` obecně — skutečné chyby při odesílání dat pryč nemizí, jen
+tenhle jeden konkrétní "mrtvý receiver" případ). Použit na všech osmi
+emit-voláních v metodě, včetně těch ve `except` větvi, takže i fallback
+cesta je teď bezpečná.
+
+### Ověřeno v cloudu
+
+- Nový `tests/test_lm_connection_thread.py` (4 testy) — `OrchidayController.
+  __new__` (stejný vzor jako `test_plan_resolver.py`/`test_training_targets.
+  py`, přeskočí těžký `__init__`), `event_bus` signály nahrazené fejkem, co
+  při `emit()` hodí přesně `RuntimeError("Signal source has been deleted")`.
+  Tři scénáře (fail/fail, ok/ok, výjimka z probe samotné) ověřují, že
+  `_test_lm_connection()` neskončí výjimkou; čtvrtý ověřuje, že se **živý**
+  signál pořád doručí (guard nesmí spolknout skutečné výsledky, jen mrtvý
+  receiver). **Ověřeno, že by padly na starém kódu**: `git stash` na
+  `controller.py` + spuštění stejných testů → 3 ze 4 selžou přesně na
+  `RuntimeError: Signal source has been deleted` (čtvrtý, živý-signál test,
+  logicky prochází i na starém kódu).
+- Reprodukce před opravou: `for i in 1..5; do pytest tests/; done` spadlo na
+  běhu 4/5 (viz traceback výše). Po opravě: **12/12 čistých běhů** celé
+  sady (`313`/`317` testů, žádná výjimka ve vlákně, žádný segfault).
+- `bash scripts/verify.sh` **prochází celý** (317 pytestů — 313 + 4 nové,
+  10 kroků). Frontend nedotčen (`web/ bundle je aktuální` bez rebuildu,
+  žádná změna v `frontend/src`).
+
+**Na fyzickém robotu zbývá vyzkoušet:** nic — tahle oprava se týká jen
+chování testovacího/serverového vlákna při hlášení stavu LLM/VLM spojení
+Qt sběrnici, žádná hardwarová cesta (kalibrace, teleop, natáčení) se
+nedotýká.
+
+**Otevřeno pro příště:**
+1. **Priorita A pro frontend session** (viz nález výše): `#tele-leader-port`
+   / `#tele-follower-port` jsou mrtvé DOM elementy — celé „Nastavit
+   Leader/Follower rameno" na Connectu je nefunkční a `saveSettingsState()`
+   tiše maže nakonfigurované porty při každém volání. Návrh opravy popsán
+   výše (skryté inputy vedle `tele-leader-type`/`follower-type`).
+2. Dál na React stav (frontend, ne dnešní rozsah): karty připojení ramen a
+   kamery na Connectu, pak celá Kalibrace.
+3. Mrtvý kód `updateConnectCmdPreview()` / `renderDetectedHardware()`
+   (nález z běhu 26) — rozhodnout smazat, nebo obnovit jako React
+   komponentu.
+4. Přesná příčina, proč `event_bus` skončí v nekonzistentním stavu vprostřed
+   `test_settings_broadcast.py`, zůstává neidentifikovaná — dnešní oprava
+   je defenzivní (bezpečná bez ohledu na příčinu), ne kořenová. Kdyby se do
+   budoucna objevily další podobné "Signal source has been deleted" chyby
+   jinde, tohle je stopa, kam se podívat (Qt event pump běží jen uvnitř
+   `TestClient` lifespan bloku, `_test_lm_connection` je jediné místo, co
+   emituje z cizího vlákna dlouho po tom, co se spustilo).
+5. Bundle je pořád jeden ~744 kB chunk — rozdělit (`manualChunks`), až
+   dojde čas (frontend).
+6. Zbytek beze změny: `StrictMode`, otázka na majitele z běhu (18) jak
+   appku spouští (port 4173), patička „Umístění projektů" (běh 20).
+
+---
+
 ## 2026-08-03 (26) — Setup → Connect: seznam typů zařízení jede z React stavu
 
 **Výchozí stav.** `git pull --rebase origin main` beze změny (origin/main byl

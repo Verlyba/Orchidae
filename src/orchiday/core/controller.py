@@ -257,32 +257,48 @@ class OrchidayController(QObject):
             log.warning("Failed to auto-detect trained models metadata: %s", e)
 
     def _test_lm_connection(self) -> None:
-        """Asynchronously test connection to both LLM and VLM endpoints and report to UI."""
+        """Asynchronously test connection to both LLM and VLM endpoints and report to UI.
+
+        Runs on a daemon thread started fire-and-forget from `_on_project_opened`/
+        `_on_model_configured`. By the time the (real, possibly slow — connection
+        refused/timeout) HTTP calls below resolve, the project that spawned this
+        thread may already be closed, or the test/process host tearing down the Qt
+        object graph this reports to. `event_bus.emit()` then raises `RuntimeError:
+        Signal source has been deleted` — a defunct notification target, not a
+        connection-test failure, so it must not crash the thread (and, worse,
+        escape the `except` below that itself tries to emit the same dead signal).
+        """
+        def emit(signal, *args) -> None:
+            try:
+                signal.emit(*args)
+            except RuntimeError:
+                pass
+
         loop = asyncio.new_event_loop()
         try:
             # ── Test LLM connection ──────────────────────────────────────────
             if self.llm_client:
                 ok_llm, msg_llm = loop.run_until_complete(self.llm_client.test_connection())
                 if ok_llm:
-                    event_bus.model_connection_ok.emit("llm_ceo")
-                    event_bus.log_message.emit("SUCCESS", f"Connected LLM CEO to server at {self.llm_client.base_url}")
+                    emit(event_bus.model_connection_ok, "llm_ceo")
+                    emit(event_bus.log_message, "SUCCESS", f"Connected LLM CEO to server at {self.llm_client.base_url}")
                 else:
-                    event_bus.model_connection_fail.emit("llm_ceo", msg_llm)
-                    event_bus.log_message.emit("ERROR", f"LLM CEO server connection failed ({self.llm_client.base_url}): {msg_llm}")
-            
+                    emit(event_bus.model_connection_fail, "llm_ceo", msg_llm)
+                    emit(event_bus.log_message, "ERROR", f"LLM CEO server connection failed ({self.llm_client.base_url}): {msg_llm}")
+
             # ── Test VLM connection ──────────────────────────────────────────
             if self.vlm_client:
                 ok_vlm, msg_vlm = loop.run_until_complete(self.vlm_client.test_connection())
                 if ok_vlm:
-                    event_bus.model_connection_ok.emit("vlm_inspector")
-                    event_bus.log_message.emit("SUCCESS", f"Connected VLM Inspector to server at {self.vlm_client.base_url}")
+                    emit(event_bus.model_connection_ok, "vlm_inspector")
+                    emit(event_bus.log_message, "SUCCESS", f"Connected VLM Inspector to server at {self.vlm_client.base_url}")
                 else:
-                    event_bus.model_connection_fail.emit("vlm_inspector", msg_vlm)
-                    event_bus.log_message.emit("ERROR", f"VLM Inspector server connection failed ({self.vlm_client.base_url}): {msg_vlm}")
+                    emit(event_bus.model_connection_fail, "vlm_inspector", msg_vlm)
+                    emit(event_bus.log_message, "ERROR", f"VLM Inspector server connection failed ({self.vlm_client.base_url}): {msg_vlm}")
         except Exception as e:
-            event_bus.model_connection_fail.emit("llm_ceo", str(e))
-            event_bus.model_connection_fail.emit("vlm_inspector", str(e))
-            event_bus.log_message.emit("ERROR", f"Model server connection test encountered error: {e}")
+            emit(event_bus.model_connection_fail, "llm_ceo", str(e))
+            emit(event_bus.model_connection_fail, "vlm_inspector", str(e))
+            emit(event_bus.log_message, "ERROR", f"Model server connection test encountered error: {e}")
         finally:
             loop.close()
 
