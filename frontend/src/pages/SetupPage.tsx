@@ -132,6 +132,22 @@ export function SetupPage() {
                       onChange={(event: any) => { App.onRobotTypeChange() }}
                       style={{ display: "none" }}
                     ></select>
+                    {/* Source of truth for the resolved arm ports — written by
+                        ArmPortSetupModal's "Uložit port" (saveArmPortFromModal)
+                        and by the auto-detect wizard, read by
+                        updateArmStatusCards()/saveSettingsState()/startTeleop().
+                        Not rendered directly: the modal is the actual UI. */}
+                    <select
+                      id="tele-leader-port"
+                      onChange={(event: any) => { App.onTelePortChange('leader') }}
+                      style={{ display: "none" }}
+                    ><option value="">-- Vyberte port --</option></select>
+                    {' '}
+                    <select
+                      id="tele-follower-port"
+                      onChange={(event: any) => { App.onTelePortChange('follower') }}
+                      style={{ display: "none" }}
+                    ><option value="">-- Vyberte port --</option></select>
                     <div className="conn-sect conn-sect-grow">
                       <div className="teleop-sub-title-row">
                         <h4 className="teleop-sub-title" data-i18n="blk.hw.deviceType">Typ zařízení</h4>

@@ -2160,7 +2160,7 @@ export const App = {
     const sel = document.getElementById('modal-arm-port-select') as HTMLSelectElement | null;
     if (sel) {
       sel.innerHTML = '<option value="">-- Vyberte port --</option>' + (this.availablePorts || []).map((p: any) =>
-        `<option value="${this.esc(p.port)}">${this.esc(p.port)} (${this.esc(p.description || '')})</option>`
+        `<option value="${this.esc(p.device)}">${this.esc(p.device)} (${this.esc(p.description || '')})</option>`
       ).join('');
       const curVal = arm === 'leader'
         ? (document.getElementById('tele-leader-port') as HTMLSelectElement | null)?.value

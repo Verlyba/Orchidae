@@ -8,6 +8,141 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (28) — „Nastavit Leader/Follower rameno" na Connectu bylo
+dvojnásobně rozbité: chybějící cíl zápisu i špatné jméno pole v modálu —
+opraveno a ověřeno end-to-end, včetně toho, že to dřív vypadalo opraveně a
+nebylo
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (origin/main
+force-pushed zpět na špičku `d02ff20`, shodnou s tím, na čem předchozí běh
+skončil). `setup-dev.sh` proběhl. `bash scripts/verify.sh` **selhal hned na
+prvním kroku**: „web/ bundle is stale" — `build-manifest.json` committnutý v
+(27) neodpovídal skutečnému obsahu `frontend/src` (stejný počet souborů, jiný
+hash). Než cokoliv jiného: to má podle zadání přednost. Prozkoumáno místo
+slepé opravy — `cd frontend && npm run build` dal **bajtově identický**
+`web/assets/*.js` i `*.css` jako to, co bylo committnuté (ověřeno `diff` proti
+`git show HEAD:web/assets/...`), jen s jiným content-hash jménem souboru (Vite
+si evidentně negeneruje jméno čistě z výsledných bajtů) a jiným
+`sourceHash` v manifestu. Takže appka samotná nebyla poškozená — jen manifest
+neseděl na to, co bylo opravdu committnuté (nejpravděpodobněji: `npm run
+build` proběhl, pak se ještě upravil `app.css`, ale nebeze změny výstupu, a
+commit šel ven bez druhého rebuildu). Netvořilo to samostatnou opravu — sloučeno
+do rebuildu na konci tohoto běhu, který manifest srovnává se skutečností tak jako
+tak.
+
+### Priorita A (z otevřené položky 1 běhu 27): `#tele-leader-port` /
+`#tele-follower-port` neexistovaly — a i po přidání by pořád nešly nastavit
+
+Run (27) zdokumentoval nález beze zásahu do UI (mimo tehdejší rozsah):
+`saveArmPortFromModal()`, `updateArmStatusCards()`, `saveSettingsState()`,
+`onTelePortChange()`, `startTeleop()` — celá cesta „vyber port ramene" — čte a
+píše do `document.getElementById('tele-leader-port'/'tele-follower-port')`,
+ale tyhle `<select>` nikde v současném JSX neexistovaly (zmizely při redesignu
+karty Connect na modálový průvodce, aniž by za sebe nechaly skrytý ekvivalent
+— na rozdíl od `#robot-type-select`, který tenhle vzor pořád má). Důsledek:
+tlačítko „Nastavit Leader/Follower rameno" → modál → „Uložit port" byl úplný
+no-op, karta „Připojení ramen" nikdy nepřešla do stavu „připojeno" a
+`saveSettingsState()` posílal `follower_port: ''`/`leader_port: ''` při každém
+volání (mj. z `selectRobot()` — smaže nakonfigurované porty při každé změně
+typu zařízení).
+
+**Oprava #1:** dva nové skryté `<select id="tele-leader-port">` /
+`id="tele-follower-port">` v `SetupPage.tsx`, hned vedle existujícího
+skrytého `#robot-type-select` (stejný vzor — psán jen z JS, nikdy
+nerenderovaný uživateli přímo, modál je ta skutečná UI). Musí to být
+`<select>`, ne `<input type="hidden">` (jak navrhoval nedokončený návrh
+z běhu 27) — `saveArmPortFromModal()`/`hwConfirmUnplugArm()` volají
+`insertAdjacentHTML('beforeend', '<option>…')` a čtou `.options`, což na
+`<input>` nefunguje.
+
+**Oprava #2 — nalezeno až testem opravy #1, ne v zadání:** i s doplněnými
+`<select>` elementy modál pořád nešel použít. `openArmPortSetupModal()`
+skládá nabídku portů z `this.availablePorts` (výsledek `GET
+/api/hardware/scan`), ale čte pole **`p.port`** — API ho ale posílá jako
+**`p.device`** (stejné pojmenování, jaké správně používá
+`populatePortDropdowns()` o pár set řádků dál a `hwConfirmUnplugArm()`).
+Výsledek: každá `<option>` v modálu měla `value=""` bez ohledu na to, kolik
+portů appka reálně naskenovala — uživatel si mohl vybrat cokoliv ze seznamu a
+uložený port by byl vždycky prázdný řetězec. Oprava: `p.port` → `p.device`
+na obou místech uvnitř stejného template literalu.
+
+Bez opravy #2 by oprava #1 zůstala jen napůl funkční — tlačítko by otevřelo
+modál a karta by přestala hlásit chybu tichého mazání, ale reálné uložení
+portu by pořád nefungovalo, protože modál by nikdy neprodukoval nic jiného
+než prázdný řetězec.
+
+### Ověřeno v cloudu
+
+Reálný backend (`orchiday` na :8000) + reálný build (`npm run build`) +
+Playwright (globální `playwright@1.56.1`, Chromium z
+`/opt/pw-browsers`) nad čerstvě vytvořeným projektem — **14/14**:
+
+- `#tele-leader-port`/`#tele-follower-port` existují jako `<select>`;
+- klik na „Nastavit Leader rameno" otevře modál s **reálně naskenovanými**
+  porty (`GET /api/hardware/scan` zmockovaný přes Playwright route na dvě
+  trvale „zapojená" zařízení — ne ručně vložená `<option>`, jak to dělal první
+  pokus o test, který by chybu #2 vůbec nezachytil);
+- výběr portu + „Uložit port" zapíše hodnotu do skrytého selectu, karta
+  „Připojení ramen" přepne na stav „připojeno" se správným portem;
+- `POST /settings` (auto-save) hodnotu skutečně persistuje do `project.json`
+  (`GET /api/project` po uložení);
+- „Pokračovat na druhé rameno" → stejný postup pro follower → **oba porty
+  zůstanou zachované vedle sebe** (`leader_port` přežije uložení followeru
+  a naopak);
+- nesouvisející akce, co taky volá `saveSettingsState()` (`App.selectRobot()`,
+  přesně ta funkce, co run (23) identifikoval jako viníka mazání portů) porty
+  **nevynuluje** — to byl přímý test na regresi run (23);
+- žádná neočekávaná chyba v konzoli (jen `ERR_CONNECTION_RESET` z kamerového
+  feedu, který kontejner nemá — očekávané a zdokumentované už od run (22)).
+
+**Slepá ulička, co stojí za zapsáním:** první verze tohoto testu ručně
+vkládala `<option>` přímo do modálového selectu (obcházela
+`openArmPortSetupModal()`) a **prošla by i s chybou #2 pořád v kódu** — chyba
+#2 se odhalila, až test začal skládat porty z opravdového
+`this.availablePorts` (přes zmockovaný `/api/hardware/scan`), přesně jak by
+appka data opravdu dostala. Poučení pro příští testování podobných UI toků:
+nahrazovat DOM ručně jen tam, kde appka sama DOM nestaví — jinak test ověří,
+že „něco se dá kliknout", ne že appka sama funguje.
+
+`cd frontend && npm run typecheck` čistý, `npm run build` proběhl (bundle
+bajtově jiný než (27) jen kvůli chybě v manifestu popsané výše — ne kvůli
+vizuální změně, přidané selecty jsou `display:none`). `bash scripts/verify.sh`
+**prochází celý** (317 pytestů beze změny — tahle oprava je čistě frontend,
+`web/` je teď navíc konzistentní se svým vlastním manifestem).
+
+**Na fyzickém robotu zbývá vyzkoušet:** samotné `GET /api/hardware/scan` nad
+skutečným sériovým zařízením (appka v cloudu nemá k dispozici žádný reálný
+port — ověřeno mockem, ne pyserial enumerací skutečného USB zařízení); že
+`populatePortDropdowns()` (spouští se z `scanHardware()` při každém obnovení
+projektu) opravdu udrží vybraný port napříč reálným re-scanem, když je rameno
+fyzicky pořád zapojené (v cloudu simulováno konzistentní mock odpovědí, ne
+skutečnou perzistencí OS zařízení); a celý navazující tok kalibrace/teleopu,
+který na těchhle dvou polích staví (`btn-calibrate-leader/follower`,
+`btn-start-teleop`), teď poprvé dostane nenulové porty — jestli appka opravdu
+sestaví a spustí `--teleop.port=...`/`--robot.port=...` s tou hodnotou na
+reálném rameni, ověřeno jen testy (`test_lerobot_commands.py`), ne skutečným
+spuštěním.
+
+**Otevřeno pro příště:**
+1. Dál na React stav: karty kamer na Connectu (`renderCameras()`,
+   `#hw-camera-list`) a celá **Kalibrace** (tabulky kloubů, živý kalibrační
+   panel, klávesy Enter/c, fázové přechody) — nejsložitější zbývající kus,
+   stejně jako minule.
+2. Mrtvý kód `updateConnectCmdPreview()` / `renderDetectedHardware()`
+   (nález z běhu 26, pořád nesahané) — rozhodnout smazat, nebo obnovit jako
+   React komponentu. `renderDetectedHardware()` čte `this.availablePorts`
+   správně (`p.device`), takže dnešní oprava #2 se ho netýkala — jen
+   `openArmPortSetupModal()` měl tu chybu.
+3. `saveSettingsState()`/`onTelePortChange()` pořád volá auto-save na každou
+   jednotlivou změnu portu/typu (dvě samostatné `POST /settings` za sebou při
+   nastavování leader + follower) — funguje to (ověřeno dnes), ale je to o
+   dva HTTP round-tripy víc, než by muselo být; nekritické.
+4. Zbytek beze změny: `StrictMode`, otázka na majitele z běhu (18) jak appku
+   spouští (port 4173), patička „Umístění projektů" (běh 20), bundle pořád
+   jeden ~744 kB chunk (`manualChunks`, běh 25+).
+
+---
+
 ## 2026-08-03 (27) — Vlákno `_test_lm_connection` padalo na `RuntimeError:
 Signal source has been deleted` — teď to přežije
 
