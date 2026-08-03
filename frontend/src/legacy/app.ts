@@ -92,6 +92,7 @@ import {
   allStepSlugs,
   type SkillGroup,
 } from '../state/skills';
+import { buildTrainCommand } from '../util/trainCommand';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -4480,6 +4481,10 @@ export const App = {
               this.esc(this.t(target.dataset_ready ? 'val.dataOk' : 'val.dataMissing'))}</span>
             <span class="train-flag ${target.policy_ready ? 'ready' : 'missing'}">${
               this.esc(this.t(target.policy_ready ? 'val.ckptReady' : 'val.ckptMissing'))}</span>
+            ${target.will_resume ? `
+            <span class="train-flag resume" title="${
+              this.esc(this.t('tip.trainWillResume', { dir: target.training_output_dir }))}">${
+              this.esc(this.t('val.willResume'))}</span>` : ''}
           </span>
           ${progress}
         </div>`;
@@ -4549,12 +4554,21 @@ export const App = {
     if (!el) return;
     if (!targets.length) { el.textContent = '–'; return; }
 
-    const arch = String(this.trainTargets?.policy_architecture || 'act');
-    const steps = (document.getElementById('train-steps') as HTMLInputElement | null)?.value || '10000';
-    const batch = (document.getElementById('train-batch-size') as HTMLInputElement | null)?.value || '8';
-    el.textContent = targets.map(x =>
-      `lerobot-train --policy.type=${arch} --dataset.repo_id=${x.repo_id} --steps=${steps} --batch_size=${batch}`
-    ).join('\n');
+    // Same inputs `_on_training_started()` reads off the project / this form
+    // — this preview has to describe the run the click will really spawn, not
+    // an approximation of it (it used to hard-code the literal string
+    // `lerobot-train`, which the backend never runs; see util/trainCommand.ts).
+    const inputs = {
+      pythonExecutable: String(this.trainTargets?.python_executable || 'python'),
+      policyType: String(this.trainTargets?.policy_architecture || 'act'),
+      steps: parseInt((document.getElementById('train-steps') as HTMLInputElement | null)?.value || '10000', 10) || 10000,
+      batchSize: parseInt((document.getElementById('train-batch-size') as HTMLInputElement | null)?.value || '8', 10) || 8,
+      saveFreq: Number(this.trainTargets?.save_freq) || 2000,
+      device: (document.getElementById('train-device') as HTMLSelectElement | null)?.value || 'cuda',
+      useWandb: (document.getElementById('train-wandb') as HTMLInputElement | null)?.checked || false,
+      extraArgsStr: (document.getElementById('train-extra-args') as HTMLInputElement | null)?.value.trim() || '',
+    };
+    el.textContent = targets.map(x => buildTrainCommand(x, inputs)).join('\n');
   },
 
   /** Selects/clears every trainable row of one task — the ACT baseline and all

@@ -7207,6 +7207,7 @@ body { min-width: 320px; }
 
 .train-flag.ready { color: var(--green); }
 .train-flag.missing { color: var(--yellow); }
+.train-flag.resume { color: var(--cyan); }
 
 /* Per-target progress, shown only while that target is queued or running. */
 .train-row-progress {

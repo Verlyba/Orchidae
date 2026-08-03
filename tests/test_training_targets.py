@@ -47,6 +47,7 @@ class _FakeBridge:
         self.policies = policies or set()
         self.asked_datasets: list[str] = []
         self.asked_policies: list[str] = []
+        self.python_executable = "python"
 
     def dataset_exists(self, repo_id: str) -> bool:
         self.asked_datasets.append(repo_id)
@@ -55,6 +56,20 @@ class _FakeBridge:
     def policy_exists(self, policy_path: str) -> bool:
         self.asked_policies.append(policy_path)
         return policy_path in self.policies
+
+    def resolve_training_output(self, output_dir: str) -> dict[str, str]:
+        """Same rule the real bridge uses, kept independent on purpose: this
+        fake exists to check the controller calls it with the right path, not
+        to share its implementation."""
+        if not output_dir:
+            return {"output_dir": "", "resume_config": ""}
+        out_path = Path(output_dir)
+        if not out_path.exists():
+            return {"output_dir": output_dir, "resume_config": ""}
+        candidate = out_path / "checkpoints" / "last" / "pretrained_model" / "train_config.json"
+        if candidate.exists():
+            return {"output_dir": output_dir, "resume_config": str(candidate)}
+        return {"output_dir": f"{output_dir}_v2", "resume_config": ""}
 
 
 def _make_controller(project, bridge=None, data_dir="/data") -> OrchidayController:
@@ -183,6 +198,50 @@ def test_readiness_comes_from_the_bridge_checks_that_gate_the_run():
     # It really asked the bridge about the repo_ids and paths it reported.
     assert "local/tidy_table/move_to_box" in bridge.asked_datasets
     assert _ckpt("/data/outputs/training/tidy_table_move_to_box_act") in bridge.asked_policies
+
+
+def test_will_resume_reflects_the_exact_directory_start_training_would_write_to(tmp_path):
+    """`policy_ready` also matches a checkpoint pulled from the HF hub cache or
+    a custom storage dir — those are not what `will_resume` answers. It has to
+    agree with `resolve_training_output()`, the same call `start_training()`
+    makes, for the literal `policy_path` directory."""
+    ctrl = _make_controller(PROJECT, data_dir=str(tmp_path))
+    ckpt_dir = Path(ctrl._policy_path_for("tidy_table")) / "checkpoints" / "last" / "pretrained_model"
+    ckpt_dir.mkdir(parents=True)
+    (ckpt_dir / "train_config.json").write_text("{}")
+
+    task = _task(ctrl.training_targets(), "tidy_table")
+    assert task["baseline"]["will_resume"] is True
+    assert task["baseline"]["training_output_dir"] == ctrl._policy_path_for("tidy_table")
+    assert task["baseline"]["resume_config_path"] == str(ckpt_dir / "train_config.json")
+    assert task["steps"][0]["will_resume"] is False
+    assert task["steps"][0]["resume_config_path"] == ""
+
+
+def test_training_output_dir_diverges_when_the_directory_exists_without_a_checkpoint(tmp_path):
+    """The directory is already occupied by something that is not a resumable
+    checkpoint — `start_training()` trains into a `_v2` sibling instead, and
+    the preview must say THAT path, not the one inference will later read."""
+    ctrl = _make_controller(PROJECT, data_dir=str(tmp_path))
+    Path(ctrl._policy_path_for("tidy_table")).mkdir(parents=True)
+
+    task = _task(ctrl.training_targets(), "tidy_table")
+    assert task["baseline"]["will_resume"] is False
+    assert task["baseline"]["training_output_dir"] == ctrl._policy_path_for("tidy_table") + "_v2"
+
+
+def test_response_carries_the_interpreter_and_save_freq_the_run_would_really_use():
+    """The command preview must not hard-code `python` or a save_freq nobody
+    configured — both come from the same values `_on_training_started()` hands
+    the bridge."""
+    from orchiday.ai.lerobot_bridge import DEFAULT_TRAIN_SAVE_FREQ
+
+    bridge = _FakeBridge()
+    bridge.python_executable = "/opt/lerobot/bin/python"
+    result = _make_controller(PROJECT, bridge).training_targets()
+
+    assert result["python_executable"] == "/opt/lerobot/bin/python"
+    assert result["save_freq"] == DEFAULT_TRAIN_SAVE_FREQ
 
 
 def test_checkpoint_dir_is_named_parent_step_arch():

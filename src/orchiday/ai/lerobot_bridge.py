@@ -33,6 +33,12 @@ from orchiday.core.events import event_bus
 
 log = logging.getLogger(__name__)
 
+#: How often `lerobot-train` writes a checkpoint (`--save_freq`), when the
+#: caller does not say. Named rather than inlined because the Learning page
+#: shows the command that will be spawned, and a second hand-typed 2000 in the
+#: frontend is exactly how a preview starts describing a different run.
+DEFAULT_TRAIN_SAVE_FREQ = 2_000
+
 
 class LeRobotBridge(QObject):
     """
@@ -1208,7 +1214,7 @@ except Exception as e:
         batch_size: int = 8,
         device: str = "cuda",
         use_wandb: bool = False,
-        save_freq: int = 2_000,
+        save_freq: int = DEFAULT_TRAIN_SAVE_FREQ,
         extra_args: dict[str, Any] | None = None,
         extra_args_str: str = "",
     ) -> None:
@@ -1236,21 +1242,17 @@ except Exception as e:
             return
 
         # ── Resume / output-dir collision handling ──────────────────────────
-        resume_config: Path | None = None
-        if output_dir:
-            out_path = Path(output_dir)
-            if out_path.exists():
-                candidate = out_path / "checkpoints" / "last" / "pretrained_model" / "train_config.json"
-                if candidate.exists():
-                    resume_config = candidate
-                    event_bus.log_message.emit("INFO", f"Existing checkpoint found — resuming training from {candidate}")
-                else:
-                    base = output_dir
-                    suffix = 2
-                    while Path(f"{base}_v{suffix}").exists():
-                        suffix += 1
-                    output_dir = f"{base}_v{suffix}"
-                    event_bus.log_message.emit("WARN", f"Output dir already exists — training into '{output_dir}' instead.")
+        # Same derivation `resolve_training_output()` hands the Learning page,
+        # so a row's preview cannot promise a fresh run and then resume (or the
+        # reverse) once the click actually lands here.
+        original_output_dir = output_dir
+        resolved = self.resolve_training_output(output_dir)
+        output_dir = resolved["output_dir"]
+        resume_config = Path(resolved["resume_config"]) if resolved["resume_config"] else None
+        if resume_config is not None:
+            event_bus.log_message.emit("INFO", f"Existing checkpoint found — resuming training from {resume_config}")
+        elif original_output_dir and output_dir != original_output_dir:
+            event_bus.log_message.emit("WARN", f"Output dir already exists — training into '{output_dir}' instead.")
 
         if resume_config is not None:
             cmd = [
@@ -1290,6 +1292,52 @@ except Exception as e:
         event_bus.log_message.emit("INFO", f"Training started: {skill_slug} (policy={policy_type}, steps={training_steps})")
 
         self._spawn_process(key, cmd, kind="train", skill_slug=skill_slug)
+
+    def resolve_training_output(self, output_dir: str) -> dict[str, str]:
+        """Where a training run for `output_dir` would really go, and whether
+        it would resume instead of starting over.
+
+        `lerobot-train` refuses to write into a directory that already exists,
+        so `start_training()` has to decide between three different runs — and
+        the Learning page has to be able to say WHICH of the three a checked
+        row is, before the click. Both call this, so the preview cannot drift
+        away from the spawn:
+
+        | on disk | what runs |
+        |---|---|
+        | nothing there | a fresh run into `output_dir` |
+        | `checkpoints/last/pretrained_model/train_config.json` | `--config_path=… --resume=true` |
+        | a directory without that file | a fresh run into `output_dir_v2` (…`_v3`) |
+
+        The third case is worth showing: inference reads the ORIGINAL directory
+        (`_policy_path_for()`), so a run that lands in `_v2` trains a checkpoint
+        the app will not run afterwards.
+        """
+        if not output_dir:
+            return {"output_dir": "", "resume_config": ""}
+
+        out_path = Path(output_dir)
+        if not out_path.exists():
+            return {"output_dir": output_dir, "resume_config": ""}
+
+        candidate = out_path / "checkpoints" / "last" / "pretrained_model" / "train_config.json"
+        if candidate.exists():
+            return {"output_dir": output_dir, "resume_config": str(candidate)}
+
+        suffix = 2
+        while Path(f"{output_dir}_v{suffix}").exists():
+            suffix += 1
+        return {"output_dir": f"{output_dir}_v{suffix}", "resume_config": ""}
+
+    @property
+    def python_executable(self) -> str:
+        """The interpreter a LeRobot run would really be spawned with.
+
+        Public form of `_python` for the UI, which shows the command line it is
+        about to create — a preview that says a bare `python` would name an
+        interpreter that is usually not the one with LeRobot installed.
+        """
+        return self._python
 
     def stop_training(self, skill_slug: str) -> None:
         """Stop an active training session."""

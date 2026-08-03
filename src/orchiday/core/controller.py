@@ -18,7 +18,7 @@ from orchiday.hardware.camera_worker import CameraManager
 from orchiday.ai.lm_studio_client import LMStudioClient
 from orchiday.ai.llm_planner import LLMPlanner
 from orchiday.ai.vlm_inspector import VLMInspector
-from orchiday.ai.lerobot_bridge import LeRobotBridge
+from orchiday.ai.lerobot_bridge import LeRobotBridge, DEFAULT_TRAIN_SAVE_FREQ
 from orchiday.orchestration.orchestrator import Orchestrator, OrchestratorState
 
 log = logging.getLogger(__name__)
@@ -882,6 +882,7 @@ class OrchidayController(QObject):
         | dataset present  | `LeRobotBridge.dataset_exists()` | the check that REFUSES to start training |
         | checkpoint path  | `_policy_path_for()` | where the trainer writes / the daemon reads |
         | checkpoint present | `LeRobotBridge.policy_exists()` | the check inference gates on |
+        | will_resume | `LeRobotBridge.resolve_training_output()` | whether the click resumes or starts fresh |
 
         Both branches of the project's comparison are listed for every task:
         `baseline` is the whole recorded dataset (plain ACT), `steps` are the
@@ -894,6 +895,12 @@ class OrchidayController(QObject):
         def target(slug: str) -> dict[str, Any]:
             repo_id = self._dataset_repo_id_for(slug)
             policy_path = self._policy_path_for(slug)
+            # `policy_ready` searches several places a checkpoint could have
+            # come from (a custom storage dir, the HF hub cache); "would this
+            # click resume" is a narrower question about the EXACT directory
+            # `start_training()` is about to write into, so it goes through
+            # the same resolver that call uses rather than reusing that flag.
+            resolved = self.lerobot_bridge.resolve_training_output(policy_path)
             return {
                 "slug": slug,
                 "name": details.get(slug, {}).get("name") or slug,
@@ -901,6 +908,14 @@ class OrchidayController(QObject):
                 "dataset_ready": self.lerobot_bridge.dataset_exists(repo_id),
                 "policy_path": policy_path,
                 "policy_ready": self.lerobot_bridge.policy_exists(policy_path),
+                "will_resume": bool(resolved["resume_config"]),
+                # Only differs from `policy_path` when that directory exists
+                # WITHOUT a resumable checkpoint — `start_training()` then
+                # trains into a `_v2` (etc.) sibling instead. Sending it lets
+                # the preview say so, rather than showing a --output_dir the
+                # run will not actually use.
+                "training_output_dir": resolved["output_dir"],
+                "resume_config_path": resolved["resume_config"],
             }
 
         tasks: list[dict[str, Any]] = []
@@ -924,6 +939,11 @@ class OrchidayController(QObject):
         return {
             "policy_architecture": project.get("policy_architecture", "diffusion"),
             "tasks": tasks,
+            # The command preview on the Learning page used to hard-code
+            # "python" and a save_freq nobody had actually set — both are what
+            # `_on_training_started()` really hands the bridge.
+            "python_executable": self.lerobot_bridge.python_executable,
+            "save_freq": DEFAULT_TRAIN_SAVE_FREQ,
         }
 
     def _policy_path_for(self, task_name: str) -> str:

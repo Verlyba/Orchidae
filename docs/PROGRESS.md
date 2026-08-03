@@ -8,6 +8,117 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (24) — Náhled tréninkového příkazu na Učení lhal o tom, co se
+spustí — psal `lerobot-train`, appka spouští `python -m lerobot.scripts...`
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (už na špičce
+`7368ba6`), `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý
+(310 pytestů, 10 kroků) — žádná priorita A ve frontě. Uživatelský prompt v
+tomto běhu (bod F) žádal předělání frontendu na React/Vite/Tailwind — to už
+je od běhu (18) hotové, takže se pokračovalo podle priorit A–E s důrazem na
+bod B (UI musí odpovídat tomu, jak se LeRobot příkaz opravdu chová).
+
+### Co bylo špatně
+
+`updateTrainCmdPreview()` na kartě Učení (řádek „Spustí se") skládala náhled
+příkazu ručně a nesouhlasila se skutečností na třech místech zároveň:
+
+1. **Psala `lerobot-train ...`** — appka ale vždycky spouští
+   `<python> -m lerobot.scripts.lerobot_train ...` (`start_training()` v
+   `lerobot_bridge.py`). Uživatel by si vlastní příkaz z náhledu zkopíroval do
+   terminálu a on by neodpovídal ničemu, co appka doopravdy dělá.
+2. **Nikdy neukázala resume.** `start_training()` umí tři různé věci podle
+   toho, co je na disku v cílovém adresáři (nic → nový běh; existující
+   `checkpoints/last/pretrained_model/train_config.json` → `--config_path=...
+   --resume=true`; adresář bez toho souboru → nový běh do `_v2`) — náhled vždy
+   ukazoval jen tu první variantu, i pro řádek, který by ve skutečnosti
+   navázal na existující checkpoint.
+3. **`--save_freq` a interpreter byly natvrdo.** Náhled `--save_freq` vůbec
+   neuváděl a nikde neříkal, který Python appka použije — a appka si ho čte
+   dynamicky z konfigurace (`AppConfig().get("python_path")` /
+   `lerobot_dir`), takže to nikdy nebylo jen `python`.
+
+### Oprava — jedna derivace, sdílená mezi náhledem a spuštěním
+
+`LeRobotBridge.start_training()` měl rozhodování resume/kolize adresáře
+zapsané inline. Vytaženo do `resolve_training_output(output_dir)` — vrací
+`{output_dir, resume_config}` — a `start_training()` teď volá přesně tohle
+místo vlastní kopie té logiky (žádná změna chování, jen jedno místo pravdy).
+
+`OrchidayController.training_targets()` (`GET /api/training/targets`) teď
+u každého cíle posílá `will_resume`, `training_output_dir`,
+`resume_config_path` — všechno vzešlé z téhož `resolve_training_output()` nad
+`policy_path`, ne z odhadu. A odpověď navíc nese `python_executable`
+(`LeRobotBridge.python_executable`, nová veřejná vlastnost nad `_python`) a
+`save_freq` (nová konstanta `DEFAULT_TRAIN_SAVE_FREQ = 2000`, kterou teď
+`start_training()` používá jako svůj vlastní default — dřív to bylo jen
+zapsané literálem `2_000` v podpisu funkce).
+
+Frontend: nový `frontend/src/util/trainCommand.ts` (`buildTrainCommand()`)
+skládá příkaz podle přesně stejných pravidel jako `start_training()` — stejné
+pořadí flagů, stejné `_merge_flags` chování (vlastní CLI argument přepíše
+základní flag stejného jména, poslední vyhrává), stejný fallback
+`--policy.push_to_hub=false`. `updateTrainCmdPreview()` v `app.ts` ho volá pro
+každý zaškrtnutý cíl místo ruční šablony. Řádek s `will_resume` navíc dostal
+viditelnou značku „Naváže" / „Resumes" (`.train-flag.resume`) s tooltipem,
+který říká z jakého adresáře — to by jinak zůstalo jen v příkazu, kde by si
+toho uživatel nemusel všimnout.
+
+### Ověřeno v cloudu
+
+- Nové testy v `tests/test_training_targets.py` (7 nových, celkem 313 v
+  `verify.sh`): `will_resume` sedí na to, co `resolve_training_output()` vrací
+  pro přesný adresář, kde ho `start_training()` vidí, ne na `policy_ready`
+  (ten hledá i po cache/hub, což je jiná otázka); `training_output_dir` se
+  liší od `policy_path`, když je adresář obsazený něčím bez checkpointu (`_v2`
+  případ); odpověď nese `python_executable` a `save_freq` z bridge/konstanty.
+- `tests/test_lerobot_commands.py` (61 testů) prochází beze změny — přepis
+  `start_training()` na `resolve_training_output()` je beze změny chování,
+  jen jedno místo pravdy místo dvou kopií.
+- `cd frontend && npm run typecheck` čistý, `npm run build` proběhl,
+  `web/build-manifest.json` je aktuální (kontroluje `scripts/verify.sh`
+  krok 2 — build je content-hash, takže žádné ruční `?v=` není potřeba, na
+  rozdíl od staré vanilla appky před React migrací).
+- `bash scripts/verify.sh` **prochází celý** (313 pytestů, 10 kroků).
+
+**Nález mimo rozsah, který stojí za zapsání (ne opraveno):** `bash
+scripts/verify.sh` jednou během tohoto běhu spadl na segfaultu uvnitř pytestu
+(`RuntimeError: Signal source has been deleted` z `_test_lm_connection()` v
+`controller.py:259` — běží na `threading.Thread(daemon=True)` a emituje na
+`event_bus` signál, který mezitím zanikl s testem, co ho spustil). Druhý i
+třetí běh stejného `verify.sh` proběhl čistě (313 pytestů) — je to závod mezi
+životností toho vlákna a koncem testu, ne něco, co dnešní změna způsobila
+(dotýká se LM Studio konektivity, ne tréninku). Nebylo reprodukovatelné na
+požádání, takže se to dnes neopravovalo — kdyby se `verify.sh` v přístím běhu
+znovu segfaultnul na stejném vlákně, tohle je stopa, kam se podívat.
+
+**Na fyzickém robotu zbývá vyzkoušet:** samotné `resolve_training_output()`
+a `start_training()` volání `lerobot-train` (resp. `python -m
+lerobot.scripts.lerobot_train`) se v cloudu nedá spustit doopravdy — ověřeno
+je jen sestavení příkazu a shoda dat mezi `/api/training/targets` a tím, co
+`_on_training_started()` opravdu spustí (testy volají obojí a porovnávají).
+Nevyzkoušeno: že `--resume=true` běh na reálném stroji doopravdy naváže
+trénink (ne jen že appka sestaví správný příkazový řádek), a že se nový
+sloupec „Naváže/Resumes" zobrazí čitelně vedle ostatních flagů i při užším
+okně (měřeno jen `scripts/measure-layout.sh` layoutem karty, ne skutečným
+tréninkem).
+
+**Otevřeno pro příště** (z minula, pořád platí — dnešní běh dodal jednu věc
+z bodu B, ne pokračování Reactu):
+1. Dál na React stav: **Connect / Setup** a **Kalibrace** — pořád skládané
+   řetězci.
+2. `renderTrainingSkillsTree()` na Učení je pořád budovaný řetězcem
+   (`innerHTML`) — dneska se opravila jen data, která do něj chodí
+   (`will_resume` apod.), ne jeho přepis do React stavu. Kandidát na sdílení
+   vzoru se `state/skills.ts` / `state/collect.ts`, až přijde na řadu.
+3. Segfault v `_test_lm_connection()` popsaný výše — vlákno, které přežije
+   test, jenž ho spustil.
+4. Zbytek beze změny: `StrictMode`, rozdělení bundlu (`manualChunks`, pořád
+   jeden ~742 kB chunk), otázka na majitele z běhu (18) jak appku spouští
+   (port 4173), patička „Umístění projektů" (běh 20).
+
+---
+
 ## 2026-08-03 (23) — Strom dovedností jede z React stavu — a cestou se našlo,
 že **přepnutí jazyka odkonfigurovalo robota** (smazalo porty z projektu)
 
