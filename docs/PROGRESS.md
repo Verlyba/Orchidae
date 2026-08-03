@@ -8,6 +8,149 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (23) — Strom dovedností jede z React stavu — a cestou se našlo,
+že **přepnutí jazyka odkonfigurovalo robota** (smazalo porty z projektu)
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (už na špičce
+`e66d798`), `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý
+(292 pytestů, 10 kroků) — žádná priorita A ve frontě. Pokračování bodu F podle
+otevřené položky 1 z běhu (22): **strom dovedností** (`renderSkillsFull()`),
+poslední velký kus `innerHTML` na kartě Sběr dat.
+
+### Priorita A, kterou to cestou našlo: `POST /api/settings` mazal konfiguraci
+
+Tohle není o stromu — je to nález z měření a předběhlo to všechno ostatní.
+
+`SettingsConfig` měl u všech textových polí default `""`, ne `None`. Endpoint
+se ale rozhoduje podle `is not None`, takže **„nebylo posláno" a „posláno
+prázdné" byly nerozlišitelné** a zapsalo se obojí. A appka má jednoho volajícího,
+který posílá jediné pole: **přepínač jazyka** (`POST /settings {"language": …}`).
+
+Reprodukce přímo proti neupravenému mainu (TestClient, ne odhad):
+
+```
+nakonfigurováno:      robot_type=so101_follower  follower_port=/dev/ttyACM0  leader_port=/dev/ttyACM1
+po přepnutí jazyka:   robot_type=so100_follower  follower_port=''           leader_port=''
+a totéž na disku v project.json
+```
+
+Takže: uživatel nastaví ramena na Connectu, přepne appku do angličtiny — a
+**přijde o porty i o typ ramene** (`follower_type_for("")` vrací fallback
+katalogu, ne jeho rameno), uloženo do `project.json`. Appka pak správně hlásí
+„Není nakonfigurován sériový port Followera" a nedá spustit nahrávání — jen
+nikdo netuší proč, protože poslední akce bylo kliknutí na vlaječku.
+
+**Druhá půlka téhož endpointu:** `event_bus.project_opened.emit()` se posílal
+**vždycky**, i pro čistě globální předvolbu. Frontend na ten event odpovídá
+`onProjectOpened()` — celé znovunačtení projektu, které mimo jiné dělá
+`this.activeSkill = skills[0]`. Změřeno v prohlížeči:
+
+```
+STARÝ: vybraný 3. pod-krok  → přepnutí jazyka → activeSkill: probe_step_place → probe_task
+                                                repo id:  local/probe_task/probe_step_place → local/probe_task
+                                                hardware scan (porty + kamery): 1×
+NOVÝ:  vybraný 3. pod-krok  → přepnutí jazyka → beze změny, 0 skenů
+```
+
+Ten repo id je to, **do čeho `lerobot-record` zapisuje**. Kdo by po přepnutí
+jazyka spustil nahrávání, natočil by ho do datasetu rodičovského úkolu — kde
+značky hranic pod-úkolů, na kterých stojí celé porovnání, nedávají smysl.
+
+Oprava: pole v `SettingsConfig` jsou `str | None = None`, a endpoint sleduje
+`project_touched` — `project_opened` (a `save_project()`) jde ven jen když se
+opravdu změnilo pole projektu. Nový `tests/test_settings_broadcast.py`
+(18 testů); **10 z nich na starém kódu padá**, ověřeno přepnutím zpět.
+
+### Strom dovedností se kreslí ze stavu
+
+Nový `state/skills.ts` drží skupiny (úkol + jeho pod-kroky), vybraný řádek,
+sbalené složky a počty epizod klíčované slugem. `app.ts` publikuje dvěma
+metodami — `App.publishSkills()` (čistě stav, bez sítě) a
+`App.refreshSkillBadges()` (čtení z disku) — a `SkillsTree` v `DatasetyPage.tsx`
+je jediné, co to kreslí (`SkillGroupCard`, `SkillStepRow`, `EpisodeBadge`).
+Zmizelo `renderSkillsFull()` (96 řádků `innerHTML` s inline `onclick`) a ruční
+sahání do DOMu v `toggleSkillsFolder()`.
+
+**Tři chyby, které v tom stromu byly a nikdo je neviděl** (všechny doložené
+srovnáním starého buildu z `git worktree` a nového vedle sebe, stejná fixture):
+
+1. **Jméno dovednosti se vkládalo do markupu syrové.** `<span>${details[m]
+   ?.name}</span>` bez `esc()` — a jméno je volný text z modalu „nová
+   dovednost". Fixture s názvem `Položit <b>kostku</b> & spol.`:
+   `STARÝ: injected=true` (v DOMu opravdu vznikl `<b>`), `NOVÝ: false`.
+2. **Kliknutí na pod-krok neposunulo zvýraznění.** `.skills-tree-item.active`
+   psal jen celý re-render stromu, a `selectSkill()` ho nevolá — takže strom
+   ukazoval pořád ten předchozí řádek, zatímco všechny ostatní panely karty už
+   byly u nového. `STARÝ: highlighted=[]`, `NOVÝ: ['Položit <b>kostku</b>…']`.
+3. **Šipka u složky se netočila.** Inline `transform: rotate(90deg)` zapsaný
+   při renderu přebíjel CSS pravidlo `.collapsed .chevron-icon`. Sbalení tedy
+   fungovalo, ale šipka pořád mířila dolů: `STARÝ: rotate(90deg)` i po sbalení,
+   `NOVÝ: rotate(0deg)`.
+
+**Přepnutí jazyka už strom nestojí ani jeden request.** Badge se stahovaly
+uvnitř renderovací smyčky (1 GET na pod-krok), takže změna jazyka procházela
+adresáře datasetů. `STARÝ: 7 requestů, NOVÝ: 0.` Počty se čtou jen když se
+opravdu mohly změnit (otevření projektu, `refreshProject()` po CRUD dovednosti,
+smazání epizody) — a navíc je zdarma plní `selectSkill()`, který se na totéž
+API ptá na tutéž věc; po natáčení tak badge sedne bez druhého round tripu.
+
+**Badge umí říct, že neví.** Dřív `.catch` jen logoval do konzole a v badgi
+zůstalo `...` napořád, a hlavně: nenahraný dataset a „nepodařilo se zeptat"
+vypadaly stejně (`0 ep`). Teď má tři stavy — `…` (načítám), `N ep`, `?` —
+každý s vlastním tooltipem. Ověřeno se zpožděnou odpovědí (1,2 s), s vynuceným
+HTTP 500 i s návratem do normálu.
+
+**Popisky:** složka, řádek pod-kroku, počet kroků i badge dostaly `title`,
+který říká, co se stane (u složky podle stavu „Sbalit" vs „Rozbalit"), ne co
+to je. 7 nových klíčů v obou jazycích.
+
+### Ověřeno v cloudu
+
+- `bash scripts/verify.sh` **prochází celé** (310 pytestů, +18 nových, 10 kroků).
+- Srovnání starého a nového buildu vedle sebe nad stejnou fixture (úkol se
+  třemi pod-kroky, prázdný úkol, jméno s markupem): normalizovaný strom v pěti
+  stavech (výchozí, po výběru, sbaleno, rozbaleno, EN) — rozdíly jsou **přesně**
+  ty tři opravy výše a nic jiného.
+- **Klik dorazí k `App` u všech 8 ovládacích prvků stromu** (8/8 v obou
+  buildech) — to je past z běhu (20), proto se to měří.
+- Nový pod-krok se objeví ve stromu a smazaný zmizí bez reloadu stránky.
+- `scripts/measure-layout.sh` (`datasety`, `projects`, `uceni`, 3 velikosti)
+  proti starému buildu: 0 ořezů, 0 přetečení, 0 roztažených v obou; obsazenost
+  plochy shodná do 1 pp (33/36/37 % vs 33/35/37 %).
+- Smoke přes všech 8 stránek × 2 jazyky: všech 16 se zobrazí, konzole čistá
+  (kromě `ERR_CONNECTION_RESET` z feedu kamery, kterou kontejner nemá).
+
+**Na fyzickém robotu zbývá vyzkoušet:** oprava mazání portů se v cloudu ověřila
+jen na úrovni `project.json` — že se hodnoty zachovají. Co se neověřilo: že
+appka s takto zachovanou konfigurací **opravdu spustí** teleoperaci, kalibraci
+a `lerobot-record` na skutečném rameni (a že `so101_follower` v projektu sedí
+na to, co je připojené). Stejně tak počty epizod v badgích: v kontejneru je
+každý dataset prázdný, takže je ověřený jen tvar odpovědi, ne že číslo sedí na
+to, co je na disku po skutečném natáčení. A pořád platí celé nevyzkoušené
+natáčení z běhu (22) — klávesy `→`/`n`, `←`/`r`, `Esc`/`q`, značkování hranic
+mezerníkem / M, undo Backspace / U, přechody fází record ↔ reset.
+
+**Otevřeno pro příště:**
+1. Dál na React stav: **Connect / Setup** (seznamy zařízení, tabulky
+   detekovaného hardwaru) a **Kalibrace** (tabulky kloubů) — obojí je pořád
+   skládané řetězci. Karta Sběr dat je tímhle během hotová celá.
+2. `renderTrainingSkillsTree()` na Učení je **druhý strom dovedností** stavěný
+   řetězcem — má stejné tři pasti jako ten opravený (syrové jméno, badge
+   v renderovací smyčce). Nabízí se sdílet s ním `state/skills.ts`.
+3. `saveSettings()` ve frontendu posílá payload skládaný z existujících
+   elementů, takže je taky částečný — po dnešní opravě už neškodí, ale stálo by
+   za to, aby posílal jen to, co uživatel opravdu změnil.
+4. Krok 9 ve `verify.sh` hledá `App.*(` regexem přes celý soubor, takže mu
+   **komentář vypadá jako volání** (dnes na tom spadl na doc-komentáři). Drobné,
+   ale příště to zdrží znovu.
+5. Až bude logika ve stavu, zapnout `<StrictMode>` (dnes by spustil `init()`
+   dvakrát).
+6. Bundle je pořád jeden 740 kB chunk — rozdělit (`manualChunks`).
+7. Pořád platí otázka na majitele z běhu (18): jak appku spouští (port 4173)?
+8. Zvážit vrácení patičky „Umístění projektů" pod seznam projektů (z běhu 20).
+
+---
+
 ## 2026-08-03 (22) — Sběr dat jede z React stavu, a s ním odešla chyba, kvůli
 které appka nabízela nahrávání bez nakonfigurovaného portu
 

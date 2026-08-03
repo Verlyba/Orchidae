@@ -11,6 +11,10 @@ import {
   useCollect, isSplittable, markState, startState,
   type CollectSnapshot,
 } from '../state/collect';
+import {
+  useSkills, badgeOf,
+  type SkillsSnapshot, type SkillGroup, type SkillStep,
+} from '../state/skills';
 
 /** Placeholder shown while a value is being fetched — never a blank field. */
 const PENDING = '…';
@@ -360,6 +364,251 @@ function DatasetManagePanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Episode count shown next to one sub-step, and what it means.
+ *
+ * A count of 0 and "we could not read the count" are not the same answer, and
+ * the old badge could only say `0 ep` for both — the fetch's `.catch` logged to
+ * the console and left whatever text was there. Here a failed read renders as
+ * `?` and says so on hover.
+ */
+function EpisodeBadge({ slug }: { slug: string }) {
+  const s: SkillsSnapshot = useSkills();
+  const badge = badgeOf(s, slug);
+
+  if (badge.status === 'loading') {
+    return (
+      <span className="ep-badge" id={`ep-badge-${slug}`} title={App.t('tip.epBadgeLoading')}>
+        {PENDING}
+      </span>
+    );
+  }
+  if (badge.status === 'error') {
+    return (
+      <span
+        className="ep-badge"
+        id={`ep-badge-${slug}`}
+        title={App.t('tip.epBadgeError')}
+        style={{ background: "rgba(255,255,255,0.03)", color: "var(--text-muted)" }}
+      >?</span>
+    );
+  }
+  const recorded = badge.episodes > 0;
+  return (
+    <span
+      className="ep-badge"
+      id={`ep-badge-${slug}`}
+      title={App.t('tip.epBadgeCount')}
+      style={recorded
+        ? { background: "var(--green-light)", color: "var(--green)" }
+        : { background: "rgba(255,255,255,0.03)", color: "var(--text-muted)" }}
+    >{badge.episodes} ep</span>
+  );
+}
+
+/** One sub-step row: select it, or act on it without selecting it. */
+function SkillStepRow({ step, active }: { step: SkillStep; active: boolean }) {
+  return (
+    <li style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+      <button
+        className={`skills-tree-item${active ? ' active' : ''}`}
+        onClick={() => App.selectSkill(step.slug)}
+        title={App.t('tip.selectStep')}
+        style={{
+          margin: "3px 0", flex: "1", display: "flex", alignItems: "center", gap: "8px",
+          border: "none", background: "transparent", padding: "6px 10px", cursor: "pointer",
+          textAlign: "left", transition: "all 0.2s",
+        }}
+      >
+        <span className={`step-check-indicator${active ? ' active' : ''}`}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </span>
+        <span>{step.name}</span>
+        <EpisodeBadge slug={step.slug} />
+      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+        <button
+          className="btn btn-xs btn-secondary btn-icon"
+          onClick={() => App.showEditSkillModal(step.slug)}
+          title={App.t('tip.editStep')}
+        >
+          <svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            style={{ width: "11px", height: "11px" }}
+          >
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+        </button>
+        <button
+          className="btn btn-xs btn-secondary btn-icon"
+          onClick={() => App.openManageEpisodesModal(step.slug)}
+          title={App.t('tip.manageEpisodes')}
+        >
+          <svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            style={{ width: "12px", height: "12px" }}
+          >
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+        <button
+          className="btn btn-xs btn-danger btn-icon"
+          onClick={() => App.deleteSkill(step.slug)}
+          title={App.t('btn.delete')}
+        >✕</button>
+      </div>
+    </li>
+  );
+}
+
+/** One top-level task: its header row, its actions, and its sub-steps. */
+function SkillGroupCard({ group, activeSkill }: { group: SkillGroup; activeSkill: string }) {
+  return (
+    <div
+      className="skill-group-card"
+      style={{
+        background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)",
+        padding: "6px", marginBottom: "12px", transition: "all 0.2s",
+      }}
+    >
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "2px 4px 6px", borderBottom: "1px solid rgba(255,255,255,0.02)",
+        marginBottom: "4px",
+      }}>
+        <button
+          className={`skills-tree-folder${group.collapsed ? ' collapsed' : ''}`}
+          data-folder={group.slug}
+          onClick={() => App.toggleSkillsFolder(group.slug)}
+          // Says what the click will do, not what the control is — the row can
+          // be in either state and the label has to follow it.
+          title={App.t(group.collapsed ? 'tip.unfoldSkill' : 'tip.foldSkill')}
+          style={{
+            flex: "1", display: "flex", alignItems: "center", border: "none", background: "none",
+            color: "var(--text-light)", textAlign: "left", padding: "4px", gap: "8px",
+            fontWeight: 700, fontSize: "13px", cursor: "pointer", transition: "all 0.2s",
+          }}
+        >
+          <span
+            className="chevron-icon"
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              transform: `rotate(${group.collapsed ? '0deg' : '90deg'})`,
+              transition: "transform 0.2s", color: "var(--text-muted)",
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              style={{ width: "10px", height: "10px" }}
+            >
+              <path d="M9 5l7 7-7 7"></path>
+            </svg>
+          </span>
+          <svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            style={{ width: "14px", height: "14px", color: "var(--cyan)", flexShrink: 0 }}
+          >
+            <circle cx="12" cy="12" r="10"></circle>
+            <circle cx="12" cy="12" r="4"></circle>
+          </svg>
+          <span>{group.name}</span>
+          <span
+            className="count-badge"
+            title={App.t('tip.stepCount')}
+            style={{
+              background: "rgba(0, 188, 212, 0.1)", color: "var(--cyan)", fontSize: "9px",
+              padding: "1px 6px", fontWeight: 600, marginLeft: "auto",
+            }}
+          >{group.steps.length}</span>
+        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <button
+            className="btn btn-xs btn-secondary btn-icon"
+            onClick={() => App.showEditSkillModal(group.slug)}
+            title={App.t('tip.editSkill')}
+          >
+            <svg
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              style={{ width: "10px", height: "10px" }}
+            >
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
+          <button
+            className="btn btn-xs btn-danger btn-icon"
+            onClick={() => App.deleteSkill(group.slug)}
+            title={App.t('btn.delete')}
+          >✕</button>
+          <button
+            className="btn btn-xs btn-primary btn-icon"
+            onClick={() => App.showNewSubSkillModal(group.slug)}
+            title={App.t('tip.addStep')}
+          >+</button>
+        </div>
+      </div>
+      <ul
+        className={`skills-tree-subs${group.collapsed ? ' collapsed' : ''}`}
+        id={`folder-subs-${group.slug}`}
+        style={{
+          listStyle: "none", paddingLeft: "14px", margin: "4px 0 4px 10px",
+          borderLeft: "1.5px solid rgba(0, 188, 212, 0.15)",
+        }}
+      >
+        {group.steps.length === 0 ? (
+          <li style={{ padding: "6px 12px 6px 10px", fontSize: "11px", color: "var(--text-muted)", fontStyle: "italic" }}>
+            {App.t('hint.noSteps')}
+          </li>
+        ) : group.steps.map(step => (
+          <SkillStepRow key={step.slug} step={step} active={step.slug === activeSkill} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The project's skill tree — top-level tasks and the sub-steps beneath them.
+ *
+ * Picking a row here is what the rest of the tab reads from, so this is where
+ * "which skill are we talking about" is decided. It used to be an `innerHTML`
+ * string assembled by `renderSkillsFull()` in `legacy/app.ts`; see
+ * `state/skills.ts` for what
+ * that cost (raw skill names in markup, a `dataset_info` fetch per sub-step on
+ * every repaint, answers landing by element id).
+ */
+function SkillsTree() {
+  const s: SkillsSnapshot = useSkills();
+
+  if (!s.groups.length) {
+    return (
+      <div className="empty-state" style={{ padding: "12px" }}>
+        <div className="empty-state-icon">
+          <svg
+            width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <div className="empty-state-text">{App.t('hint.createFirstSkill')}</div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {s.groups.map(g => (
+        <SkillGroupCard key={g.slug} group={g} activeSkill={s.activeSkill} />
+      ))}
+    </>
   );
 }
 
@@ -821,7 +1070,7 @@ export function DatasetyPage() {
               <span data-i18n="blk.dc.skillTree">Strom dovedností</span>
             </div>
             <div className="datacollection-block-body" style={{ padding: "0", overflowY: "auto" }}>
-              <div id="skill-list-full" style={{ padding: "8px 0" }}>{/* Collapsible skills tree populated dynamically */}</div>
+              <div id="skill-list-full" style={{ padding: "8px 0" }}><SkillsTree /></div>
             </div>
             <div className="block-actions">
               <button

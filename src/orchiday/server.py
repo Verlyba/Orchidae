@@ -288,12 +288,27 @@ class DirectInferConfig(BaseModel):
 
 
 class SettingsConfig(BaseModel):
-    dataset_storage_dir: str = ""
-    lerobot_dir: str = ""
-    python_path: str = ""
-    robot_type: str = ""
-    follower_port: str = ""
-    leader_port: str = ""
+    """Partial update of the settings — every field is optional.
+
+    Every field defaults to `None`, and that is load-bearing rather than
+    stylistic: `save_settings()` decides what to write with `is not None`, so a
+    field defaulting to `""` is indistinguishable from one the caller sent
+    empty, and gets written either way.
+
+    They used to default to `""`, and the app has one caller that sends a
+    single field — the language toggle, which posts `{"language": ...}` and
+    nothing else. Every language switch therefore also wrote `follower_port =
+    ""`, `leader_port = ""`, `dataset_storage_dir = ""` and
+    `robot_type = follower_type_for("")` (the catalogue's fallback, not the
+    user's arm) into the open project, and saved it to disk. Switching to
+    English silently un-configured the robot.
+    """
+    dataset_storage_dir: str | None = None
+    lerobot_dir: str | None = None
+    python_path: str | None = None
+    robot_type: str | None = None
+    follower_port: str | None = None
+    leader_port: str | None = None
     sequential_loop_interval: float | None = None
     language: str | None = None
     scene_description: str | None = None
@@ -1602,11 +1617,29 @@ async def save_settings(body: SettingsConfig):
     if not pm.current_project:
         return {"ok": True}
 
+    # Everything above is GLOBAL config; everything below belongs to the open
+    # project. Only the latter may re-broadcast `project_opened`.
+    #
+    # It used to fire unconditionally, and the frontend answers that event with
+    # a full project reload — which resets the selected skill to the first one
+    # in the tree. So `POST /api/settings {"language": "en"}`, the request the
+    # language toggle sends and nothing else, silently moved the selection.
+    # Measured on the data-collection tab: picking the third sub-step and then
+    # switching the language left `local/<task>/<third_step>` showing as
+    # `local/<task>` — i.e. the repo id lerobot-record would have written into
+    # changed under the user, without a click anywhere near it. The same event
+    # also re-ran the hardware scan (serial ports + cameras) for a preference
+    # that has nothing to do with hardware.
+    project_touched = False
+
     if body.dataset_storage_dir is not None:
         pm.current_project["dataset_storage_dir"] = body.dataset_storage_dir.strip()
+        project_touched = True
     if body.scene_description is not None:
         pm.current_project["scene_description"] = body.scene_description.strip()
+        project_touched = True
     if body.robot_type is not None:
+        project_touched = True
         # Two places used to hold the device type and they disagreed:
         # `project["robot_type"]` is what the Setup tab writes and reads, while
         # `project["robots"][*]["type"]` is what recording, teleoperation and
@@ -1624,12 +1657,21 @@ async def save_settings(body: SettingsConfig):
             robot["leader_type"] = leader_type_for(resolved) or DEFAULT_LEADER_TYPE
     if body.follower_port is not None:
         pm.current_project["follower_port"] = body.follower_port.strip()
+        project_touched = True
     if body.leader_port is not None:
         pm.current_project["leader_port"] = body.leader_port.strip()
+        project_touched = True
     if body.sequential_loop_interval is not None:
         if "orchestration" not in pm.current_project:
             pm.current_project["orchestration"] = {}
         pm.current_project["orchestration"]["sequential_loop_interval"] = body.sequential_loop_interval
+        project_touched = True
+
+    if not project_touched:
+        # A global preference only — nothing in the project file changed, so
+        # there is nothing to save and nothing for the frontend to reload.
+        return {"ok": True}
+
     pm.save_project()
     # Broadcast project opened to sync state with frontend
     event_bus.project_opened.emit(pm.current_project)

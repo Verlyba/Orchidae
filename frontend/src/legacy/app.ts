@@ -85,6 +85,13 @@ import {
   type SubStep,
   type RecordPhase,
 } from '../state/collect';
+import {
+  publishSkills as publishSkillsSnapshot,
+  publishBadge,
+  getSkillsSnapshot,
+  allStepSlugs,
+  type SkillGroup,
+} from '../state/skills';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -265,7 +272,11 @@ export const App = {
       // refetch just to change the language.
       this.renderProjectList(this.knownProjects, []);
       if (this.project) {
-        this.renderSkillsFull();
+        // Republish only. The tree used to refetch `dataset_info` for every
+        // sub-step on this path, so switching the UI language walked the
+        // dataset directory once per sub-step; the counts are already in the
+        // snapshot and a language switch cannot change them.
+        this.publishSkills();
         this.renderRobots();
         this.renderCameras();
       }
@@ -1792,7 +1803,10 @@ export const App = {
 
     this.renderRobots();
     this.renderCameras();
-    this.renderSkillsFull();
+    this.publishSkills();
+    // A different project's sub-steps have different datasets on disk, so the
+    // episode counts next to them have to be read again.
+    this.refreshSkillBadges();
     // A different project means different targets and different files on disk,
     // so the cached readiness answers no longer apply — re-read them.
     this.loadTrainingTargets();
@@ -1845,7 +1859,10 @@ export const App = {
         this.activeCameras = r.active_cameras || [];
         this.renderRobots();
         this.renderCameras();
-        this.renderSkillsFull();
+        this.publishSkills();
+        // This runs after every skill create/edit/delete, so the set of rows
+        // (and their datasets) can have changed — re-read the counts.
+        this.refreshSkillBadges();
         this.renderTrainingSkillsTree();
         
         const skills = this.project?.skills || [];
@@ -4262,127 +4279,101 @@ export const App = {
     }
   },
 
-  renderSkillsFull(): void {
+  /**
+   * Shape the project's flat skill list into the tree the tab draws: every
+   * top-level task with its sub-steps underneath, in project order.
+   */
+  buildSkillGroups(): SkillGroup[] {
     const skills = this.project?.skills || [];
     const details = this.project?.skills_details || {};
-    
-    const sideSkills = document.getElementById('skill-list-full');
-    if (sideSkills) {
-      if (!skills.length) {
-        sideSkills.innerHTML = `
-          <div class="empty-state" style="padding: 12px;">
-            <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
-            <div class="empty-state-text">${App.t('hint.createFirstSkill')}</div>
-          </div>`;
-        return;
-      }
-
-      if (!this.activeSkill || !skills.includes(this.activeSkill)) {
-        this.activeSkill = skills[0];
-      }
-
-      const parentSkills = skills.filter(s => !details[s]?.parent_slug);
-      let html = '';
-      
-      parentSkills.forEach(m => {
-        const subSkills = skills.filter(s => details[s]?.parent_slug === m);
-        const isCollapsed = this.collapsedFolders.has(m);
-        
-        // Render a premium milestone container instead of file folders!
-        html += `
-          <div class="skill-group-card" style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.05); padding: 6px; margin-bottom: 12px; transition: all 0.2s;">
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 6px; margin-bottom: 4px;">
-              <button class="skills-tree-folder ${isCollapsed ? 'collapsed' : ''}" data-folder="${m}" onclick="App.toggleSkillsFolder('${m}')" style="flex: 1; display: flex; align-items: center; border: none; background: none; color: var(--text-light); text-align: left; padding: 4px; gap: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;">
-                <span class="chevron-icon" style="display: inline-flex; align-items: center; justify-content: center; transform: rotate(${isCollapsed ? '0deg' : '90deg'}); transition: transform 0.2s; color: var(--text-muted);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 10px; height: 10px;"><path d="M9 5l7 7-7 7"></path></svg></span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; color: var(--cyan); flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg>
-                <span>${details[m]?.name || m}</span>
-                <span class="count-badge" style="background: rgba(0, 188, 212, 0.1); color: var(--cyan); font-size: 9px; padding: 1px 6px; font-weight: 600; margin-left: auto;">${subSkills.length}</span>
-              </button>
-              <div style="display: flex; align-items: center; gap: 4px;">
-                <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.showEditSkillModal('${m}')" title="${App.t('tip.editSkill')}">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                </button>
-                <button class="btn btn-xs btn-danger btn-icon" onclick="event.stopPropagation(); App.deleteSkill('${m}')" title="${App.t('btn.delete')}">✕</button>
-                <button class="btn btn-xs btn-primary btn-icon" onclick="event.stopPropagation(); App.showNewSubSkillModal('${m}')" title="${App.t('tip.addStep')}">+</button>
-              </div>
-            </div>
-            <ul class="skills-tree-subs ${isCollapsed ? 'collapsed' : ''}" id="folder-subs-${m}" style="list-style: none; padding-left: 14px; margin: 4px 0 4px 10px; border-left: 1.5px solid rgba(0, 188, 212, 0.15);">
-        `;
- 
-        if (!subSkills.length) {
-          html += `
-            <li style="padding: 6px 12px 6px 10px; font-size:11px; color:var(--text-muted); font-style:italic;">
-              ${App.t('hint.noSteps')}
-            </li>
-          `;
-        } else {
-          subSkills.forEach(s => {
-            const isActive = s === this.activeSkill;
-            const parentSlug = details[s]?.parent_slug || '';
-            const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
-            html += `
-              <li style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                <button class="skills-tree-item ${isActive ? 'active' : ''}" onclick="App.selectSkill('${s}')" style="margin: 3px 0; flex: 1; display: flex; align-items: center; gap: 8px; border: none; background: transparent; padding: 6px 10px; cursor: pointer; text-align: left; transition: all 0.2s;">
-                  ${isActive ? 
-                    `<span class="step-check-indicator active">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                     </span>` :
-                    `<span class="step-check-indicator">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                     </span>`
-                  }
-                  <span>${details[s]?.name || s}</span>
-                  <span class="ep-badge" id="ep-badge-${s}">...</span>
-                </button>
-                <div style="display: flex; align-items: center; gap: 2px;">
-                  <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.showEditSkillModal('${s}')" title="${App.t('tip.editStep')}">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 11px; height: 11px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                  </button>
-                  <button class="btn btn-xs btn-secondary btn-icon" onclick="event.stopPropagation(); App.openManageEpisodesModal('${s}')" title="${App.t('tip.manageEpisodes')}">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 12px; height: 12px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                  </button>
-                  <button class="btn btn-xs btn-danger btn-icon" onclick="event.stopPropagation(); App.deleteSkill('${s}')" title="${App.t('btn.delete')}">✕</button>
-                </div>
-              </li>
-            `;
-            
-            this.api('GET', `/skills/${datasetSlug}/dataset_info`)
-              .then(info => {
-                const badge = document.getElementById(`ep-badge-${s}`);
-                if (badge) {
-                  if (info.exists && info.num_episodes > 0) {
-                    badge.textContent = `${info.num_episodes} ep`;
-                    badge.style.background = 'var(--green-light)';
-                    badge.style.color = 'var(--green)';
-                  } else {
-                    badge.textContent = '0 ep';
-                    badge.style.background = 'rgba(255,255,255,0.03)';
-                    badge.style.color = 'var(--text-muted)';
-                  }
-                }
-              })
-              .catch(err => console.error("Error loading stats for", s, err));
-          });
-        }
-        
-        html += `</ul></div>`;
-      });
-      sideSkills.innerHTML = html;
-    }
+    return skills
+      .filter((s: string) => !details[s]?.parent_slug)
+      .map((m: string) => ({
+        slug: m,
+        name: details[m]?.name || m,
+        collapsed: this.collapsedFolders.has(m),
+        steps: this.subStepsOf(m),
+      }));
   },
 
-  toggleSkillsFolder(folderId: string): void {
-    const subs = document.getElementById(`folder-subs-${folderId}`);
-    const folderBtn = document.querySelector(`.skills-tree-folder[data-folder="${folderId}"]`);
-    if (this.collapsedFolders.has(folderId)) {
-      this.collapsedFolders.delete(folderId);
-      if (subs) subs.classList.remove('collapsed');
-      if (folderBtn) folderBtn.classList.remove('collapsed');
-    } else {
-      this.collapsedFolders.add(folderId);
-      if (subs) subs.classList.add('collapsed');
-      if (folderBtn) folderBtn.classList.add('collapsed');
+  /**
+   * Hand the skill tree its state. Pure — no network.
+   *
+   * That split is the point: `renderSkillsFull()` used to fetch one
+   * `dataset_info` per sub-step from inside its render loop, so every repaint
+   * (including a mere language switch) walked the dataset directory once per
+   * sub-step. Counts live in the snapshot now and are refreshed by
+   * `refreshSkillBadges()` when they can actually have changed.
+   */
+  publishSkills(): void {
+    const skills = this.project?.skills || [];
+    // The fallback selection used to be decided inside the render loop. It is
+    // app state, not paint, so it is settled here — once, before anything
+    // renders.
+    if (skills.length && (!this.activeSkill || !skills.includes(this.activeSkill))) {
+      this.activeSkill = skills[0];
     }
+    publishSkillsSnapshot({
+      groups: this.buildSkillGroups(),
+      activeSkill: this.activeSkill || '',
+    });
+  },
+
+  /** Bumped per badge sweep; answers stamped with an old token are dropped. */
+  _skillBadgeToken: 0,
+
+  /**
+   * Read the episode count of every sub-step's dataset off disk.
+   *
+   * Call this when the tree's CONTENT can have changed — a project opened,
+   * skills edited, episodes recorded or deleted. Not on a repaint.
+   *
+   * Answers are keyed by slug in the snapshot instead of being written into
+   * `#ep-badge-<slug>`: two sweeps could previously overlap with no way to
+   * tell whose answer had just landed in the DOM.
+   */
+  async refreshSkillBadges(): Promise<void> {
+    const token = ++this._skillBadgeToken;
+    const details = this.project?.skills_details || {};
+    const known = getSkillsSnapshot().badges;
+    const slugs = allStepSlugs(getSkillsSnapshot());
+
+    // Rebuilding the map from the current slugs drops rows that no longer
+    // exist. A row we already have a count for keeps showing it while the new
+    // answer is in flight, so a refresh does not flash the whole tree back to
+    // placeholders.
+    publishSkillsSnapshot({
+      badges: Object.fromEntries(
+        slugs.map(s => [s, known[s] || { status: 'loading' as const }]),
+      ),
+    });
+
+    await Promise.all(slugs.map(async (s: string) => {
+      const parentSlug = details[s]?.parent_slug || '';
+      const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
+      try {
+        const info = await this.api('GET', `/skills/${datasetSlug}/dataset_info`);
+        if (token !== this._skillBadgeToken) return;
+        publishBadge(s, {
+          status: 'ready',
+          episodes: info?.exists ? Number(info.num_episodes || 0) : 0,
+        });
+      } catch (err) {
+        if (token !== this._skillBadgeToken) return;
+        console.error('Error loading stats for', s, err);
+        // A failed read is not "0 episodes" — the row says it could not ask.
+        publishBadge(s, { status: 'error' });
+      }
+    }));
+  },
+
+  /** Fold/unfold one task's sub-steps. Which folders are folded is app state,
+   * so this flips the set and republishes — it no longer reaches into the DOM
+   * to add and remove the `collapsed` class by hand. */
+  toggleSkillsFolder(folderId: string): void {
+    if (this.collapsedFolders.has(folderId)) this.collapsedFolders.delete(folderId);
+    else this.collapsedFolders.add(folderId);
+    this.publishSkills();
   },
 
   /** Fetches what `lerobot-train` would actually be started for.
@@ -4592,6 +4583,10 @@ export const App = {
   /** Nothing (recordable) is selected — say so instead of keeping stale facts. */
   clearSelectedSkill(): void {
     this.activeSkill = null;
+    // Straight to the snapshot, not through `publishSkills()`: that one snaps
+    // an unset selection back to the first skill, which is the opposite of
+    // what this method is saying.
+    publishSkillsSnapshot({ groups: this.buildSkillGroups(), activeSkill: '' });
     // Cancels any detail round trip still in flight, so its answer cannot
     // repaint the readouts after the selection is gone.
     this._collectToken++;
@@ -4603,6 +4598,12 @@ export const App = {
 
   selectSkill(s: string): void {
     this.activeSkill = s;
+    // The tree draws the highlight from this, so the click has to reach it.
+    // Nothing did before: `.skills-tree-item.active` was only ever written by
+    // the tree's own full re-render, which selecting a row does not trigger —
+    // so the tree kept pointing at the previously selected row while every
+    // other panel on the tab had already moved to the new one.
+    this.publishSkills();
     const details = this.project?.skills_details || {};
     const skillDetail = details[s] || {};
     const isStep = !!skillDetail.parent_slug;
@@ -4666,6 +4667,18 @@ export const App = {
     // Fetch LeRobot dataset info dynamically — episode count, size, rows.
     this.api('GET', `/skills/${datasetSlug}/dataset_info`)
       .then(info => {
+        // The tree's badge for this row asks this exact endpoint for this
+        // exact number, so record it here too. That is what keeps the tree
+        // honest after a take without a second round trip: finishing a
+        // recording re-selects the skill, and the new episode count reaches
+        // the badge with it. Keyed by slug, so — unlike the readouts below —
+        // it stays correct even if the selection has moved on since.
+        if (isStep) {
+          publishBadge(s, {
+            status: 'ready',
+            episodes: info?.exists ? Number(info.num_episodes || 0) : 0,
+          });
+        }
         if (!fresh()) return;
         this.publishCollect({
           episodes: info?.exists ? Number(info.num_episodes || 0) : 0,
@@ -5168,8 +5181,8 @@ export const App = {
         if (customDatasetSlug && originSkill) {
           // If deleted from modal, refresh the modal list!
           this.openManageEpisodesModal(originSkill);
-          // And refresh the tree stats!
-          this.renderSkillsFull();
+          // And refresh the tree stats — an episode just left the dataset.
+          this.refreshSkillBadges();
         } else {
           // Normal flow
           this.selectSkill(s);
