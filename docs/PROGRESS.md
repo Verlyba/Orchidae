@@ -8,6 +8,144 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (22) — Sběr dat jede z React stavu, a s ním odešla chyba, kvůli
+které appka nabízela nahrávání bez nakonfigurovaného portu
+
+**Výchozí stav.** `git pull --rebase origin main` (main byl na `d08e506`),
+`setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý (292 pytestů,
+10 kroků) — žádná priorita A ve frontě. Pokračování bodu F podle otevřené
+položky 1 z běhu (20): další stránka na React stav. Vybraná karta **„Sběr dat
+& Dovednosti"** — je to ta karta, kvůli které projekt existuje (jedno natáčení,
+značky hranic při něm, a z toho obě větve porovnání).
+
+### Priorita A, kterou to cestou našlo: dvě funkce psaly na totéž tlačítko
+
+`btn-start-record` mělo **dva majitele** a ten druhý toho prvního přebíjel:
+
+- `updateRecordingHardwareChecks()` ho zamkla, když projekt nemá sériový port
+  nebo kameru (a ukázala červené varování),
+- `updateActionButtonStates()` na něj psala `disabled = busBusy` — takže
+  jakmile se sběrnice uvolnila, **odemkla ho bez ohledu na hardware**.
+
+Prakticky: stačilo, aby se cokoliv spustilo a zase skončilo (teleop,
+kalibrace, replay), a „Spustit nahrávání" bylo živé, i když appka sama vedle
+toho pořád zobrazovala „Není nakonfigurován sériový port Followera". Tlačítko
+navíc **nikdy neřeklo proč** — jeho `title` byl vždycky „Spustí lerobot-record".
+
+**Nevymyslel jsem si to — změřil jsem obě verze vedle sebe** (starý build
+z `git worktree` na HEAD, nový z pracovní kopie, stejná fixture, port
+smazaný za běhu):
+
+```
+STARÝ (main):  po hw kontrole {disabled:true,  title:"Spustí lerobot-record"}
+               po uvolnění sběrnice {disabled:false, title:"Spustí lerobot-record"}   ← odemkl se
+NOVÝ:          po hw kontrole {disabled:true,  title:"Není nakonfigurován sériový port Followera."}
+               po uvolnění sběrnice {disabled:true,  title:"Není nakonfigurován sériový port Followera."}
+```
+
+Oprava: oba důvody se rozhodují na jednom místě (`startState()` ve
+`state/collect.ts`) a `updateActionButtonStates()` už na to tlačítko nepíše —
+publikuje `busBusy` / `recordRunning` do stavu. Přibyl třetí důvod, který dřív
+skončil až `alert()`em po kliknutí: u dovednosti bez pod-kroků (nemá vlastní
+dataset) je tlačítko zamčené a řekne, co má uživatel vybrat.
+
+### Karta „Sběr dat" se kreslí ze stavu
+
+Nový `state/collect.ts` drží vybranou dovednost a její seřazené pod-kroky,
+fakta z disku (epizody, velikost, existence policy), jestli se vůbec dá
+nahrávat, a **probíhající natáčení** (fáze, uložené hranice, aktuální pod-krok,
+epizoda). `app.ts` ho publikuje jedinou metodou `App.publishCollect()` a
+osm komponent v `DatasetyPage.tsx` je jediné, co ho vykresluje: `TaggingPanel`,
+`EpisodesList`, `ActiveSkillStats`, `RecordPanels`, `RecordHardwareWarning`,
+`RecordRepoIdField`, `RecordLiveControls`, `RecordActions`.
+
+Zmizelo `renderStepPlan()`, `renderTaggingSteps()`, `setTaggingNextEnabled()`,
+skládání řádků epizod řetězcem s inline `onclick="App.playSpecificEpisode(0)"`
+(fungovalo jen proto, že `window.App` existuje) a **šest polí `App.*`**
+(`taggingPhase`, `taggingPoints`, `taggingActiveIndex`, `taggingEpisode`,
+`taggingStartTime`, `taggingInterval`) — stav je teď jen na jednom místě.
+`App.recordingActive` je nově getter nad snapshotem, ne druhá kopie.
+
+**Závod, který tam byl**: `selectSkill()` střílí dva requesty a starší odpověď
+uměla přepsat novější výběr — přesně ta past, kterou karta Datasetů dostala
+v (21). Řeší to `_collectToken`. Doloženo se zdrženou odpovědí (900 ms):
+přepnutí na jinou dovednost uprostřed drží novou (`Položit kostku`,
+`local/uklid_stolu/poloz_kostku`), stará odpověď se zahodí.
+
+**Průběh je vidět** (zadání ho vyžaduje u všeho, co trvá): dokud běží čtení
+datasetu z disku, ukazují readouty `…` a seznam epizod „Načítám…" místo čísel
+předchozí dovednosti; „Spustit nahrávání" říká po dobu POST `/recording/start`
+„Spouštím…".
+
+**Časovač natáčení nepatří do snapshotu.** Tiká uvnitř `TaggingTimer`, kterému
+stačí `startedAt` — publikovat uplynulé sekundy by desetkrát za sekundu
+překreslovalo celý sloupec kvůli jednomu readoutu. `setInterval` v `app.ts`
+tím zmizel.
+
+**Menší opravy při práci:** „Chyba hardwaru" a tři `title` živých ovládacích
+prvků byly natvrdo česky v markupu — mají klíče (`rec.hwErrorTitle`,
+`tip.recNextEpisode`, `tip.recDiscardRetry`, `tip.recFinishSave`). Tlačítko
+„Zpět" říká, **proč** je zamčené (`tip.undoNoMarks`), ne jak se používá. A
+u dovednosti bez datasetu ukazují readouty `—` místo čísel té předchozí —
+starý build tam nechával „Uchopit kostku / 0 ep. / 0.00 MB / Není natrénováno"
+i když byl vybraný „Samostatný úkol".
+
+### Ověřeno v cloudu
+
+Sonda v prohlížeči nad běžícím backendem a fixture projektem (úkol se třemi
+pod-kroky, samostatný pod-krok, úkol bez pod-kroků) — **41/41**:
+
+- verdikt „ACT + orchestrace" vs „jen ACT baseline" podle počtu pod-kroků,
+  tři řádky plánu, mimo natáčení žádný z nich neoznačený jako aktivní;
+- repo id se odvozuje ze stromu (`local/uklid_stolu/uchop_kostku`);
+- **klik dorazí k `App` u všech pěti ovládacích prvků karty** — to je past
+  z běhu (20), proto se to měří, ne odhaduje;
+- celý průběh natáčení: fáze `record` rozsvítí odznak i tlačítko značky, časovač
+  tiká, značka označí řádek jako hotový s časem `3.25s` a posune aktivní řádek,
+  počítadlo sedí, undo se vrátí, po poslední hranici tlačítko řekne „Všechny
+  fáze označeny", pauza `reset` značkování zamkne, zahozená epizoda značky
+  smaže, konec natáčení vrátí sloupec do klidu;
+- pozdní odpověď nepřepíše novější výběr; indikátory průběhu svítí;
+- překreslení do EN nestojí kartu **ani jeden** `dataset_info` (badge ve stromu
+  dovedností se pořád stahují — ten je dál imperativní, viz níže);
+- konzole čistá (kromě `ERR_CONNECTION_RESET` z feedu kamery, kterou kontejner
+  nemá).
+
+Dál: `bash scripts/verify.sh` prochází celý (292 pytestů, 10 kroků);
+**normalizovaný DOM karty ve pěti stavech proti starému buildu** — rozdíly jsou
+jen ty popsané výše a daly se vyjmenovat do jednoho řádku (překlad „Chyba
+hardwaru", atribut `value` na řízeném `rec-repo-id`, `title` u „Zpět", rozdělení
+textu časovače na dva uzly, a u dovednosti bez datasetu `—` místo starých
+čísel + zamčené „Spustit nahrávání"); smoke přes všech 8 stránek bez chyby
+v konzoli; `scripts/measure-layout.sh` (`datasety`, `uceni`, `projects`,
+3 velikosti) dává **shodná čísla se starým buildem** (35/37/39 %, 0 ořezů,
+0 přetečení, 0 roztažených).
+
+**Na fyzickém robotu zbývá vyzkoušet:** v cloudu nešlo spustit jediný skutečný
+`lerobot-record`, takže je ověřené jen to, co appka udělá se zprávami, které
+by od něj přišly. Vyzkoušet celý běh na stroji: start nahrávání, klávesy
+`→`/`n`, `←`/`r`, `Esc`/`q` i jejich tlačítka, **značkování hranic pod-úkolů
+mezerníkem / M a undo Backspace / U během skutečné epizody** (a že časy značek
+sedí na to, co proces zapsal), přechody fází record ↔ reset z reálného
+procesu, zahození a znovunatočení epizody, a nakonec že se dataset po natáčení
+opravdu dá rozřezat podle značek na pod-datasety. Stejně tak, že readouty
+(epizody, velikost, policy) sedí na to, co je po natáčení na disku.
+
+**Otevřeno pro příště:**
+1. Poslední velký kus `innerHTML` na téhle kartě je **strom dovedností**
+   (`renderSkillsFull()`) — a je to i jediný důvod, proč přepnutí jazyka pořád
+   stahuje `dataset_info` pro každý pod-krok (badge s počtem epizod).
+2. Dál na React stav: **Connect / Setup** (seznamy zařízení, tabulky
+   detekovaného hardwaru) a **Kalibrace** (tabulky kloubů) — obojí je pořád
+   skládané řetězci.
+3. Až bude logika ve stavu, zapnout `<StrictMode>` (dnes by spustil `init()`
+   dvakrát).
+4. Bundle je pořád jeden 739 kB chunk — rozdělit (`manualChunks`).
+5. Pořád platí otázka na majitele z běhu (18): jak appku spouští (port 4173)?
+6. Zvážit vrácení patičky „Umístění projektů" pod seznam projektů (z běhu 20).
+
+---
+
 ## 2026-08-03 (21) — Správa datasetů jede ze skutečného React stavu; s tím
 odešly dva tiché závody a přibyly indikátory průběhu
 

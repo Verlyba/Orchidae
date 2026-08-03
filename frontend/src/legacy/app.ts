@@ -79,6 +79,12 @@ import {
   getDatasetsSnapshot,
   type DatasetEntry,
 } from '../state/datasets';
+import {
+  publishCollect as publishCollectSnapshot,
+  getCollectSnapshot,
+  type SubStep,
+  type RecordPhase,
+} from '../state/collect';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -125,18 +131,15 @@ export const App = {
   projectOpeningPath: '' as string,
   wsConnectedOnce: false,
   collapsedFolders: new Set<string>(),
-  taggingStartTime: 0,
-  taggingActiveIndex: 0,
-  taggingPoints: [] as number[],
-  taggingInterval: null as any,
-  taggingEpisode: -1,
-  // Phase of lerobot's record loop: 'record' | 'reset' | 'idle'
-  taggingPhase: 'idle',
+  // The take in progress (phase, marked boundaries, current sub-step, episode)
+  // lives in `state/collect` now — the marking column renders from it directly,
+  // so a second copy here could only ever drift away from what is on screen.
+  //
   // True between a successful /recording/start and the process ending. The
   // recording keys and the live controls are both gated on this instead of on
   // an element's inline display, which stopped being a reliable signal once the
   // marking panel became permanently visible.
-  recordingActive: false,
+  get recordingActive(): boolean { return getCollectSnapshot().recordingActive; },
   // Last /orchestration/plan_preview response, kept so a language switch can
   // repaint the plan column without refetching (and without silently showing
   // checkpoint readiness from a different moment than the numbers above it).
@@ -266,10 +269,10 @@ export const App = {
         this.renderRobots();
         this.renderCameras();
       }
-      // The marking column and the episode rows are built in JS too, so they
-      // would otherwise keep the previous language.
-      if (this.activeSkill) this.selectSkill(this.activeSkill);
-      else this.renderStepPlan();
+      // The collect tab renders from state and resolves its own strings at
+      // render time, so a language switch is a repaint — republishing is
+      // enough and no longer costs two round trips per selected skill.
+      this.publishCollect({});
       // The dataset tab now renders from state and resolves its own strings at
       // render time, so a language switch is a repaint — republishing the
       // snapshot is enough and no longer costs a refetch of the listing.
@@ -319,9 +322,6 @@ export const App = {
     this.loadProjects();
     this.bindResizers();
     this.bindModals();
-    // Paint the marking column before any project is open, so it reads as
-    // "nothing selected yet" instead of an empty box.
-    this.renderStepPlan();
     // The Connect tab renders its choices from LeRobot's registry, so the
     // catalogue is fetched before a project can select one of them.
     this.loadDeviceTypes();
@@ -754,11 +754,12 @@ export const App = {
       }
     }
 
-    // Recording (any bus-holding process blocks a new recording)
-    setDisabled('btn-start-record', busBusy,
-      recordRunning ? this.t('tip.recordAlready') : (busBusy ? this.t('tip.busBusy') : this.t('tip.startsRecord')));
-    setDisabled('btn-stop-record', !recordRunning,
-      recordRunning ? this.t('tip.stopsRecord') : this.t('tip.recordNotRunning'));
+    // Recording (any bus-holding process blocks a new recording). Published,
+    // not written onto the buttons: the Start button also carries the
+    // port/camera verdict from updateRecordingHardwareChecks(), and writing
+    // `disabled = busBusy` here used to wipe that verdict out every time any
+    // process started or stopped — offering to record with no port configured.
+    this.publishCollect({ busBusy, recordRunning });
 
     // Training (GPU-bound, not bus-bound)
     setDisabled('btn-start-training', trainRunning,
@@ -1100,6 +1101,19 @@ export const App = {
   /** Hand the dataset-management tab its state. */
   publishDatasets(next: Record<string, any> = {}): void {
     publishDatasetsSnapshot(next);
+  },
+
+  /**
+   * Selecting a skill fires two round trips (dataset_info, policy_status).
+   * Clicking through the tree faster than the server answers used to let an
+   * older reply paint its episode count and its episode rows over a newer
+   * selection — the same race the dataset tab carried until run (21).
+   */
+  _collectToken: 0,
+
+  /** Hand the data-collection tab its state. */
+  publishCollect(next: Record<string, any> = {}): void {
+    publishCollectSnapshot(next);
   },
 
   async dsRefreshList(): Promise<void> {
@@ -1840,16 +1854,7 @@ export const App = {
         } else if (skills.length > 0) {
           this.selectSkill(skills[0]);
         } else {
-          const emptyState = document.getElementById('rec-empty-state');
-          const activePanel = document.getElementById('rec-active-panel');
-          if (emptyState) emptyState.style.display = 'flex';
-          if (activePanel) activePanel.style.display = 'none';
-          this.activeSkill = null;
-          this.renderStepPlan();
-          const listContainer = document.getElementById('rec-episodes-list-container');
-          if (listContainer) {
-            listContainer.innerHTML = `<div class="rec-episodes-empty">${this.esc(this.t('hint.noRecordableSkill'))}</div>`;
-          }
+          this.clearSelectedSkill();
         }
 
         await this.scanHardware();
@@ -3308,7 +3313,9 @@ export const App = {
     const robots = this.project?.robots || [];
     const rType = robots[0]?.type || 'so100_follower';
     const rPort = robots[0]?.port || '';
-    const repo = (document.getElementById('rec-repo-id') as HTMLInputElement | null)?.value.trim();
+    // The field is read-only and rendered from the selection, so the state is
+    // the source — reading the DOM back would just be the same value twice.
+    const repo = getCollectSnapshot().repoId.trim();
     const eps = parseInt((document.getElementById('rec-episodes') as HTMLInputElement | null)?.value || '50', 10);
     const fps = 30; // Native LeRobot FPS target
     const taskDesc = (document.getElementById('rec-task-desc') as HTMLInputElement | null)?.value.trim() || '';
@@ -3332,13 +3339,7 @@ export const App = {
 
     // The request can take a while (the backend spawns the LeRobot process and
     // opens the serial port), so the button says so instead of looking dead.
-    const startBtn = document.getElementById('btn-start-record') as HTMLButtonElement | null;
-    const startLabel = startBtn?.querySelector('span');
-    const startLabelText = startLabel?.textContent || '';
-    if (startBtn) startBtn.disabled = true;
-    if (startLabel) startLabel.textContent = this.t('btn.startingRecording');
-
-    this.setRecordingUiActive(true);
+    this.publishCollect({ starting: true, recordingActive: true });
 
     this.log('INFO', `Requesting Record for ${repo} (${eps} eps @ ${fps}fps, task="${taskDesc || this.activeSkill}")`);
     const extraArgs = (document.getElementById('rec-extra-args') as HTMLInputElement | null)?.value.trim() || '';
@@ -3356,8 +3357,7 @@ export const App = {
       extra_args_str: extraArgs
     });
     
-    if (startBtn) startBtn.disabled = false;
-    if (startLabel) startLabel.textContent = startLabelText || this.t('btn.startRecording');
+    this.publishCollect({ starting: false });
 
     if (res && res.ok === false) {
       this.log('ERROR', `Backend Validation Failed: ${res.error}`);
@@ -3374,14 +3374,7 @@ export const App = {
    * disagree about whether a recording is in progress.
    */
   setRecordingUiActive(on: boolean): void {
-    this.recordingActive = on;
-    const liveControls = document.getElementById('rec-live-controls');
-    if (liveControls) liveControls.style.display = on ? 'flex' : 'none';
-    const stopBtn = document.getElementById('btn-stop-record') as HTMLButtonElement | null;
-    if (stopBtn) {
-      stopBtn.disabled = !on;
-      stopBtn.title = this.t(on ? 'tip.stopRecording' : 'tip.notRecording');
-    }
+    this.publishCollect({ recordingActive: on });
   },
 
   async stopWorkflowRecord(): Promise<void> {
@@ -4588,14 +4581,31 @@ export const App = {
     });
   },
 
+  /** Ordered sub-steps of a skill, as the marking column lists them. */
+  subStepsOf(slug: string): SubStep[] {
+    const details = this.project?.skills_details || {};
+    return (this.project?.skills || [])
+      .filter((sub: string) => details[sub]?.parent_slug === slug)
+      .map((sub: string) => ({ slug: sub, name: details[sub]?.name || sub }));
+  },
+
+  /** Nothing (recordable) is selected — say so instead of keeping stale facts. */
+  clearSelectedSkill(): void {
+    this.activeSkill = null;
+    // Cancels any detail round trip still in flight, so its answer cannot
+    // repaint the readouts after the selection is gone.
+    this._collectToken++;
+    this.publishCollect({
+      skill: '', skillName: '', isStep: false, subSteps: [], recordable: false,
+      repoId: '', detailLoading: false, episodes: -1, sizeMb: '', policy: '',
+    });
+  },
+
   selectSkill(s: string): void {
     this.activeSkill = s;
     const details = this.project?.skills_details || {};
     const skillDetail = details[s] || {};
     const isStep = !!skillDetail.parent_slug;
-
-    const emptyState = document.getElementById('rec-empty-state');
-    const activePanel = document.getElementById('rec-active-panel');
 
     // Update active breadcrumbs file trail to show active selected sub-skill
     const bcFile = document.getElementById('breadcrumb-file');
@@ -4603,149 +4613,100 @@ export const App = {
       bcFile.textContent = s;
     }
 
-    const skills = this.project?.skills || [];
-    const hasSubSkills = skills.some(sub => details[sub]?.parent_slug === s);
+    const subSteps = this.subStepsOf(s);
+    // A sub-step records into its own dataset; so does a task that has
+    // sub-steps. A top-level task with neither has nothing to record into.
+    const recordable = isStep || subSteps.length > 0;
+    const parentSlug = skillDetail.parent_slug || '';
+    const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
 
-    // The marking column is not gated on the recording panel — it describes the
-    // selected skill, which is exactly what the empty state cannot.
-    this.renderStepPlan();
+    // Published before the round trips so the column repaints for the NEW
+    // skill immediately; the disk facts follow and are marked as loading.
+    this.publishCollect({
+      skill: s,
+      skillName: skillDetail.name || s,
+      isStep,
+      subSteps,
+      recordable,
+      repoId: recordable ? `local/${datasetSlug}` : '',
+      episodes: -1,
+      sizeMb: '',
+      policy: '',
+    });
 
-    if (!isStep && !hasSubSkills) {
-      // It's a top-level Dovednost with NO sub-skills! Hide active recording panel, show empty state
-      if (emptyState) emptyState.style.display = 'flex';
-      if (activePanel) activePanel.style.display = 'none';
-      // Nothing is recordable here, so the episode list must not keep showing
-      // the episodes of whichever skill was selected before.
-      const listContainer = document.getElementById('rec-episodes-list-container');
-      if (listContainer) {
-        listContainer.innerHTML = `<div class="rec-episodes-empty">${this.esc(this.t('hint.noRecordableSkill'))}</div>`;
-      }
-    } else {
-      // It has sub-skills or it is a sub-skill! Show active recording panel, hide empty state
-      if (emptyState) emptyState.style.display = 'none';
-      if (activePanel) activePanel.style.display = 'flex';
+    const token = ++this._collectToken;
+    const fresh = () => token === this._collectToken;
 
-      const robots = this.project?.robots || [];
-      const activeRobot = robots[0] || { id: 'my_follower_arm', type: 'so100', port: '' };
-      const parentSlug = skillDetail.parent_slug || '';
-      const datasetSlug = parentSlug ? `${parentSlug}/${s}` : s;
-      
-      // Update active sub-skill title in recording panel
-      const titleEl = document.getElementById('active-sub-skill-title');
-      if (titleEl) titleEl.textContent = skillDetail.name || s;
-      
-      // Update inputs
-      const recRepoInput = document.getElementById('rec-repo-id') as HTMLInputElement | null;
-      if (recRepoInput) recRepoInput.value = `local/${datasetSlug}`;
-      
-      const trainRepoInput = document.getElementById('train-repo-id') as HTMLInputElement | null;
-      if (trainRepoInput) trainRepoInput.value = `local/${datasetSlug}`;
-      
-      const evalPolicyInput = document.getElementById('eval-policy-path') as HTMLInputElement | null;
-      const policyType = this.project?.policy_architecture || 'diffusion';
-      if (evalPolicyInput) {
-        const policySlug = parentSlug ? `${parentSlug}_${s}` : s;
-        evalPolicyInput.value = `outputs/training/${policySlug}_${policyType}`;
-      }
-      
-      const evalTaskInput = document.getElementById('eval-task-name') as HTMLInputElement | null;
-      if (evalTaskInput) evalTaskInput.value = `eval_${s}`;
-
-      // Update hardware checks
-      this.updateRecordingHardwareChecks();
-
-      // Fetch LeRobot dataset info dynamically and render episodes manager list!
-      this.api('GET', `/skills/${datasetSlug}/dataset_info`)
-        .then(info => {
-          // Update live stats row in recording panel!
-          const epCountEl = document.getElementById('active-skill-episodes');
-          const sizeEl = document.getElementById('active-skill-size');
-          if (epCountEl) {
-            epCountEl.textContent = this.t('val.nEpisodes', {n: info.num_episodes || 0});
-          }
-          if (sizeEl) {
-            sizeEl.textContent = `${info.size_mb || '0.00'} MB`;
-          }
-
-          const listContainer = document.getElementById('rec-episodes-list-container');
-          if (listContainer) {
-            if (!info.exists || info.num_episodes === 0) {
-              listContainer.innerHTML = `<div class="rec-episodes-empty">${
-                this.esc(this.t('hint.noEpisodesIn', {repo: `local/${datasetSlug}`}))}</div>`;
-            } else {
-              let listHtml = '';
-              for (let idx = 0; idx < info.num_episodes; idx++) {
-                listHtml += `
-                  <div class="rec-episode-row">
-                    <span class="rec-episode-name">${this.esc(this.t('rec.episodeLbl'))} ${idx}</span>
-                    <div class="rec-episode-actions">
-                      <button class="btn btn-xs btn-success" onclick="App.playSpecificEpisode(${idx})" title="${this.esc(this.t('tip.replayEp'))}">${this.esc(this.t('btn.replayEp'))}</button>
-                      <button class="btn btn-xs btn-danger" onclick="App.deleteSpecificEpisode(${idx})" title="${this.esc(this.t('tip.deleteEp'))}">${this.esc(this.t('btn.delete'))}</button>
-                    </div>
-                  </div>
-                `;
-              }
-              listContainer.innerHTML = listHtml;
-            }
-          }
-        })
-        .catch(err => {
-          console.error("Failed to load dataset info:", err);
-        });
-
-      // Fetch policy status to see if it is trained!
-      this.api('GET', `/skills/${s}/policy_status`)
-        .then(res => {
-          const trainStatusEl = document.getElementById('active-skill-training');
-          if (trainStatusEl) {
-            if (res.exists) {
-              trainStatusEl.textContent = this.t('val.trained');
-              trainStatusEl.style.color = 'var(--green)';
-            } else {
-              trainStatusEl.textContent = this.t('val.notTrained');
-              trainStatusEl.style.color = 'var(--yellow)';
-            }
-          }
-        })
-        .catch(() => {
-          const trainStatusEl = document.getElementById('active-skill-training');
-          if (trainStatusEl) {
-            trainStatusEl.textContent = this.t('val.unknownState');
-            trainStatusEl.style.color = 'var(--text-muted)';
-          }
-        });
+    if (!recordable) {
+      this.publishCollect({ detailLoading: false });
+      return;
     }
+
+    const trainRepoInput = document.getElementById('train-repo-id') as HTMLInputElement | null;
+    if (trainRepoInput) trainRepoInput.value = `local/${datasetSlug}`;
+
+    const evalPolicyInput = document.getElementById('eval-policy-path') as HTMLInputElement | null;
+    const policyType = this.project?.policy_architecture || 'diffusion';
+    if (evalPolicyInput) {
+      const policySlug = parentSlug ? `${parentSlug}_${s}` : s;
+      evalPolicyInput.value = `outputs/training/${policySlug}_${policyType}`;
+    }
+
+    const evalTaskInput = document.getElementById('eval-task-name') as HTMLInputElement | null;
+    if (evalTaskInput) evalTaskInput.value = `eval_${s}`;
+
+    // Update hardware checks
+    this.updateRecordingHardwareChecks();
+
+    // Reading the dataset directory and looking for a checkpoint are two round
+    // trips over the network — the readouts say so instead of showing the
+    // previous skill's numbers as if they were the new one's.
+    this.publishCollect({ detailLoading: true });
+
+    // Fetch LeRobot dataset info dynamically — episode count, size, rows.
+    this.api('GET', `/skills/${datasetSlug}/dataset_info`)
+      .then(info => {
+        if (!fresh()) return;
+        this.publishCollect({
+          episodes: info?.exists ? Number(info.num_episodes || 0) : 0,
+          // `|| '0.00'` and not `?? `: the backend answers with the number 0
+          // for a dataset that is not on disk, and "0 MB" reads like a measured
+          // size where "0.00 MB" reads like the placeholder it is.
+          sizeMb: String(info?.size_mb || '0.00'),
+        });
+      })
+      .catch(err => {
+        console.error("Failed to load dataset info:", err);
+      })
+      .finally(() => {
+        if (fresh()) this.publishCollect({ detailLoading: false });
+      });
+
+    // Fetch policy status to see if it is trained!
+    this.api('GET', `/skills/${s}/policy_status`)
+      .then(res => {
+        if (fresh()) this.publishCollect({ policy: res?.exists ? 'trained' : 'untrained' });
+      })
+      .catch(() => {
+        if (fresh()) this.publishCollect({ policy: 'unknown' });
+      });
   },
 
+  /**
+   * Whether the project's own robot entry has what lerobot-record needs. The
+   * verdict is published, not written onto the button: it shares that button
+   * with the serial-bus check, and whichever ran last used to win.
+   */
   updateRecordingHardwareChecks(): void {
     const robots = this.project?.robots || [];
     const activeRobot = robots[0];
-    const followerPort = activeRobot?.port || '';
-    const cameras = activeRobot?.cameras || [];
+    const hasPort = !!(activeRobot?.port || '');
+    const hasCameras = (activeRobot?.cameras || []).length > 0;
 
-    const hasPort = !!followerPort;
-    const hasCameras = cameras.length > 0;
-
-    const warnEl = document.getElementById('rec-hw-warning');
-    const warnText = document.getElementById('rec-hw-warning-text');
-    const btnStart = document.getElementById('btn-start-record') as HTMLButtonElement | null;
-
-    if (!hasPort || !hasCameras) {
-      if (warnEl) warnEl.style.display = 'block';
-      let errorMsg = '';
-      if (!hasPort && !hasCameras) {
-        errorMsg = this.t('rec.errNoPortNoCams');
-      } else if (!hasPort) {
-        errorMsg = this.t('rec.errNoPort');
-      } else {
-        errorMsg = this.t('rec.errNoCams');
-      }
-      if (warnText) warnText.textContent = errorMsg;
-      if (btnStart) btnStart.disabled = true;
-    } else {
-      if (warnEl) warnEl.style.display = 'none';
-      if (btnStart) btnStart.disabled = false;
-    }
+    const hwErrorKey = hasPort && hasCameras ? ''
+      : !hasPort && !hasCameras ? 'rec.errNoPortNoCams'
+      : !hasPort ? 'rec.errNoPort' : 'rec.errNoCams';
+    this.publishCollect({ hwErrorKey });
   },
 
   getCurrentParentSlug(): string {
@@ -5845,164 +5806,40 @@ export const App = {
   },
 
   taggingSubSkills(): string[] {
-    const s = this.activeSkill;
-    if (!s) return [];
-    const skills = this.project?.skills || [];
-    const details = this.project?.skills_details || {};
-    return skills.filter(sub => details[sub]?.parent_slug === s);
-  },
-
-  /**
-   * The marking column, rendered from the selected skill alone. It answers the
-   * question the whole project exists for — can this recording feed the
-   * orchestration branch, or only the ACT baseline — and it has to answer it
-   * BEFORE the take, which is why it does not wait for a recording to start.
-   */
-  renderStepPlan(): void {
-    const verdictEl = document.getElementById('rec-step-verdict');
-    const stepsContainer = document.getElementById('rec-tagging-steps');
-    if (!verdictEl || !stepsContainer) return;
-
-    const s = this.activeSkill;
-    if (!s) {
-      verdictEl.innerHTML = '';
-      stepsContainer.innerHTML =
-        `<div class="tagging-empty">${this.esc(this.t('hint.pickSkillForPlan'))}</div>`;
-      return;
-    }
-
-    const subSkills = this.taggingSubSkills();
-    // Two or more ordered sub-steps means at least one boundary, so the
-    // recording can be cut into sub-datasets — same rule the splitter uses.
-    const splittable = subSkills.length >= 2;
-    // A sub-step selected on its own is a perfectly good ACT baseline take; a
-    // top-level task with no sub-steps cannot be recorded at all. Both have
-    // zero boundaries, so the count alone must not decide the wording.
-    const isStep = !!this.project?.skills_details?.[s]?.parent_slug;
-    const textKey = splittable ? 'hint.verdictBoth'
-      : subSkills.length === 1 ? 'hint.verdictOneStep'
-      : isStep ? 'hint.verdictLeafStep' : 'hint.verdictNoSteps';
-    verdictEl.innerHTML = `
-      <span class="pd-task-mode ${splittable ? 'ok' : 'baseline'}">${
-        this.esc(this.t(splittable ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
-      <span class="rec-verdict-text">${this.esc(this.t(
-        textKey, {n: subSkills.length, marks: Math.max(0, subSkills.length - 1)}))}</span>`;
-
-    this.renderTaggingSteps(subSkills);
-    // Selecting another skill changes why the mark control is unavailable, so
-    // its label has to be recomputed here and not only on a phase change.
-    this.setTaggingNextEnabled(
-      this.taggingPhase === 'record' && splittable
-      && this.taggingActiveIndex < subSkills.length - 1);
+    return getCollectSnapshot().subSteps.map(x => x.slug);
   },
 
   initTaggingWizard(): void {
     const s = this.activeSkill;
     if (!s) return;
     const subSkills = this.taggingSubSkills();
+    if (subSkills.length === 0) return;
 
-    const stepsContainer = document.getElementById('rec-tagging-steps');
-
-    if (subSkills.length > 0 && stepsContainer) {
-      // Marks are timestamped INSIDE the recording process, from the frames
-      // already written to the episode — this local timer is display-only.
-      this.taggingStartTime = Date.now();
-      this.taggingActiveIndex = 0;
-      this.taggingPoints = [];
-      this.taggingEpisode = -1;
-      this.taggingPhase = 'idle';
-      this.onRecordingPhase('idle');
-
-      this.renderTaggingSteps(subSkills);
-
-      const timerEl = document.getElementById('rec-tagging-timer');
-      const epEl = document.getElementById('rec-tagging-episode');
-      const pointsEl = document.getElementById('rec-tagging-points');
-      if (timerEl) timerEl.textContent = '0.0s';
-      if (epEl) epEl.textContent = '–';
-      if (pointsEl) pointsEl.textContent = '0';
-
-      if (this.taggingInterval) {
-        clearInterval(this.taggingInterval);
-      }
-
-      this.taggingInterval = setInterval(() => {
-        const elapsedSecs = ((Date.now() - this.taggingStartTime) / 1000).toFixed(1);
-        const tEl = document.getElementById('rec-tagging-timer');
-        if (tEl) tEl.textContent = `${elapsedSecs}s`;
-      }, 100);
-
-      this.log('SUCCESS', this.t('log.taggingStarted', {s, n: subSkills.length}));
-    }
-  },
-
-  setTaggingNextEnabled(enabled: boolean): void {
-    const btnNext = document.getElementById('btn-tagging-next') as HTMLButtonElement | null;
-    const btnUndo = document.getElementById('btn-tagging-undo') as HTMLButtonElement | null;
-    if (btnUndo) btnUndo.disabled = this.taggingPoints.length === 0;
-    if (!btnNext) return;
-    btnNext.disabled = !enabled;
-    const label = btnNext.querySelector('span');
-    if (!label) return;
-    // The disabled state has three different causes — say which one it is.
-    const nSteps = this.taggingSubSkills().length;
-    const allMarked = nSteps >= 2 && this.taggingActiveIndex >= nSteps - 1;
-    label.textContent = enabled ? this.t('rec.markPhaseEnd')
-      : nSteps < 2 ? this.t('rec.markNoBoundary')
-      : allMarked ? this.t('rec.allPhasesMarked') : this.t('rec.markUnavailable');
+    // Marks are timestamped INSIDE the recording process, from the frames
+    // already written to the episode — this timer is display-only. The ticking
+    // is owned by the component that shows it, so it repaints one readout
+    // instead of the whole column ten times a second.
+    this.publishCollect({
+      startedAt: Date.now(),
+      activeIndex: 0,
+      marks: [],
+      episode: -1,
+    });
+    this.onRecordingPhase('idle');
+    this.log('SUCCESS', this.t('log.taggingStarted', {s, n: subSkills.length}));
   },
 
   onRecordingEpisodeStarted(episode: number): void {
     // A new episode began — step marking restarts from phase 0. lerobot reuses
     // the index of a re-recorded episode, so this also covers a retried take.
     if (this.taggingSubSkills().length === 0) return;
-    this.taggingEpisode = episode;
-    this.taggingActiveIndex = 0;
-    this.taggingPoints = [];
-    this.taggingStartTime = Date.now();
-    const epEl = document.getElementById('rec-tagging-episode');
-    if (epEl) epEl.textContent = String(episode);
-    const pointsEl = document.getElementById('rec-tagging-points');
-    if (pointsEl) pointsEl.textContent = '0';
-    this.renderTaggingSteps(this.taggingSubSkills());
+    this.publishCollect({
+      episode,
+      activeIndex: 0,
+      marks: [],
+      startedAt: Date.now(),
+    });
     this.onRecordingPhase('record');
-  },
-
-  renderTaggingSteps(subSkills: string[]): void {
-    const stepsContainer = document.getElementById('rec-tagging-steps');
-    if (!stepsContainer) return;
-
-    const details = this.project?.skills_details || {};
-
-    if (!subSkills.length) {
-      stepsContainer.innerHTML =
-        `<div class="tagging-empty">${this.esc(this.t('hint.noStepsToMark'))}</div>`;
-      return;
-    }
-
-    // Outside a take there is no "current" phase yet, so no row may claim to be
-    // active — the list is then a plan, not a progress indicator.
-    const live = this.taggingPhase === 'record' || this.taggingPoints.length > 0;
-
-    stepsContainer.innerHTML = subSkills.map((sub, idx) => {
-      const isCompleted = live && idx < this.taggingActiveIndex;
-      const isActive = live && idx === this.taggingActiveIndex;
-      const rowCls = isCompleted ? 'is-done' : isActive ? 'is-active' : 'is-waiting';
-      const stateLabel = isCompleted ? this.t('tag.done')
-        : isActive ? this.t('tag.active') : this.t('tag.waiting');
-      // Boundary marks sit BETWEEN steps, so the last step never gets one.
-      const boundary = isCompleted && idx < this.taggingPoints.length
-        ? `<span class="tagging-step-t">${this.taggingPoints[idx].toFixed(2)}s</span>` : '';
-
-      return `
-        <div class="tagging-step ${rowCls}">
-          <span class="tagging-step-idx">${idx + 1}</span>
-          <span class="tagging-step-name">${this.esc(details[sub]?.name || sub)}</span>
-          ${boundary}
-          <span class="tag tag-${rowCls.replace('is-', '')}">${stateLabel}</span>
-        </div>
-      `;
-    }).join('');
   },
 
   /**
@@ -6015,20 +5852,21 @@ export const App = {
   async taggingNextStep(): Promise<void> {
     const s = this.activeSkill;
     if (!s) return;
+    const c = getCollectSnapshot();
     const subSkills = this.taggingSubSkills();
 
-    if (this.taggingActiveIndex >= subSkills.length - 1) {
+    if (c.activeIndex >= subSkills.length - 1) {
       this.log('WARN', this.t('log.allPhasesMarked'));
       return;
     }
-    if (this.taggingPhase !== 'record') {
+    if (c.phase !== 'record') {
       this.log('WARN', this.t('log.markNotRecording'));
       return;
     }
 
     const res = await this.api('POST', '/recording/mark_step', {
       skill_slug: s,
-      label: subSkills[this.taggingActiveIndex],
+      label: subSkills[c.activeIndex],
     });
     if (!res || res.ok === false) {
       this.log('WARN', this.t('log.markFail', {e: res?.error || '?'}));
@@ -6037,7 +5875,7 @@ export const App = {
 
   async taggingUndoStep(): Promise<void> {
     const s = this.activeSkill;
-    if (!s || this.taggingActiveIndex === 0) return;
+    if (!s || getCollectSnapshot().activeIndex === 0) return;
     const res = await this.api('POST', '/recording/undo_mark', { skill_slug: s });
     if (!res || res.ok === false) {
       this.log('WARN', this.t('log.undoFail', {e: res?.error || '?'}));
@@ -6051,30 +5889,32 @@ export const App = {
     const subSkills = this.taggingSubSkills();
     if (subSkills.length === 0) return;
 
+    const c = getCollectSnapshot();
+    const marks = [...c.marks];
+    let activeIndex = c.activeIndex;
+
     if (data.undone) {
-      this.taggingPoints.pop();
-      this.taggingActiveIndex = Math.max(0, this.taggingActiveIndex - 1);
+      marks.pop();
+      activeIndex = Math.max(0, activeIndex - 1);
       this.log('INFO', this.t('log.markUndone'));
     } else {
-      this.taggingPoints.push(Number(data.t) || 0);
+      marks.push(Number(data.t) || 0);
       // `step` is the boundary number counted by the backend — it is the single
       // source of truth, so keyboard, button and remote marks cannot diverge.
-      const step = Number(data.step) || this.taggingPoints.length;
-      this.taggingActiveIndex = Math.min(Math.max(step, 0), subSkills.length - 1);
+      const step = Number(data.step) || marks.length;
+      activeIndex = Math.min(Math.max(step, 0), subSkills.length - 1);
       this.log('SUCCESS', this.t('log.markSaved', {
-        s: subSkills[Math.max(0, this.taggingActiveIndex - 1)],
+        s: subSkills[Math.max(0, activeIndex - 1)],
         t: (Number(data.t) || 0).toFixed(2),
-        next: subSkills[this.taggingActiveIndex] || '—',
+        next: subSkills[activeIndex] || '—',
       }));
     }
 
-    const pointsEl = document.getElementById('rec-tagging-points');
-    if (pointsEl) pointsEl.textContent = String(this.taggingPoints.length);
-    const epEl = document.getElementById('rec-tagging-episode');
-    if (epEl && typeof data.episode === 'number') epEl.textContent = String(data.episode);
-    this.renderTaggingSteps(subSkills);
-    this.setTaggingNextEnabled(
-      this.taggingPhase === 'record' && this.taggingActiveIndex < subSkills.length - 1);
+    this.publishCollect({
+      marks,
+      activeIndex,
+      ...(typeof data.episode === 'number' ? { episode: data.episode } : {}),
+    });
   },
 
   /**
@@ -6083,68 +5923,41 @@ export const App = {
    * the capture phase, so the control reflects that instead of failing silently.
    */
   onRecordingPhase(phase: string): void {
-    this.taggingPhase = phase;
-    const subSkills = this.taggingSubSkills();
-    const status = document.getElementById('rec-tagging-phase');
-    if (status) {
-      const key = phase === 'record' ? 'rec.phaseRecording'
-        : phase === 'reset' ? 'rec.phaseReset' : 'rec.phaseIdle';
-      // Keep data-i18n in sync so switching language re-renders the CURRENT
-      // phase rather than resetting the badge to its initial one.
-      status.setAttribute('data-i18n', key);
-      status.textContent = this.t(key);
-      status.className = 'tag ' + (phase === 'record' ? 'tag-live' : 'tag-idle');
-    }
+    const p: RecordPhase = phase === 'record' ? 'record' : phase === 'reset' ? 'reset' : 'idle';
+    // The phase decides whether the step list is a plan or a progress
+    // indicator, and whether a mark can be stored at all — both are derived
+    // from it in `TaggingPanel`, so publishing it repaints both.
+    this.publishCollect({ phase: p });
     // Same rail the calibration run uses: capture is step 2, the unrecorded
     // reset pause step 3, and neither is running when the process is idle.
-    this.setPhase('rec-rail', phase === 'record' ? 2 : phase === 'reset' ? 3 : 0, {
-      title: phase === 'record' ? 'rec.now.record.title'
-        : phase === 'reset' ? 'rec.now.reset.title' : 'rec.now.idle.title',
-      text: phase === 'record' ? 'rec.now.record.text'
-        : phase === 'reset' ? 'rec.now.reset.text' : 'rec.now.idle.text',
+    this.setPhase('rec-rail', p === 'record' ? 2 : p === 'reset' ? 3 : 0, {
+      title: p === 'record' ? 'rec.now.record.title'
+        : p === 'reset' ? 'rec.now.reset.title' : 'rec.now.idle.title',
+      text: p === 'record' ? 'rec.now.record.text'
+        : p === 'reset' ? 'rec.now.reset.text' : 'rec.now.idle.text',
       titleEl: 'rec-now-title',
       textEl: 'rec-now-text',
     });
-    // The phase decides whether the step list is a plan or a progress
-    // indicator, so it has to be repainted with it.
-    this.renderTaggingSteps(subSkills);
-    this.setTaggingNextEnabled(
-      phase === 'record' && subSkills.length > 0
-      && this.taggingActiveIndex < subSkills.length - 1);
   },
 
   /** lerobot re-recorded the episode (rerecord_episode) — its marks are gone. */
   onRecordingEpisodeDiscarded(episode: number): void {
     if (this.taggingSubSkills().length === 0) return;
     this.log('WARN', this.t('log.episodeDiscarded', {n: episode}));
-    this.taggingActiveIndex = 0;
-    this.taggingPoints = [];
-    const pointsEl = document.getElementById('rec-tagging-points');
-    if (pointsEl) pointsEl.textContent = '0';
-    this.renderTaggingSteps(this.taggingSubSkills());
+    this.publishCollect({ activeIndex: 0, marks: [] });
   },
 
   async finishTaggingPostProcess(): Promise<void> {
     // Marks are persisted next to the dataset as they are made — nothing to
-    // post-process here, just close the wizard UI.
-    if (this.taggingInterval) {
-      clearInterval(this.taggingInterval);
-      this.taggingInterval = null;
-    }
-    this.taggingPhase = 'idle';
-    this.taggingPoints = [];
-    this.taggingActiveIndex = 0;
-    const pointsEl = document.getElementById('rec-tagging-points');
-    if (pointsEl) pointsEl.textContent = '0';
-    const epEl = document.getElementById('rec-tagging-episode');
-    if (epEl) epEl.textContent = '–';
+    // post-process here, just put the column back into its idle state.
+    this.publishCollect({ marks: [], activeIndex: 0, episode: -1, startedAt: 0 });
     this.onRecordingPhase('idle');
 
     const s = this.activeSkill;
     if (s && this.taggingSubSkills().length > 0) {
       this.log('INFO', this.t('log.marksPersisted'));
     }
-    // Re-reads the episode count and repaints the plan back to its idle state.
+    // Re-reads the episode count so the list picks up the take that just ended.
     if (s) this.selectSkill(s);
   },
 

@@ -1,13 +1,16 @@
 /**
- * #page-datasety — the collect tab is still the markup migrated verbatim from
- * the pre-React web/index.html; the manage tab below renders from
- * `state/datasets` instead of from innerHTML strings and `el.disabled = …`
- * writes in `legacy/app.ts`.
+ * #page-datasety — both tabs render from published state (`state/collect` for
+ * "Sběr dat & Dovednosti", `state/datasets` for "Správa datasetů") instead of
+ * from innerHTML strings and `el.disabled = …` writes in `legacy/app.ts`.
  */
 
+import { useEffect, useState } from 'react';
 import { App } from '../legacy/app';
-import { initiallyDisabled } from '../util/initiallyDisabled';
 import { useDatasets, type DatasetsSnapshot } from '../state/datasets';
+import {
+  useCollect, isSplittable, markState, startState,
+  type CollectSnapshot,
+} from '../state/collect';
 
 /** Placeholder shown while a value is being fetched — never a blank field. */
 const PENDING = '…';
@@ -360,6 +363,419 @@ function DatasetManagePanel() {
   );
 }
 
+/**
+ * Elapsed time of the current take.
+ *
+ * The ticking lives here rather than in the published snapshot on purpose: a
+ * 10 Hz value in the store would re-render the whole marking column ten times a
+ * second, for one readout. It is display-only either way — a mark's real
+ * timestamp is taken inside the recording process, from the frames already
+ * written to the episode, and arrives back over the WebSocket.
+ */
+function TaggingTimer({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  const elapsed = startedAt ? Math.max(0, (now - startedAt) / 1000) : 0;
+  return <strong id="rec-tagging-timer">{elapsed.toFixed(1)}s</strong>;
+}
+
+/**
+ * "Značkování pod-úkolů" — the column this whole project is about.
+ *
+ * It answers, before a take is even started, whether this skill can feed BOTH
+ * branches of the comparison (whole dataset = ACT baseline, cut on the marks =
+ * orchestration) or only the baseline. During a take it turns into the progress
+ * of the phases being marked.
+ */
+function TaggingPanel() {
+  const c: CollectSnapshot = useCollect();
+  const splittable = isSplittable(c);
+  const mark = markState(c);
+  // Outside a take there is no "current" phase yet, so no row may claim to be
+  // active — the list is then a plan, not a progress indicator.
+  const live = c.phase === 'record' || c.marks.length > 0;
+  const phaseKey = c.phase === 'record' ? 'rec.phaseRecording'
+    : c.phase === 'reset' ? 'rec.phaseReset' : 'rec.phaseIdle';
+  // A sub-step selected on its own is a perfectly good ACT baseline take; a
+  // top-level task with no sub-steps cannot be recorded at all. Both have zero
+  // boundaries, so the count alone must not decide the wording.
+  const verdictKey = splittable ? 'hint.verdictBoth'
+    : c.subSteps.length === 1 ? 'hint.verdictOneStep'
+    : c.isStep ? 'hint.verdictLeafStep' : 'hint.verdictNoSteps';
+
+  return (
+    <div id="rec-tagging-wizard" className="tagging-panel">
+      <div className="tagging-header">
+        <span className="sidebar-subtitle" data-i18n="hint.activeTagging">Aktivní fázování (Active Tagging)</span>
+        {' '}
+        <span
+          id="rec-tagging-phase"
+          className={'tag ' + (c.phase === 'record' ? 'tag-live' : 'tag-idle')}
+        >{App.t(phaseKey)}</span>
+      </div>
+      <div id="rec-step-verdict" className="rec-verdict">
+        {c.skill ? (
+          <>
+            <span className={'pd-task-mode ' + (splittable ? 'ok' : 'baseline')}>
+              {App.t(splittable ? 'val.modeBoth' : 'val.modeBaseline')}
+            </span>
+            <span className="rec-verdict-text">
+              {App.t(verdictKey, { n: c.subSteps.length, marks: Math.max(0, c.subSteps.length - 1) })}
+            </span>
+          </>
+        ) : null}
+      </div>
+      <div id="rec-tagging-steps" className="tagging-steps">
+        {!c.skill ? (
+          <div className="tagging-empty">{App.t('hint.pickSkillForPlan')}</div>
+        ) : !c.subSteps.length ? (
+          <div className="tagging-empty">{App.t('hint.noStepsToMark')}</div>
+        ) : c.subSteps.map((sub, idx) => {
+          const done = live && idx < c.activeIndex;
+          const active = live && idx === c.activeIndex;
+          const state = done ? 'done' : active ? 'active' : 'waiting';
+          return (
+            <div key={sub.slug} className={`tagging-step is-${state}`}>
+              <span className="tagging-step-idx">{idx + 1}</span>
+              <span className="tagging-step-name">{sub.name}</span>
+              {/* Boundary marks sit BETWEEN steps, so the last step never gets one. */}
+              {done && idx < c.marks.length ? (
+                <span className="tagging-step-t">{c.marks[idx].toFixed(2)}s</span>
+              ) : null}
+              <span className={`tag tag-${state}`}>{App.t(`tag.${state}`)}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="tagging-actions">
+        <button
+          className="btn btn-xs btn-success-light"
+          id="btn-tagging-next"
+          onClick={() => App.taggingNextStep()}
+          disabled={!mark.enabled}
+          title={App.t('rec.markPhaseEndTip')}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+          {' '}
+          {/* The disabled state has three different causes — say which one it is. */}
+          <span>{App.t(mark.labelKey)}</span>
+        </button>
+        {' '}
+        <button
+          className="btn btn-xs btn-secondary"
+          id="btn-tagging-undo"
+          onClick={() => App.taggingUndoStep()}
+          disabled={!c.marks.length}
+          title={App.t(c.marks.length ? 'rec.undoMarkTip' : 'tip.undoNoMarks')}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polyline points="9 14 4 9 9 4"></polyline>
+            <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+          </svg>
+          {' '}
+          <span>{App.t('rec.undoMark')}</span>
+        </button>
+      </div>
+      <div className="tagging-meta">
+        <span>
+          <span data-i18n="rec.episodeLbl">Epizoda</span>
+          :{' '}
+          <strong id="rec-tagging-episode">{c.episode >= 0 ? c.episode : '–'}</strong>
+        </span>
+        {' '}
+        <span>
+          <span data-i18n="rec.timeLbl">Čas</span>
+          :{' '}
+          <TaggingTimer startedAt={c.startedAt} />
+        </span>
+        {' '}
+        <span>
+          <span data-i18n="rec.marksLbl">Značky</span>
+          :{' '}
+          <strong id="rec-tagging-points" className="is-count">{c.marks.length}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Episodes already on disk for the selected skill.
+ *
+ * One element carries the id and the branch only decides what goes inside it.
+ * Four `return`s each repeating the same id would be four declarations of it
+ * in one file, and only one of them can ever be the element a lookup finds —
+ * which is exactly what the duplicate-id gate is there to catch.
+ */
+function EpisodesList() {
+  const c: CollectSnapshot = useCollect();
+
+  let body;
+  if (!c.recordable) {
+    body = <div className="rec-episodes-empty">{App.t('hint.noRecordableSkill')}</div>;
+  } else if (c.episodes < 0) {
+    // Reading the dataset directory is a round trip; the list says it is
+    // working instead of leaving the previous skill's episodes on screen as
+    // if they were this one's.
+    body = <div className="rec-episodes-empty pulse-light-cyan">{App.t('val.loadingShort')}</div>;
+  } else if (c.episodes === 0) {
+    body = <div className="rec-episodes-empty">{App.t('hint.noEpisodesIn', { repo: c.repoId })}</div>;
+  } else {
+    body = Array.from({ length: c.episodes }, (_, idx) => (
+      <div className="rec-episode-row" key={idx}>
+        <span className="rec-episode-name">{App.t('rec.episodeLbl')} {idx}</span>
+        <div className="rec-episode-actions">
+          <button
+            className="btn btn-xs btn-success"
+            onClick={() => App.playSpecificEpisode(idx)}
+            title={App.t('tip.replayEp')}
+          >{App.t('btn.replayEp')}</button>
+          <button
+            className="btn btn-xs btn-danger"
+            onClick={() => App.deleteSpecificEpisode(idx)}
+            title={App.t('tip.deleteEp')}
+          >{App.t('btn.delete')}</button>
+        </div>
+      </div>
+    ));
+  }
+
+  return <div id="rec-episodes-list-container" className="rec-episodes-list">{body}</div>;
+}
+
+/** Placeholder for a readout whose value is still being fetched. */
+const LOADING_DASH = '…';
+/** Placeholder for a readout that has no value to show at all. */
+const NOT_APPLICABLE = '—';
+
+/**
+ * The two halves of the recording column: the "pick a skill" hint and the
+ * configuration itself. One switch for both, because they are two states of the
+ * same thing and letting them drift apart means the panel shows a recording
+ * configuration for a skill that cannot be recorded.
+ *
+ * The configuration markup is passed in as children so it is built once by the
+ * page: React reuses the same elements when only this wrapper re-renders, so a
+ * boundary mark does not repaint every field in the panel.
+ */
+function RecordPanels({ children }: { children: React.ReactNode }) {
+  const c: CollectSnapshot = useCollect();
+  return (
+    <>
+      <div
+        id="rec-empty-state"
+        className="empty-state"
+        style={{ flex: "1", display: c.recordable ? "none" : "flex" }}
+      >
+        <div className="empty-state-icon">
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10"></circle>
+            <circle cx="12" cy="12" r="6"></circle>
+            <circle cx="12" cy="12" r="2"></circle>
+          </svg>
+        </div>
+        <div
+          className="empty-state-text"
+          style={{ maxWidth: "230px" }}
+          data-i18n-html="hint.recSelectSkill"
+        >
+          Vyberte konkrétní{' '}
+          <strong>dovednost / sub-skill</strong>
+          {' '}ze seznamu dovedností vlevo.
+        </div>
+      </div>
+      <div
+        id="rec-active-panel"
+        style={{ display: c.recordable ? "flex" : "none", flexDirection: "column", gap: "10px", flex: "1" }}
+      >{children}</div>
+    </>
+  );
+}
+
+/** What the project is missing before lerobot-record could run at all. */
+function RecordHardwareWarning() {
+  const c: CollectSnapshot = useCollect();
+  return (
+    <div
+      id="rec-hw-warning"
+      style={{ display: c.hwErrorKey ? "block" : "none", background: "rgba(218, 55, 60, 0.12)", border: "1px solid var(--red)", color: "var(--red)", padding: "8px 10px", fontSize: "12.5px" }}
+    >
+      <strong style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "2px" }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        {' '}
+        <span data-i18n="rec.hwErrorTitle">Chyba hardwaru</span>
+      </strong>
+      {' '}
+      <span id="rec-hw-warning-text">{App.t(c.hwErrorKey || 'rec.warnDefault')}</span>
+    </div>
+  );
+}
+
+/**
+ * Where the take is written. Derived from the selected skill's place in the
+ * tree (`local/<parent>/<step>`), which is why the field is read-only — typing
+ * a different repo id here would record into a dataset the rest of the app
+ * would then fail to find.
+ */
+function RecordRepoIdField() {
+  const c: CollectSnapshot = useCollect();
+  return (
+    <input
+      type="text"
+      id="rec-repo-id"
+      style={{ fontSize: "13.5px", fontFamily: "var(--font-mono)" }}
+      readOnly={true}
+      value={c.repoId}
+      onChange={() => { /* read-only: the tree owns this value */ }}
+    />
+  );
+}
+
+/**
+ * The three controls lerobot_record's own key listener exposes. Only on screen
+ * while a take is running — outside one they would post into no process.
+ */
+function RecordLiveControls() {
+  const c: CollectSnapshot = useCollect();
+  return (
+    <div
+      id="rec-live-controls"
+      className="rec-live-controls"
+      style={{ display: c.recordingActive ? "flex" : "none" }}
+    >
+      <span className="panel-toolbar-label" data-i18n="hint.liveRecCtrl">Řízení nahrávání</span>
+      <div className="rec-live-buttons">
+        <button
+          className="btn btn-xs btn-success"
+          onClick={() => App.sendRecordingAction('next')}
+          title={App.t('tip.recNextEpisode')}
+          data-i18n="btn.nextEpisode"
+        >Uložit epizodu a pokračovat</button>
+        {' '}
+        <button
+          className="btn btn-xs btn-secondary"
+          onClick={() => App.sendRecordingAction('reset')}
+          title={App.t('tip.recDiscardRetry')}
+          data-i18n="btn.discardRetry"
+        >Zahodit a opakovat</button>
+        {' '}
+        <button
+          className="btn btn-xs btn-danger"
+          onClick={() => App.sendRecordingAction('stop')}
+          title={App.t('tip.recFinishSave')}
+          data-i18n="btn.finishSave"
+        >Ukončit nahrávání</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Start / stop, at the bottom of the panel they belong to.
+ *
+ * Both reasons a start can be refused — the serial bus is busy, or the project
+ * has no port/camera — are resolved in one place (`startState`). They used to
+ * be written onto this button by two different functions, and the later one
+ * silently overrode the earlier one's verdict.
+ */
+function RecordActions() {
+  const c: CollectSnapshot = useCollect();
+  const start = startState(c);
+  // The registry flag lags the app's own switch by one WebSocket round trip, so
+  // stopping stays available from the moment the request goes out.
+  const stopEnabled = c.recordingActive || c.recordRunning;
+  return (
+    <div className="block-actions">
+      <button
+        className={'btn btn-xs btn-primary' + (!start.enabled && c.busBusy ? ' btn-busy-locked' : '')}
+        id="btn-start-record"
+        onClick={() => App.startWorkflowRecord()}
+        disabled={!start.enabled}
+        title={App.t(start.titleKey)}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <circle cx="12" cy="12" r="10"></circle>
+        </svg>
+        {' '}
+        <span>{App.t(c.starting ? 'btn.startingRecording' : 'btn.startRecording')}</span>
+      </button>
+      {' '}
+      <button
+        className="btn btn-xs btn-danger"
+        id="btn-stop-record"
+        onClick={() => App.stopWorkflowRecord()}
+        disabled={!stopEnabled}
+        title={App.t(stopEnabled ? 'tip.stopRecording' : 'tip.notRecording')}
+      >{App.t('btn.stopRecording')}</button>
+    </div>
+  );
+}
+
+/** Live facts about the selected skill, above the recording configuration. */
+function ActiveSkillStats() {
+  const c: CollectSnapshot = useCollect();
+  // Three different answers, and they must not look alike: a dash for a skill
+  // that has no dataset to describe, an ellipsis while the disk is being read,
+  // and the number itself once it is known. The old panel had only the last
+  // one, so an unanswerable selection kept showing the previous skill's counts.
+  const pending = c.recordable ? LOADING_DASH : NOT_APPLICABLE;
+  const policyLabel = c.policy === 'trained' ? App.t('val.trained')
+    : c.policy === 'untrained' ? App.t('val.notTrained')
+    : c.policy === 'unknown' ? App.t('val.unknownState') : pending;
+  const policyColor = c.policy === 'trained' ? 'var(--green)'
+    : c.policy === 'untrained' ? 'var(--yellow)' : 'var(--text-muted)';
+
+  return (
+    <div className="active-skill-stats-row">
+      <span>
+        <span data-i18n="lbl.skillColon">Dovednost:</span>
+        {' '}
+        <strong id="active-sub-skill-title" style={{ color: "var(--cyan)" }}>{c.skillName || NOT_APPLICABLE}</strong>
+      </span>
+      {' '}
+      <span>
+        <span data-i18n="lbl.demosColon">Demonstrace:</span>
+        {' '}
+        <strong id="active-skill-episodes" style={{ color: "var(--green)" }}>
+          {c.episodes < 0 ? pending : App.t('val.nEpisodes', { n: c.episodes })}
+        </strong>
+      </span>
+      {' '}
+      <span>
+        <span data-i18n="lbl.sizeColon">Velikost:</span>
+        {' '}
+        <strong id="active-skill-size">{c.sizeMb ? `${c.sizeMb} MB` : pending}</strong>
+      </span>
+      {' '}
+      <span>
+        <span data-i18n="lbl.policyColon">Policy:</span>
+        {' '}
+        <strong id="active-skill-training" style={{ color: policyColor }}>{policyLabel}</strong>
+      </span>
+    </div>
+  );
+}
+
 export function DatasetyPage() {
   return (
     <div id="page-datasety" className="editor-area">
@@ -434,87 +850,10 @@ export function DatasetyPage() {
               <span data-i18n="blk.dc.recording">Nahrávání (lerobot-record)</span>
             </div>
             <div className="datacollection-block-body">
-              <div id="rec-empty-state" className="empty-state" style={{ flex: "1" }}>
-                <div className="empty-state-icon">
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <circle cx="12" cy="12" r="6"></circle>
-                    <circle cx="12" cy="12" r="2"></circle>
-                  </svg>
-                </div>
-                <div
-                  className="empty-state-text"
-                  style={{ maxWidth: "230px" }}
-                  data-i18n-html="hint.recSelectSkill"
-                >
-                  Vyberte konkrétní{' '}
-                  <strong>dovednost / sub-skill</strong>
-                  {' '}ze seznamu dovedností vlevo.
-                </div>
-              </div>
-              <div
-                id="rec-active-panel"
-                style={{ display: "none", flexDirection: "column", gap: "10px", flex: "1" }}
-              >
+              <RecordPanels>
                 {/* hardware setup warnings */}
-                <div
-                  id="rec-hw-warning"
-                  style={{ display: "none", background: "rgba(218, 55, 60, 0.12)", border: "1px solid var(--red)", color: "var(--red)", padding: "8px 10px", fontSize: "12.5px" }}
-                >
-                  <strong style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "2px" }}>
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <path
-                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-                      ></path>
-                      <line x1="12" y1="9" x2="12" y2="13"></line>
-                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                    </svg>
-                    {' '}Chyba hardwaru
-                  </strong>
-                  {' '}
-                  <span id="rec-hw-warning-text" data-i18n="rec.warnDefault">Zkontrolujte porty a přiřazení kamer.</span>
-                </div>
-                <div className="active-skill-stats-row">
-                  <span>
-                    <span data-i18n="lbl.skillColon">Dovednost:</span>
-                    {' '}
-                    <strong id="active-sub-skill-title" style={{ color: "var(--cyan)" }}>pick_cube</strong>
-                  </span>
-                  {' '}
-                  <span>
-                    <span data-i18n="lbl.demosColon">Demonstrace:</span>
-                    {' '}
-                    <strong id="active-skill-episodes" style={{ color: "var(--green)" }}>0 ep</strong>
-                  </span>
-                  {' '}
-                  <span>
-                    <span data-i18n="lbl.sizeColon">Velikost:</span>
-                    {' '}
-                    <strong id="active-skill-size">—</strong>
-                  </span>
-                  {' '}
-                  <span>
-                    <span data-i18n="lbl.policyColon">Policy:</span>
-                    {' '}
-                    <strong id="active-skill-training">—</strong>
-                  </span>
-                </div>
+                <RecordHardwareWarning />
+                <ActiveSkillStats />
                 {/* Two-column config grid. A single column stretched every input to the full width of the panel (~990 px at 1600×900), which is what the brief calls out as the main layout defect. */}
                 <div className="rec-config-grid">
                   <div className="form-group rec-cfg-wide">
@@ -523,12 +862,7 @@ export function DatasetyPage() {
                       {' '}
                       <span className="info-tooltip-trigger" data-i18n-tooltip="tip.recRepoId">ⓘ</span>
                     </div>
-                    <input
-                      type="text"
-                      id="rec-repo-id"
-                      style={{ fontSize: "13.5px", fontFamily: "var(--font-mono)" }}
-                      readOnly={true}
-                    />
+                    <RecordRepoIdField />
                   </div>
                   <div className="form-group">
                     <div className="label-with-tooltip">
@@ -620,31 +954,7 @@ export function DatasetyPage() {
                 </div>
                 {/* Clickable Step Control buttons during recording! */}
                 {/* Maps 1:1 onto lerobot_record's control flags: exit_early (Right / n), rerecord_episode (Left / r), stop_recording (Esc / q). */}
-                <div id="rec-live-controls" className="rec-live-controls" style={{ display: "none" }}>
-                  <span className="panel-toolbar-label" data-i18n="hint.liveRecCtrl">Řízení nahrávání</span>
-                  <div className="rec-live-buttons">
-                    <button
-                      className="btn btn-xs btn-success"
-                      onClick={(event: any) => { App.sendRecordingAction('next') }}
-                      title="Ukončí aktuální epizodu dřív a uloží ji (lerobot: exit_early — klávesa → / n)"
-                      data-i18n="btn.nextEpisode"
-                    >Uložit epizodu a pokračovat</button>
-                    {' '}
-                    <button
-                      className="btn btn-xs btn-secondary"
-                      onClick={(event: any) => { App.sendRecordingAction('reset') }}
-                      title="Zahodí aktuální epizodu a nahraje ji znovu (lerobot: rerecord_episode — klávesa ← / r)"
-                      data-i18n="btn.discardRetry"
-                    >Zahodit a opakovat</button>
-                    {' '}
-                    <button
-                      className="btn btn-xs btn-danger"
-                      onClick={(event: any) => { App.sendRecordingAction('stop') }}
-                      title="Ukončí celé nahrávání a uloží dataset (lerobot: stop_recording — klávesa Esc / q)"
-                      data-i18n="btn.finishSave"
-                    >Ukončit nahrávání</button>
-                  </div>
-                </div>
+                <RecordLiveControls />
                 {/* Recording is a loop of phases, not a page of settings: lerobot_record alternates capture with an unrecorded reset pause, and the marks only mean anything during capture. The rail says which one is live. */}
                 <ol className="phase-rail" id="rec-rail">
                   <li data-step="1">
@@ -677,32 +987,10 @@ export function DatasetyPage() {
                     >Klávesy během nahrávání</button>
                   </div>
                 </div>
-              </div>
-              {/* /#rec-active-panel */}
+              </RecordPanels>
             </div>
             {/* /.datacollection-block-body */}
-            <div className="block-actions">
-              <button
-                className="btn btn-xs btn-primary"
-                id="btn-start-record"
-                onClick={(event: any) => { App.startWorkflowRecord() }}
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <circle cx="12" cy="12" r="10"></circle>
-                </svg>
-                {' '}
-                <span data-i18n="btn.startRecording">Spustit nahrávání</span>
-              </button>
-              {' '}
-              <button
-                className="btn btn-xs btn-danger"
-                id="btn-stop-record"
-                onClick={(event: any) => { App.stopWorkflowRecord() }}
-                ref={initiallyDisabled}
-                title="Nahrávání neběží"
-                data-i18n="btn.stopRecording"
-              >Zastavit nahrávání</button>
-            </div>
+            <RecordActions />
           </div>
           {/* /.datacollection-block */}
           {/* Column 3 — sub-task boundary marking, the thing this whole project is about. Marks are timestamped inside the lerobot-record process from the frames already written to the episode (LeRobot stores a frame timestamp as frame_index / fps), so they line up with the column the dataset splitter cuts on. The panel is visible before recording too: whether a skill can feed the orchestration branch at all is decided by its sub-step list, and that has to be readable BEFORE the take, not during. */}
@@ -726,85 +1014,10 @@ export function DatasetyPage() {
               <span data-i18n="blk.dc.marking">Značkování pod-úkolů</span>
             </div>
             <div className="datacollection-block-body">
-              <div id="rec-tagging-wizard" className="tagging-panel">
-                <div className="tagging-header">
-                  <span className="sidebar-subtitle" data-i18n="hint.activeTagging">Aktivní fázování (Active Tagging)</span>
-                  {' '}
-                  <span className="tag tag-idle" id="rec-tagging-phase" data-i18n="rec.phaseIdle">Nenahrává se</span>
-                </div>
-                <div id="rec-step-verdict" className="rec-verdict">
-                  {/* Populated by renderStepPlan(): ACT + orchestrace vs jen ACT baseline */}
-                </div>
-                <div id="rec-tagging-steps" className="tagging-steps">{/* Populated dynamically: ordered sub-steps with their state */}</div>
-                <div className="tagging-actions">
-                  <button
-                    className="btn btn-xs btn-success-light"
-                    id="btn-tagging-next"
-                    onClick={(event: any) => { App.taggingNextStep() }}
-                    data-i18n-title="rec.markPhaseEndTip"
-                    title="Uloží hranici mezi aktuální a následující fází na aktuálním snímku epizody (klávesa mezerník / M)"
-                    ref={initiallyDisabled}
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <polyline points="9 18 15 12 9 6"></polyline>
-                    </svg>
-                    {' '}
-                    <span data-i18n="rec.markPhaseEnd">Označit konec fáze</span>
-                  </button>
-                  {' '}
-                  <button
-                    className="btn btn-xs btn-secondary"
-                    id="btn-tagging-undo"
-                    onClick={(event: any) => { App.taggingUndoStep() }}
-                    data-i18n-title="rec.undoMarkTip"
-                    title="Vrátit poslední značku (překlik) — klávesa Backspace / U"
-                    ref={initiallyDisabled}
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <polyline points="9 14 4 9 9 4"></polyline>
-                      <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
-                    </svg>
-                    {' '}
-                    <span data-i18n="rec.undoMark">Zpět</span>
-                  </button>
-                </div>
-                <div className="tagging-meta">
-                  <span>
-                    <span data-i18n="rec.episodeLbl">Epizoda</span>
-                    :{' '}
-                    <strong id="rec-tagging-episode">–</strong>
-                  </span>
-                  {' '}
-                  <span>
-                    <span data-i18n="rec.timeLbl">Čas</span>
-                    :{' '}
-                    <strong id="rec-tagging-timer">0.0s</strong>
-                  </span>
-                  {' '}
-                  <span>
-                    <span data-i18n="rec.marksLbl">Značky</span>
-                    :{' '}
-                    <strong id="rec-tagging-points" className="is-count">0</strong>
-                  </span>
-                </div>
-              </div>
+              <TaggingPanel />
               <div className="rec-episodes">
                 <span className="sidebar-subtitle" data-i18n="hint.recordedEps">Nahrané epizody (demonstrace)</span>
-                <div id="rec-episodes-list-container" className="rec-episodes-list">{/* Populated dynamically via JS */}</div>
+                <EpisodesList />
               </div>
             </div>
             <div className="block-actions">

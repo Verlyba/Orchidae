@@ -169,6 +169,41 @@ is why it is safe for app.ts to mutate them. Concretely:
 - `<React.StrictMode>` is off: it would mount twice and run `init()` twice,
   opening two WebSockets.
 
-The next page worth converting is the **Datasety collect tab** — the skill
-tree, the episode list and the tagging column are the largest amount of
-dynamic `innerHTML` left.
+**Datasety → "Sběr dat & Dovednosti" is the third**, and it is the tab the
+project exists for. `state/collect.ts` holds the selected skill and its ordered
+sub-steps, the facts read from disk (episodes, size, whether a policy exists),
+whether recording is possible at all, and the take in progress (phase, marked
+boundaries, current sub-step, episode). `legacy/app.ts` publishes through
+`App.publishCollect()`; `TaggingPanel`, `EpisodesList`, `ActiveSkillStats`,
+`RecordPanels`, `RecordHardwareWarning`, `RecordRepoIdField`,
+`RecordLiveControls` and `RecordActions` in `DatasetyPage.tsx` paint it.
+`renderStepPlan()`, `renderTaggingSteps()` and `setTaggingNextEnabled()` are
+gone, and so are the `App.taggingPhase` / `taggingPoints` / `taggingActiveIndex`
+/ `taggingEpisode` / `taggingStartTime` / `taggingInterval` fields — the store
+is the only copy.
+
+Three things from that conversion generalise:
+
+- **One button, one owner.** `btn-start-record` was written by two functions:
+  `updateRecordingHardwareChecks()` disabled it when the project had no serial
+  port or no camera, and `updateActionButtonStates()` set
+  `disabled = busBusy` — which re-enabled it unconditionally the moment the
+  serial bus freed up. So any process starting and stopping wiped out the
+  hardware verdict and the app offered to record with no port, red warning
+  still on screen. Both reasons now resolve in one place (`startState()` in
+  `state/collect.ts`), which is only possible because the button reads one
+  snapshot. Look for this shape wherever two `setDisabled`-style helpers can
+  reach the same id.
+- **A 10 Hz value does not belong in the snapshot.** The take timer ticks
+  inside `TaggingTimer`, which gets only `startedAt` from the store. Publishing
+  the elapsed seconds would re-render the whole column ten times a second for
+  one readout.
+- **A React-controlled wrapper can keep static children.** `RecordPanels`
+  subscribes (it owns the empty-state/configuration switch) but takes the
+  configuration markup as `children`, so the page builds those elements once
+  and React skips re-rendering them when only the wrapper changes.
+
+What is left imperative on that tab: the **skill tree** (`renderSkillsFull()`,
+still innerHTML, and still the reason a language switch refetches one
+`dataset_info` per sub-step for its episode badges) and the phase rail, which
+shares the `setPhase()` helper with the calibration run.
