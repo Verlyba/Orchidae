@@ -7,12 +7,12 @@
 
 :root {
     /* oklch Colors derived from design_test - brightened backgrounds & high contrast */
-    --bg-editor: oklch(0.28 0.015 250);          /* lighter sleek editor background */
-    --bg-sidebar: oklch(0.33 0.015 250);         /* lighter card & panel background */
-    --bg-activity: oklch(0.36 0.018 250);        /* activity bar background */
-    --bg-terminal: oklch(0.24 0.012 250);        /* terminal background */
-    --bg-card-hover: oklch(0.38 0.018 250);      /* card hover state */
-    --bg-inset: oklch(0.25 0.012 250);           /* lighter inset panel background */
+    --bg-editor: oklch(0.20 0.012 250);          /* deeper editor background */
+    --bg-sidebar: oklch(0.24 0.012 250);         /* sidebar & card background */
+    --bg-activity: oklch(0.28 0.015 250);        /* activity bar background */
+    --bg-terminal: oklch(0.18 0.012 250);        /* darker terminal */
+    --bg-card-hover: oklch(0.27 0.014 250);      /* card hover state */
+    --bg-inset: oklch(0.17 0.010 250);           /* inset panel background */
     
     --text-main: oklch(0.85 0.006 250);          /* readable gray */
     --text-muted: oklch(0.68 0.008 250);         /* muted gray */
@@ -585,7 +585,7 @@ body {
    vertical-only scrollport must keep this pairing. */
 .editor-area {
     flex: 1;
-    padding: 24px 32px;
+    padding: 16px 20px;
     overflow-y: auto;
     overflow-x: hidden;
     display: none;
@@ -716,7 +716,7 @@ body {
 
 .setup-block {
     background: var(--bg-sidebar);
-    padding: 28px 32px !important;
+    padding: 14px !important;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     margin-bottom: 16px;
@@ -726,6 +726,29 @@ body {
     overflow: hidden;
     transition: border-color 0.3s ease;
     position: relative;
+}
+
+/* When a window is only a title bar around a grid of its own sub-cards
+   (.merge-col / .connect-col), the window itself is not a surface anyone
+   needs — the sub-cards already carry the fill and the border that read as
+   "a window". Keeping the outer frame's own background/border/padding just
+   stacked a second empty window around the real ones, and that padding (28px
+   on every edge, twice, on Connect) is space the sub-cards don't get to fill
+   the page with. Dropping it here hands that space straight to .merge-cols
+   via .setup-block-content's existing flex:1. */
+.setup-block:has(.merge-cols),
+.setup-block:has(.connect-cols) {
+    background: transparent;
+    border: none;
+    padding: 0 !important;
+}
+
+/* Its title repeats the wizard step name already visible in the tab above
+   (Connect / Trénink / Pokročilé / Správa datasetů) — a redundant label is
+   not a reason to keep the row it lived in. */
+.setup-block:has(.merge-cols) > .block-head-row,
+.setup-block:has(.connect-cols) > .block-head-row {
+    display: none;
 }
 
 /* margin-bottom above is the separator for .help-scroll, which stacks its
@@ -1022,10 +1045,10 @@ input[readonly] {
 
 .connect-col,
 .merge-col {
-    background: var(--bg-inset);
+    background: var(--bg-sidebar);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 28px 28px 24px 28px !important;
+    padding: 16px 16px 14px 16px !important;
     display: flex;
     flex-direction: column;
     gap: 20px;

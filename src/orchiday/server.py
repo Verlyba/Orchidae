@@ -18,6 +18,7 @@ os.environ["OPENCV_LOG_LEVEL"] = "OFF"
 import asyncio
 import json
 import logging
+import mimetypes
 import sys
 import threading
 from pathlib import Path
@@ -155,6 +156,18 @@ app.add_middleware(
 )
 
 # Serve static frontend files
+#
+# On Windows, Python's mimetypes module resolves extensions through the
+# registry (HKEY_CLASSES_ROOT). When that registry has no entry — or a stale
+# one — for ".js"/".css", StaticFiles falls back to "text/plain". Browsers
+# enforce strict MIME checking on `<script type="module">`, so the bundle is
+# silently never executed and the app renders as a blank page with no
+# console error. Registering the correct types here overrides the registry
+# lookup for this process without touching the machine's registry.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
+
 _web_dir = Path(__file__).resolve().parent.parent.parent / "web"
 if _web_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
