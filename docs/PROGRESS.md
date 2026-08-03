@@ -8,6 +8,106 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (26) — Setup → Connect: seznam typů zařízení jede z React stavu
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (origin/main byl
+force-pushed zpět na špičku `97d33df`, shodnou s tím, na čem tenhle branch
+skončil minule — žádná rozjetá historie, žádná priorita A ve frontě).
+`setup-dev.sh` proběhl (jen kosmetické `pip` varování o upgradu, nic
+blokujícího), `bash scripts/verify.sh` prošel celý (313 pytestů, 10 kroků).
+Uživatelský prompt (bod F) žádal předělání frontendu na React/Vite/Tailwind —
+stack je od běhu (18) hotový; pokračovalo se podle otevřené položky 1 z běhu
+(25): **Connect / Setup** a **Kalibrace** jsou poslední dva zbývající velké
+`innerHTML` kusy appky. Vybraný rozsah pro tento běh: jen **seznam typů
+zařízení** na kartě Connect (`renderRobotTypeList()`) — první, nejlépe
+ohraničený kus téhle karty; zbytek Connectu (karty připojení ramen, kamery) a
+celá Kalibrace (má navíc klávesové ovládání a fázové přechody) zůstávají pro
+příště, jak varuje běh (25).
+
+### Vedlejší nález, neopravováno: mrtvý kód z doby před React migrací
+
+Cestou se ukázalo, že `updateConnectCmdPreview()` a `renderDetectedHardware()`
+píšou do elementů (`#conn-cmd-preview-text`, `#conn-ports-table`,
+`#conn-cams-table`, `#conn-num-ports` a další), které **nejsou nikde v
+současném JSX** — ověřeno `grep` přes celé `frontend/src`. Sáhl jsem do
+historie až k `web/index.html` na commitu `320d27c` (poslední vanilla verze
+před React přepisem): tyhle id tam taky nebyly. Není to tedy regrese
+migrace — je to mrtvý kód, co v appce nesvítil už předtím (obě funkce mají
+`if (el)` gardu, takže tiše no-opují). Nechal jsem to beze změny — úklid
+mrtvého kódu není totéž jako migrace na React stav a nechci rozšiřovat rozsah
+dnešní změny bez rozhodnutí majitele, jestli si ty tabulky/náhled příkazu
+vlastně přeje zpátky v UI. Kandidát na příště (buď smazat, nebo obnovit jako
+React komponentu).
+
+### Co se změnilo
+
+Nový `state/connect.ts` (stejný store-not-context vzor jako `state/skills`,
+`state/collect`, `state/datasets`, `state/trainTargets`) drží katalog typů
+zařízení z `GET /api/hardware/device_types` a `robot_type` právě vybraného
+řádku. `App.renderRobotTypeList()` už nesestavuje `innerHTML` — jen dál drží
+skrytý `#robot-type-select` synchronizovaný (`syncRobotTypeOptions()`, to je
+pořád to, odkud zbytek appky čte vyřešený typ robota) a publikuje snapshot.
+`DeviceTypeList` / `DeviceTypeRow` / `DeviceTypeCount` v `SetupPage.tsx` jsou
+jediné, co ho vykreslují.
+
+Zmizelo skládání `<div class="conn-type-row" ... onclick="App.selectRobot(...)"
+onkeydown="...">` řetězcem s ručním `esc()` na title atributu — React teď
+escapuje název/tooltip sám, byť tady žádný název nebyl uživatelský vstup
+(katalog jde přímo z LeRobotu, ne z volného textu), takže na rozdíl od stromu
+dovedností (běh 23) tohle nebyla díra, jen duplicitní práce navíc.
+
+### Ověřeno v cloudu
+
+Reálný backend + Playwright nad skutečným buildem, katalog 16 zařízení
+(8 podporovaných, 8 blokovaných single-port sestavou) — **vše sedí**:
+
+- 16 řádků se vykreslí, počet vedle nadpisu říká „8/16 použitelných" (a „8/16
+  usable" po přepnutí do angličtiny, **bez jediného dalšího requestu** na
+  `/hardware/device_types` — katalog se needěla znovu, jen popisky);
+- klik na `so101_follower` přesune `.is-active` na ten řádek A přepíše
+  hodnotu skrytého `#robot-type-select` (na tomhle poli visí zbytek appky —
+  `updateConnectCmdPreview`, `saveSettingsState`, kalibrační karty);
+- klávesa **Enter** na zaostřeném řádku (`so100_follower`) udělá totéž jako
+  klik — `tabindex="0"` a `onKeyDown` fungují i v React verzi;
+- klik na blokovaný řádek (`openarm_follower`, nepodporované připojení) je
+  **no-op** — hodnota skrytého selectu se nezmění, přesně jak `selectRobot()`
+  guarduje;
+- konzole čistá (0 chyb) po celém průběhu (render, klik, klávesnice, blokovaný
+  řádek, přepnutí jazyka).
+
+`scripts/measure-layout.sh` (`setup`, 3 velikosti): **0 %** ořezů, **0 px**
+přetečení, **0** roztažených prvků na žádné velikosti — jediná zaznamenaná
+"chyba" v konzoli je `ERR_CONNECTION_RESET` z feedu kamery, kterou kontejner
+nemá (stejné jako ve všech předchozích bězích). `bash scripts/verify.sh`
+prochází celý (313 pytestů, 10 kroků, žádný segfault v `_test_lm_connection`
+tentokrát).
+
+**Na fyzickém robotu zbývá vyzkoušet:** samotný výběr typu zařízení je čistě
+UI stav, žádný LeRobot proces se nespouští jen tím, že se vybere řádek — nic
+tady tedy nevyžaduje hardware. Co zbývá je navazující chování, které na
+vybraném typu staví: že kalibrace a teleoperace na reálném rameni opravdu
+používají `--robot.type=so101_follower` / odpovídající `--teleop.type`, když
+je tenhle typ vybraný (appka sestaví správné flagy, ověřeno testy `test_
+lerobot_commands.py`, ne skutečným spuštěním).
+
+**Otevřeno pro příště:**
+1. Dál na React stav — zbytek karty **Connect**: karty připojení ramen
+   (`updateArmStatusCards()`, `#connect-card-leader/follower`), kamery
+   (`renderCameras()`, `#hw-camera-list`, live náhled). Pak celá
+   **Kalibrace** (tabulky kloubů, živý kalibrační panel, klávesy Enter/c,
+   fázové přechody) — nejsložitější zbývající kus, vyžaduje vlastní pozornost.
+2. Mrtvý kód `updateConnectCmdPreview()` / `renderDetectedHardware()` popsaný
+   výše — rozhodnout smazat, nebo obnovit jako React komponentu.
+3. Segfault v `_test_lm_connection()` (`RuntimeError: Signal source has been
+   deleted`) zmiňovaný od běhu (24) — dnes se neprojevil, pořád
+   nereprodukovatelný na požádání.
+4. Bundle je pořád jeden ~744 kB chunk — rozdělit (`manualChunks`), až dojde
+   čas.
+5. Zbytek beze změny: `StrictMode`, otázka na majitele z běhu (18) jak appku
+   spouští (port 4173), patička „Umístění projektů" (běh 20).
+
+---
+
 ## 2026-08-03 (25) — Cíle tréninku na Učení jedou z React stavu — a s tím
 „select all" checkbox konečně řekne, jestli už je vybráno všechno
 

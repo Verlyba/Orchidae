@@ -98,6 +98,7 @@ import {
   type TrainRowSnapshot,
   type TrainRowProgress,
 } from '../state/trainTargets';
+import { publishConnect } from '../state/connect';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -3786,16 +3787,16 @@ export const App = {
   /** One row per device LeRobot registers: what it is called on the command
    * line, which teleoperator leads it, and how it is addressed. Rows Orchiday
    * cannot drive with the one serial port this tab hands out are disabled and
-   * carry the reason, instead of being selectable and dying at spawn time. */
+   * carry the reason, instead of being selectable and dying at spawn time.
+   *
+   * Publishes to `state/connect` — `DeviceTypeList` in `SetupPage.tsx` is the
+   * only thing that renders it now. The hidden `<select>` is still kept in
+   * sync (`syncRobotTypeOptions()`): it is what the rest of the app reads the
+   * resolved robot type from. */
   renderRobotTypeList(): void {
-    const host = document.getElementById('connect-robot-list');
-    if (!host) return;
     const list = this.deviceTypes || [];
-    const count = document.getElementById('conn-type-count');
-
     if (!list.length) {
-      host.innerHTML = `<div class="conn-empty">${this.esc(this.t('hint.deviceTypesUnavailable'))}</div>`;
-      if (count) count.textContent = '-';
+      publishConnect({ deviceTypes: [], activeRobotType: '' });
       return;
     }
 
@@ -3805,31 +3806,7 @@ export const App = {
     this.syncRobotTypeOptions();
 
     const active = (document.getElementById('robot-type-select') as HTMLSelectElement | null)?.value || '';
-    const usable = list.filter((d: any) => d.supported).length;
-    if (count) count.textContent = this.t('lbl.nOfMDrivable', { n: usable, m: list.length });
-
-    host.innerHTML = list.map((d: any) => {
-      const isActive = d.robot_type === active;
-      const cls = ['conn-type-row'];
-      if (isActive) cls.push('is-active');
-      if (!d.supported) cls.push('is-blocked');
-      const title = d.supported
-        ? this.t('tip.deviceSupported', { robot: d.robot_type, leader: d.leader_type || '–' })
-        : this.t('tip.deviceBlocked', {
-            robot: d.robot_type,
-            conn: this.t('conn.' + d.connection),
-            flag: d.port_flag,
-          });
-      return `<div class="${cls.join(' ')}" data-value="${this.esc(d.robot_type)}"
-                   role="button" tabindex="0" title="${this.esc(title)}"
-                   onclick="App.selectRobot('${this.esc(d.robot_type)}')"
-                   onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();App.selectRobot('${this.esc(d.robot_type)}');}">
-                <div class="conn-type-main">
-                  <span class="conn-type-label">${this.esc(d.label)}</span>
-                  <span class="conn-type-conn">${this.esc(this.t('conn.' + d.connection))}</span>
-                </div>
-              </div>`;
-    }).join('');
+    publishConnect({ deviceTypes: list, activeRobotType: active });
   },
 
   /** Restates the current choice as the flags that will really be spawned.

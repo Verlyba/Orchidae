@@ -1,6 +1,68 @@
 /** #page-setup — migrated verbatim from the pre-React web/index.html. */
 
 import { App } from '../legacy/app';
+import { useConnect, usableCount, type DeviceType } from '../state/connect';
+
+/** One row: what LeRobot calls this device, how it connects, and whether
+ * this single-serial-port setup can actually drive it. Unsupported rows stay
+ * visible (so the user can see LeRobot knows about the device) but are
+ * disabled and say why, instead of being selectable and dying at spawn time. */
+function DeviceTypeRow({ device, active }: { device: DeviceType; active: boolean }) {
+  const cls = ['conn-type-row'];
+  if (active) cls.push('is-active');
+  if (!device.supported) cls.push('is-blocked');
+  const title = device.supported
+    ? App.t('tip.deviceSupported', { robot: device.robot_type, leader: device.leader_type || '–' })
+    : App.t('tip.deviceBlocked', {
+        robot: device.robot_type,
+        conn: App.t('conn.' + device.connection),
+        flag: device.port_flag,
+      });
+  return (
+    <div
+      className={cls.join(' ')}
+      data-value={device.robot_type}
+      role="button"
+      tabIndex={0}
+      title={title}
+      onClick={() => App.selectRobot(device.robot_type)}
+      onKeyDown={(e: any) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); App.selectRobot(device.robot_type); }
+      }}
+    >
+      <div className="conn-type-main">
+        <span className="conn-type-label">{device.label}</span>
+        <span className="conn-type-conn">{App.t('conn.' + device.connection)}</span>
+      </div>
+    </div>
+  );
+}
+
+/** The device catalogue LeRobot really registers, one row per device. Reads
+ * from `state/connect`, published by `App.renderRobotTypeList()` once the
+ * catalogue loads (`GET /api/hardware/device_types`) and again on every
+ * selection change — nothing here derives `--robot.type` on its own. */
+function DeviceTypeList() {
+  const s = useConnect();
+  if (!s.deviceTypes.length) {
+    return <div className="conn-empty">{App.t('hint.deviceTypesUnavailable')}</div>;
+  }
+  return (
+    <>
+      {s.deviceTypes.map(d => (
+        <DeviceTypeRow key={d.robot_type} device={d} active={d.robot_type === s.activeRobotType} />
+      ))}
+    </>
+  );
+}
+
+/** "N / M drivable" next to the list title — same count the list itself is
+ * filtered by, so the two cannot silently disagree. */
+function DeviceTypeCount() {
+  const s = useConnect();
+  if (!s.deviceTypes.length) return <>-</>;
+  return <>{App.t('lbl.nOfMDrivable', { n: usableCount(s), m: s.deviceTypes.length })}</>;
+}
 
 export function SetupPage() {
   return (
@@ -73,9 +135,9 @@ export function SetupPage() {
                     <div className="conn-sect conn-sect-grow">
                       <div className="teleop-sub-title-row">
                         <h4 className="teleop-sub-title" data-i18n="blk.hw.deviceType">Typ zařízení</h4>
-                        <span className="cal-arm-state" id="conn-type-count">-</span>
+                        <span className="cal-arm-state"><DeviceTypeCount /></span>
                       </div>
-                      <div id="connect-robot-list" className="conn-type-list"></div>
+                      <div className="conn-type-list"><DeviceTypeList /></div>
                     </div>
                   </div>
                 </section>
