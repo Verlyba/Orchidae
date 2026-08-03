@@ -8,6 +8,103 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (32) — Priorita A: stejná třída díry (chybějící `encodeURIComponent`)
+našla se ještě jednou — kalibrační soubory a náhled kamery
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (špička
+`e1a3618`, konec běhu 31). `setup-dev.sh` proběhl, `bash scripts/verify.sh`
+prošel celý (322 pytestů) hned na začátku — žádná priorita A viditelná v
+automatických kontrolách. Podle doporučení běhů (30)/(31) jsem místo ruční
+prohlídky poslal Explore agenta, ať znovu prosbírá `app.ts` proti
+`server.py` a hledá stejnou třídu chyby (nekódovaný slug/id/hodnota v REST
+URL) na místech, která minulé dva běhy nechytily, plus dead-click handlery a
+tiše polykané chyby v backendu.
+
+### Nález
+
+Agent našel čtyři věci, seřazené podle závažnosti:
+
+1. **`deleteCalibrationFileEntry` (`app.ts:3007`) skládala
+   `DELETE /calibration/${category}/${deviceType}/${filename}` syrovou
+   interpolací** — přesně ta samá díra jako roboti/kamery (30) a skilly/
+   datasety (31), jen na dosud nezametené trojici segmentů. `filename` se
+   odvozuje z `candidate_ids[0]` / `actual_setup_id` v
+   `calibration_manager.py`, ne z nově validovaného slugu — `core/slugs.py`
+   sám říká, že už uložené projekty se zpětně nekontrolují, takže starší
+   kalibrace může nést `#`, `?` apod.
+2. **Stejná funkce odpověď API vůbec nekontrolovala** — `server.py:658-664`
+   vrací `{"ok": false, "error": ...}` a 404 při neúspěchu, ale volání to
+   zahazovalo. Uživatel klikne Smazat, řádek se prostě znovu vykreslí, a
+   nemá šanci poznat, jestli se něco fakticky smazalo.
+3. Menší, stejná rodina: `hwStartCameraPreview` / `wizardStartCameraPreview`
+   (`app.ts:2387` a `:7188`) skládaly
+   `/api/setup/camera-preview/feed?source=${sourceVal}`, kde `sourceVal` může
+   pocházet z `prompt()` na vlastní index kamery — nekódovaná hodnota s `&`
+   nebo `#` potichu rozbije query string a náhled zůstane prázdný beze
+   zprávy.
+4. (Zapsáno do fronty níž, dnes neopraveno.) `remove_robot`/`remove_camera`
+   v `core/project_manager.py` na neshodující se id tiše no-opují a server
+   stejně vrátí `{"ok": true}` — menší závažnost, protože frontend vždy
+   posílá přesné `.id` ze zobrazeného objektu, hrozí jen při závodu dvou
+   kliknutí/karet.
+
+### Oprava (položky 1–3)
+
+- `deleteCalibrationFileEntry`: `encodeURIComponent` na všech třech
+  segmentech (`category`, `deviceType`, `filename` — rovná trojice bez
+  `/`, na rozdíl od `_encodeSkillPath` u skillů, tahle rout `{filename}` bez
+  `:path` typu slash neočekává) + kontrola `res.error` s `alert()`, stejný
+  vzor jako `deleteSkill` (běh 31 ho pojmenoval jako referenční příklad).
+  Nový i18n klíč `cal.deleteFail` (cs/en).
+- `hwStartCameraPreview` a `wizardStartCameraPreview`:
+  `encodeURIComponent(sourceVal)` v query stringu. Backend
+  (`setup_camera_preview_feed(source: str)`, `server.py:2424`) čte prostý
+  query parametr, FastAPI ho dekóduje samo — kódování nic nerozbíjí ani u
+  čísel, ani u `/dev/video0`.
+
+### Ověřeno v cloudu
+
+`npm run typecheck` čistý, `npm run build` proběhl (nové hashe assetů, viz
+`web/index.html` — cache-busting jde přes Viteho content hash v názvu
+souboru, ne přes `?v=`, takže nebylo co ručně zvedat). `bash scripts/verify.sh`
+prošel celý po obou dílčích opravách (322 pytestů beze změny — čistě
+frontend URL-building).
+
+Živý smoke test proti reálně běžícímu `uvicorn` (ne simulace): založil jsem
+projekt, ručně vložil `calibration/follower/so100_follower/bad#cal.json`
+(simulace starší/ručně upravené kalibrace) a poslal přesně to, co by
+`fetch()` v prohlížeči poslal na starou i novou URL (`node -e 'fetch(...)'`).
+**Stará (nekódovaná) verze**: `#` uřízne request na
+`DELETE /calibration/follower/so100_follower/bad`, server odpoví
+`{"ok": false, "error": "Calibration file not found"}`, soubor zůstane na
+disku — a protože stará `app.ts` odpověď nekontrolovala, uživatel by tohle
+nikdy neviděl. **Nová verze**: request míří na `bad%23cal.json`, server
+odpoví `{"ok": true}`, soubor je pryč. Testovací projekt i server po ověření
+smazány/ukončeny.
+
+### Co zbývá vyzkoušet na fyzickém robotu
+
+Nic — čistě URL-encoding a kontrola chybové odpovědi na frontendu, žádný
+LeRobot příkaz se nesestavuje jinak. Netestováno v cloudu (a netestovatelné):
+žádná hardwarová cesta se týkala.
+
+### Otevřené věci, které tenhle běh potvrzuje nebo přidává
+
+- **Nová položka:** `remove_robot`/`remove_camera`
+  (`core/project_manager.py:299-310`, `:344-351`) tiše no-opují na
+  neshodující se id a server vždy vrátí `{"ok": true}` bez ohledu na to, jestli
+  se něco smazalo. Nízká závažnost (frontend vždy posílá přesné `.id`), ale
+  stejná rodina jako dnešní oprava — vrátit se, až dojde na backendovou
+  robustnost (bod E zadání).
+- `#robot-id`/`#camera-id` bez live validace (z běhu 30) — beze změny,
+  Explore agent to dnes znovu neřešil (mimo rozsah dnešního zadání agentovi).
+- `slug.err.*` hlášky mluví o „složce datasetu" i pro projekt/robota/kameru
+  (z běhu 30) — beze změny.
+- Bimanuální/CAN připojení (`CONN_BIMANUAL`) — beze změny, pořád velká
+  položka, ne na jeden běh.
+
+---
+
 ## 2026-08-03 (31) — Priorita A: dokončení opravy z běhu (30) — skill/dataset
 slug ve REST cestách šel dál syrovou interpolací, a jeden z případů byl horší
 než 404: DELETE hlásilo `{"ok": true}`, aniž by cokoliv smazal

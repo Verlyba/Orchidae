@@ -2384,7 +2384,7 @@ export const App = {
       return;
     }
     
-    previewImg.src = `/api/setup/camera-preview/feed?source=${sourceVal}`;
+    previewImg.src = `/api/setup/camera-preview/feed?source=${encodeURIComponent(sourceVal)}`;
     previewImg.style.display = 'block';
     placeholder.style.display = 'none';
     this.setCamPreviewState('cam.previewLive');
@@ -3006,7 +3006,16 @@ export const App = {
 
   async deleteCalibrationFileEntry(category: string, deviceType: string, filename: string): Promise<void> {
     if (!confirm(this.t('cal.confirmDelete'))) return;
-    await this.api('DELETE', `/calibration/${category}/${deviceType}/${filename}`);
+    try {
+      const res = await this.api('DELETE', `/calibration/${encodeURIComponent(category)}/${encodeURIComponent(deviceType)}/${encodeURIComponent(filename)}`);
+      if (res && res.error) {
+        alert(`${this.t('cal.deleteFail')}: ${res.error}`);
+        return;
+      }
+    } catch (err: any) {
+      alert(`${this.t('cal.deleteFail')}: ${err.message}`);
+      return;
+    }
     await this.loadCalibrationFiles();
   },
 
@@ -7176,7 +7185,7 @@ export const App = {
     }
     
     // Set preview source to live feed
-    previewImg.src = `/api/setup/camera-preview/feed?source=${sourceVal}`;
+    previewImg.src = `/api/setup/camera-preview/feed?source=${encodeURIComponent(sourceVal)}`;
     previewImg.style.display = 'block';
     placeholder.style.display = 'none';
   },
