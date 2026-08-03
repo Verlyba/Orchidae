@@ -8,6 +8,120 @@ Formát: nejnovější běh nahoře.
 
 ---
 
+## 2026-08-03 (25) — Cíle tréninku na Učení jedou z React stavu — a s tím
+„select all" checkbox konečně řekne, jestli už je vybráno všechno
+
+**Výchozí stav.** `git pull --rebase origin main` beze změny (už na špičce
+`60f5a47`, shodné s `origin/main` — žádná rozjetá větev, žádná priorita A ve
+frontě). `setup-dev.sh` proběhl, `bash scripts/verify.sh` prošel celý
+(313 pytestů, 10 kroků). Uživatelský prompt (bod F) žádal předělání frontendu
+na React/Vite/Tailwind — hotovo od běhu (18)/(19); zbytek migrace jede podle
+otevřené položky z běhu (24): checklist cílů tréninku
+(`renderTrainingSkillsTree()` na kartě „Učení") byl poslední velký kus
+`innerHTML` v appce mimo Connect/Kalibraci.
+
+### Co se změnilo
+
+Nový `state/trainTargets.ts` (stejný store-not-context vzor jako
+`state/skills`, `state/collect`, `state/datasets`) drží obě trénovatelné
+větve každého úkolu — ACT baseline (celý nahraný dataset) a orchestrační
+pod-kroky (rozdělené sub-datasety ze stejného natáčení) — plus čtyři
+souhrnné statistiky. `app.ts` publikuje jednou metodou
+(`renderTrainingSkillsTree()`, jméno zůstalo, tělo teď staví a publikuje
+snapshot místo `container.innerHTML = …`) a `UceniPage.tsx` má nové
+komponenty `TrainStatsRow`, `TrainTaskCard`, `TrainRow`,
+`TrainRowProgressView`, `TrainTargetsChecklist`, které to jediné vykreslují.
+
+**Checkbox, který se sám nekontroloval.** Stejná past, co dostala vlastní
+odstavec v `docs/FRONTEND.md` po běhu (20) (`disabled`/`value`/`checked` se
+můžou tiše rozejít, když React drží props a `app.ts` přepisuje DOM) — tahle
+karta ji měla přímo v prapůvodní podobě: řádkové checkboxy byly
+**nekontrolované** (`checked` se psalo jen jednou při stavbě řetězce) a
+rodičovský „select all" checkbox u úkolu **nikdy nezjišťoval, jestli jsou
+všechny pod-kroky už zaškrtnuté** — zaškrtání všech řádků ručně nechalo
+rodičovský box vypadat prázdný. Oprava: oba typy checkboxů jsou teď řízené
+(`checked` ze stavu, ne z DOMu) a rodičovský box počítá
+`selectable.every(r => r.checked)` — čímž zmizel i vedlejší efekt staré
+verze, který manuálně přepisoval `cb.checked` na cizích elementech místo
+jednoho repaintu.
+
+**Živý průběh tréninku (WS `training_progress`/`training_started`/
+`training_finished`/`training_error`) šel dřív přímo do DOMu** (`getElementById
+('train-progress-fill-<slug>').style.width = …` apod.) — teď je to
+`_trainLiveProgress` (step/totalSteps/lossText pro právě běžící cíl) a
+jednorázová „flash" (`_trainFlash`, `kind: 'done' | 'error'`) pro řádek, který
+právě skončil. Flash se spotřebuje týmž tahem, kterým se publikuje (nastaví
+se, zapíše se do snapshotu, zase se vynuluje) — publikovaný objekt snapshotu
+ale flash hodnotu nese dál, dokud ho nepřepíše další skutečný repaint
+(`refreshProject()`/`loadTrainingTargets()` po dokončeném requestu). Ověřeno
+zvlášť s blokovaným `/api/project` requestem (viz níže) — bez toho by flash
+zmizel dřív, než by ho šlo v prohlížeči zachytit, protože lokální round trip
+je rychlejší než ruční kontrola.
+
+**Textová podoba je zachovaná, ne domyšlená.** Řádek, který ještě nedostal
+první `training_progress` tick, pořád říká „Trénování…", ne „Krok 0" — nový
+typ `TrainRowProgress` má pro tenhle případ `step: number | null` právě
+proto, aby se tahle nuance neztratila v přepisu.
+
+### Ověřeno v cloudu
+
+Reálný backend (fixture projekt s úkolem se dvěma pod-kroky + samostatný
+úkol bez kroků, adresáře na disku ručně vytvořené tak, aby jedna větev byla
+`dataset_ready`/`policy_ready`/`will_resume`, jedna jen `dataset_ready` a
+jedna vůbec) + Playwright nad skutečným buildem — **26/26**:
+
+- 4 statistiky (úkoly, datasety, checkpointy, architektura) sedí na
+  `/api/training/targets`; anglický přepnutí jazyka přepíše popisky beze
+  ztráty hodnot;
+- blokovaný řádek (chybí dataset) je disabled se správným tooltipem, který
+  jmenuje repo_id; natrénovaný řádek nese `is-trained`; řádek s
+  `will_resume` nese značku „Naváže" — přesně ty samé odvozeniny, které
+  minulý běh přidal do `/api/training/targets`;
+- jméno úkolu s markupem (`Ukol <b>tucny</b> & spol`) se vykresluje jako
+  text, ne jako `<b>` element — react escapuje, stará `innerHTML` verze by
+  to interpretovala;
+- klik na řádkový checkbox zapíše do `trainSelected` a **přežije přepnutí
+  jazyka** (kontrolovaný checkbox, ne DOM, který by se neresetoval);
+- rodičovský „select all": při 1 ze 2 vybraných je odškrtnutý, klik
+  zaškrtne obě + rodiče, druhý klik obě + rodiče odškrtne;
+- náhled příkazu (`buildTrainCommand()`, beze změny logiky) sedí na dvě
+  vybrané cíle, včetně `--resume=true` řádku;
+- simulace `training_started` → `training_progress(step=2500, loss=0.04231)`
+  → `training_finished` přes `App.handleEvent()`: fill 0 %→25 %, text
+  „Trénování…"→„Krok 2500/10000", loss text `Loss: 0.0423`, `queued` řádek
+  říká „Čeká ve frontě…", `activeTrainingSkill` se po `training_finished`
+  vynuluje;
+- `training_error` flash („Chyba") doložen zvlášť s blokovaným
+  `/api/project` fetchem, aby ho šlo v prohlížeči zachytit dřív, než ho
+  přepíše navazující `refreshProject()`.
+
+`bash scripts/verify.sh` prochází celý (313 pytestů, 10 kroků,
+`frontend/src/state/trainTargets.ts` a upravené soubory beze regresí).
+
+**Na fyzickém robotu zbývá vyzkoušet:** v cloudu nešlo spustit jediný
+skutečný `lerobot-train`, takže živý průběh je ověřený jen jako reakce na
+simulované WS zprávy (`App.handleEvent(...)`), ne na doopravdy běžící
+trénink. Zbývá: že skutečný proces skutečně posílá `training_progress` v
+tomhle tvaru (epoch/loss/skill), že `training_finished` dorazí ve chvíli,
+kdy je checkpoint už čitelný z disku (jinak by flash „Hotovo" a navazující
+`policy_ready: true` na chvíli nesouhlasily), a že fronta víc než jednoho
+zaškrtnutého cíle (`trainingQueue`) se skutečně odbavuje jeden po druhém na
+reálném GPU.
+
+**Otevřeno pro příště:**
+1. Dál na React stav: **Connect / Setup** (seznamy zařízení, tabulky
+   detekovaného hardwaru, kamery) a **Kalibrace** (tabulky kloubů, živý
+   kalibrační panel) — obě pořád skládané řetězci, obě jsou teď jediný
+   zbývající velký `innerHTML` v appce. Kalibrace má navíc klávesové
+   ovládání (Enter/c) a fázové přechody, které si žádají vlastní pozornost.
+2. Segfault v `_test_lm_connection()` (`RuntimeError: Signal source has
+   been deleted`, vlákno co přežije test, který ho spustil) — zmiňovaný od
+   běhu (24), pořád nereprodukovatelný na požádání.
+3. Bundle je pořád jeden ~745 kB chunk — rozdělit (`manualChunks`), až
+   dojde čas.
+4. Zbytek beze změny: `StrictMode`, otázka na majitele z běhu (18) jak appku
+   spouští (port 4173), patička „Umístění projektů" (běh 20).
+
 ## 2026-08-03 (24) — Náhled tréninkového příkazu na Učení lhal o tom, co se
 spustí — psal `lerobot-train`, appka spouští `python -m lerobot.scripts...`
 

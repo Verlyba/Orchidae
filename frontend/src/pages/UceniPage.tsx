@@ -2,6 +2,214 @@
 
 import { App } from '../legacy/app';
 import { initiallyDisabled } from '../util/initiallyDisabled';
+import {
+  useTrainTargets,
+  type TrainRowSnapshot,
+  type TrainTaskSnapshot,
+  type TrainTargetsSnapshot,
+} from '../state/trainTargets';
+
+/** One stat readout at the top of the checklist column. `fallback` is the
+ * Czech default `applyI18n()` overwrites on mount — same static label every
+ * other data-i18n span in this app carries, so the very first paint (before
+ * that pass runs) shows text instead of a blank span. */
+function TrainStat({
+  id, value, warn, labelKey, fallback,
+}: { id: string; value: string; warn: boolean; labelKey: string; fallback: string }) {
+  return (
+    <div className="train-stat">
+      <span className={`train-stat-val${warn ? ' is-warn' : ''}`} id={id}>{value}</span>
+      {' '}
+      <span className="train-stat-lbl" data-i18n={labelKey}>{fallback}</span>
+    </div>
+  );
+}
+
+/** The progress row under a target that is training, queued, or just settled. */
+function TrainRowProgressView({ row }: { row: TrainRowSnapshot }) {
+  const progress = row.progress;
+  if (!progress) return null;
+
+  if (progress.kind === 'queued') {
+    return (
+      <div className="train-row-progress">
+        <div className="progress-bar-container">
+          <div className="progress-bar-fill" style={{ width: '0%' }}></div>
+        </div>
+        <div className="train-row-progress-meta">
+          <span>{App.t('val.queued')}</span>
+          <span></span>
+        </div>
+      </div>
+    );
+  }
+  if (progress.kind === 'done' || progress.kind === 'error') {
+    return (
+      <div className="train-row-progress">
+        <div className="progress-bar-container">
+          <div className="progress-bar-fill" style={{ width: progress.kind === 'done' ? '100%' : '0%' }}></div>
+        </div>
+        <div className="train-row-progress-meta">
+          <span>{App.t(progress.kind === 'done' ? 'status.done' : 'val.error')}</span>
+          <span></span>
+        </div>
+      </div>
+    );
+  }
+  // 'active': no step yet right after training_started, then real numbers
+  // once the first training_progress WS message arrives.
+  const percent = progress.step == null ? 0 : Math.min(100, Math.round((progress.step / progress.totalSteps) * 100));
+  const text = progress.step == null
+    ? App.t('val.training')
+    : App.t('val.stepOfTotal', { step: progress.step, total: progress.totalSteps });
+  return (
+    <div className="train-row-progress">
+      <div className="progress-bar-container">
+        <div className="progress-bar-fill" style={{ width: `${percent}%` }}></div>
+      </div>
+      <div className="train-row-progress-meta">
+        <span>{text}</span>
+        <span>{progress.lossText}</span>
+      </div>
+    </div>
+  );
+}
+
+/** One trainable target — the ACT baseline or one orchestration step. */
+function TrainRow({ row, idx, baseline }: { row: TrainRowSnapshot; idx?: number; baseline?: boolean }) {
+  const blocked = !row.datasetReady;
+  const cls = [
+    'train-row',
+    baseline ? 'is-baseline' : '',
+    row.policyReady ? 'is-trained' : '',
+    blocked ? 'is-blocked' : '',
+  ].filter(Boolean).join(' ');
+  const blockedTitle = blocked
+    ? App.t('tip.trainNoDataset', { repo: row.repoId })
+    : App.t('tip.trainTarget', { repo: row.repoId });
+
+  return (
+    <div className={cls} title={blockedTitle}>
+      <input
+        type="checkbox"
+        className="train-target-checkbox"
+        data-skill={row.slug}
+        id={`train-check-${row.slug}`}
+        checked={row.checked}
+        disabled={blocked}
+        onChange={(e) => App.setTrainTargetChecked(row.slug, e.target.checked)}
+      />
+      <span className="train-row-idx">{baseline ? '#' : String(idx)}</span>
+      <span className="train-row-body">
+        <span className="train-row-name">{row.name}</span>
+        <span className="train-row-repo" title={row.policyPath}>{row.repoId}</span>
+      </span>
+      <span className="train-row-flags">
+        <span className={`train-flag ${row.datasetReady ? 'ready' : 'missing'}`}>
+          {App.t(row.datasetReady ? 'val.dataOk' : 'val.dataMissing')}
+        </span>
+        <span className={`train-flag ${row.policyReady ? 'ready' : 'missing'}`}>
+          {App.t(row.policyReady ? 'val.ckptReady' : 'val.ckptMissing')}
+        </span>
+        {row.willResume && (
+          <span className="train-flag resume" title={App.t('tip.trainWillResume', { dir: row.trainingOutputDir })}>
+            {App.t('val.willResume')}
+          </span>
+        )}
+      </span>
+      <TrainRowProgressView row={row} />
+    </div>
+  );
+}
+
+/** One task: its select-all header, the ACT baseline group, the steps group. */
+function TrainTaskCard({ task }: { task: TrainTaskSnapshot }) {
+  // Ready rows only: a select-all that ticked disabled rows would only queue
+  // runs `start_training()` refuses, same rule the individual checkbox obeys.
+  const selectable = [task.baseline, ...task.steps].filter(r => r.datasetReady);
+  const allChecked = selectable.length > 0 && selectable.every(r => r.checked);
+
+  return (
+    <div className={`train-task${task.orchestrated ? ' is-orchestrated' : ''}`}>
+      <div className="train-task-head">
+        <input
+          type="checkbox"
+          id={`train-check-parent-${task.slug}`}
+          checked={allChecked}
+          disabled={selectable.length === 0}
+          title={App.t('tip.trainSelectAll')}
+          onChange={(e) => App.toggleTrainParentCheckbox(task.slug, e.target.checked)}
+        />
+        <span className="train-task-name" title={task.slug}>{task.name}</span>
+        <span className={`pd-task-mode ${task.orchestrated ? 'ok' : 'baseline'}`}>
+          {App.t(task.orchestrated ? 'val.modeBoth' : 'val.modeBaseline')}
+        </span>
+      </div>
+      <div className="train-group">
+        <div className="train-group-title">{App.t('grp.trainBaseline')}</div>
+        <TrainRow row={task.baseline} baseline />
+      </div>
+      <div className="train-group">
+        <div className="train-group-title">{App.t('grp.trainOrchestration')}</div>
+        {task.steps.length
+          ? task.steps.map((s, i) => <TrainRow key={s.slug} row={s} idx={i + 1} />)
+          : <div className="train-empty">{App.t('hint.noStepsToLearn')}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** The four readouts above the checklist — task/dataset/checkpoint counts and
+ * the resolved policy architecture, all derived from the same `GET
+ * /training/targets` response the checklist itself renders from. */
+function TrainStatsRow() {
+  const s: TrainTargetsSnapshot = useTrainTargets();
+  const { stats } = s;
+  return (
+    <div className="train-stats">
+      <TrainStat id="train-stat-tasks" value={String(stats.taskCount)} warn={false} labelKey="stat.tasks" fallback="Úkolů" />
+      <TrainStat
+        id="train-stat-datasets"
+        value={`${stats.datasetsReady}/${stats.datasetsTotal}`}
+        warn={stats.datasetsWarn}
+        labelKey="stat.datasetsRec"
+        fallback="Datasetů nahráno"
+      />
+      <TrainStat
+        id="train-stat-ckpts"
+        value={`${stats.ckptsReady}/${stats.ckptsTotal}`}
+        warn={stats.ckptsWarn}
+        labelKey="stat.ckptsTrained"
+        fallback="Natrénováno"
+      />
+      <TrainStat id="train-stat-arch" value={stats.archLabel} warn={false} labelKey="stat.arch" fallback="Architektura" />
+    </div>
+  );
+}
+
+/**
+ * The training target checklist — both trainable branches of every task.
+ *
+ * Used to be `App.renderTrainingSkillsTree()`, one `innerHTML` string with
+ * uncontrolled checkboxes; see `state/trainTargets.ts` for what that cost
+ * (the "select all" box never reflecting whether its rows were already all
+ * ticked, chief among it).
+ */
+function TrainTargetsChecklist() {
+  const s: TrainTargetsSnapshot = useTrainTargets();
+
+  if (!s.hasProject) {
+    return <div className="train-empty">{App.t('hint.noProjectForTrain')}</div>;
+  }
+  if (!s.tasks.length) {
+    return <div className="train-empty">{App.t('hint.noSkillsAvail')}</div>;
+  }
+  return (
+    <>
+      {s.tasks.map(task => <TrainTaskCard key={task.slug} task={task} />)}
+    </>
+  );
+}
 
 export function UceniPage() {
   return (
@@ -39,29 +247,10 @@ export function UceniPage() {
                 {/* Both branches of the project's comparison are trainable from here, because both come out of the SAME recording: the whole dataset (ACT baseline) and the sub-datasets cut from it by the splitter (orchestration). Readiness comes from GET /api/training/targets, which resolves through the trainer's own helpers — a row marked untrainable really would be refused at spawn time. */}
                 <section className="merge-col">
                   <h4 className="merge-col-title" data-i18n="blk.learn.targets">Cíle tréninku</h4>
-                  <div className="train-stats">
-                    <div className="train-stat">
-                      <span className="train-stat-val" id="train-stat-tasks">–</span>
-                      {' '}
-                      <span className="train-stat-lbl" data-i18n="stat.tasks">Úkolů</span>
-                    </div>
-                    <div className="train-stat">
-                      <span className="train-stat-val" id="train-stat-datasets">–</span>
-                      {' '}
-                      <span className="train-stat-lbl" data-i18n="stat.datasetsRec">Datasetů nahráno</span>
-                    </div>
-                    <div className="train-stat">
-                      <span className="train-stat-val" id="train-stat-ckpts">–</span>
-                      {' '}
-                      <span className="train-stat-lbl" data-i18n="stat.ckptsTrained">Natrénováno</span>
-                    </div>
-                    <div className="train-stat">
-                      <span className="train-stat-val" id="train-stat-arch">–</span>
-                      {' '}
-                      <span className="train-stat-lbl" data-i18n="stat.arch">Architektura</span>
-                    </div>
+                  <TrainStatsRow />
+                  <div className="train-targets" id="train-skills-checklist-container">
+                    <TrainTargetsChecklist />
                   </div>
-                  <div className="train-targets" id="train-skills-checklist-container">{/* Dynamically filled by renderTrainingSkillsTree() */}</div>
                   <div className="block-actions">
                     <button
                       className="btn btn-xs"

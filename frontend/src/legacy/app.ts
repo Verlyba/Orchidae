@@ -93,6 +93,11 @@ import {
   type SkillGroup,
 } from '../state/skills';
 import { buildTrainCommand } from '../util/trainCommand';
+import {
+  publishTrainTargets,
+  type TrainRowSnapshot,
+  type TrainRowProgress,
+} from '../state/trainTargets';
 
 export const App = {
   ws: null as WebSocket | null,
@@ -162,6 +167,14 @@ export const App = {
   // the user's selection mid-queue.
   trainSelected: new Set<string>(),
   trainStatusKey: null as { key: string; params?: Record<string, string | number>; color?: string } | null,
+  // Live step/loss for whichever skill is `activeTrainingSkill` right now —
+  // separate from `trainTargets` because it changes on every `training_progress`
+  // WS message and `trainTargets` only changes on a readiness refetch.
+  _trainLiveProgress: null as { slug: string; step: number; totalSteps: number; lossText: string } | null,
+  // One-shot "just finished/errored" flash for a row, shown for exactly the
+  // render right after `training_finished`/`training_error` and then cleared —
+  // the readiness refetch that follows replaces it with the real flags.
+  _trainFlash: null as { slug: string; kind: 'done' | 'error' } | null,
   // Sub-steps currently offered to the inference daemon, plus which one it was
   // last told to run. Held in state because the rows are rebuilt on a language
   // switch and the running row must survive that.
@@ -619,15 +632,18 @@ export const App = {
         this.log('SUCCESS', this.t('log.trainDone', {s: data.skill}));
         this.updateTrainingStatus(this.t('status.trainDoneCkpt'), 'var(--green)',
           'status.trainDoneCkpt');
-        if (data.skill) {
-          const fill = document.getElementById(`train-progress-fill-${data.skill}`);
-          if (fill) fill.style.width = `100%`;
-          const txt = document.getElementById(`train-progress-text-${data.skill}`);
-          if (txt) txt.textContent = this.t('status.done');
-        }
         if (this.activeTrainingSkill === data.skill) {
           this.activeTrainingSkill = null;
         }
+        if (data.skill) {
+          // One-shot flash for this render only — the readiness refetch below
+          // repaints the tree again with the real "checkpoint ready" flag, so
+          // the flash does not need clearing by anything but that next render.
+          this._trainFlash = { slug: data.skill, kind: 'done' };
+          if (this._trainLiveProgress?.slug === data.skill) this._trainLiveProgress = null;
+        }
+        this.renderTrainingSkillsTree();
+        this._trainFlash = null;
         this.refreshProject();
         // A checkpoint now exists that did not before, so the readiness flags
         // on the target list are stale until they are re-read from disk.
@@ -637,13 +653,15 @@ export const App = {
         this.log('ERROR', this.t('log.trainErr', {s: data.skill, e: data.error}));
         this.updateTrainingStatus(this.t('status.trainErrShort', {e: data.error}), 'var(--red)',
           'status.trainErrShort', {e: data.error});
-        if (data.skill) {
-          const txt = document.getElementById(`train-progress-text-${data.skill}`);
-          if (txt) txt.textContent = this.t('val.error');
-        }
         if (this.activeTrainingSkill === data.skill) {
           this.activeTrainingSkill = null;
         }
+        if (data.skill) {
+          this._trainFlash = { slug: data.skill, kind: 'error' };
+          if (this._trainLiveProgress?.slug === data.skill) this._trainLiveProgress = null;
+        }
+        this.renderTrainingSkillsTree();
+        this._trainFlash = null;
         this.refreshProject();
         break;
       case 'orchestration_plan_ready':
@@ -4400,7 +4418,47 @@ export const App = {
     }
   },
 
-  /** Paints both trainable branches of every task.
+  /** Builds a `TrainRowSnapshot` for one trainable target — the ACT baseline
+   * or one orchestration step. Shared by both branches below so the checklist
+   * and the "select all" parent checkbox cannot disagree about a row's
+   * derived fields. */
+  _trainRowSnapshot(target: any): TrainRowSnapshot {
+    const slug = target.slug;
+    const active = this.activeTrainingSkill === slug;
+    const queued = !active && (this.trainingQueue || []).includes(slug);
+    const flash = this._trainFlash?.slug === slug ? this._trainFlash.kind : null;
+    let progress: TrainRowProgress | null = null;
+    if (flash) {
+      progress = { kind: flash };
+    } else if (active) {
+      // Before the first `training_progress` message, there is no step/loss
+      // yet — the row says "training…", not "step 0", same as before this
+      // migration (a live tick is what switches the text, not becoming active).
+      const live = this._trainLiveProgress?.slug === slug ? this._trainLiveProgress : null;
+      progress = {
+        kind: 'active',
+        step: live?.step ?? null,
+        totalSteps: live?.totalSteps ?? this._trainTotalSteps,
+        lossText: live?.lossText ?? '',
+      };
+    } else if (queued) {
+      progress = { kind: 'queued' };
+    }
+    return {
+      slug,
+      name: target.name,
+      repoId: target.repo_id,
+      policyPath: target.policy_path,
+      datasetReady: !!target.dataset_ready,
+      policyReady: !!target.policy_ready,
+      willResume: !!target.will_resume,
+      trainingOutputDir: target.training_output_dir || '',
+      checked: !!target.dataset_ready && this.trainSelected.has(slug),
+      progress,
+    };
+  },
+
+  /** Paints both trainable branches of every task into `state/trainTargets`.
    *
    * `baseline` is the whole recorded dataset — plain ACT, the control arm of
    * the project's comparison — and `steps` are the sub-datasets the splitter
@@ -4408,113 +4466,32 @@ export const App = {
    * training targets, so both are selectable; before this the page offered the
    * sub-steps only and the baseline could not be started from the UI at all. */
   renderTrainingSkillsTree(): void {
-    const container = document.getElementById('train-skills-checklist-container');
-    if (!container) return;
-
     const data = this.trainTargets;
     const tasks: any[] = data?.tasks || [];
     const all: any[] = tasks.flatMap(t => [t.baseline, ...(t.steps || [])]).filter(Boolean);
-
-    const setStat = (id: string, text: string, warn = false) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.textContent = text;
-      el.classList.toggle('is-warn', warn);
-    };
     const recorded = all.filter(x => x.dataset_ready).length;
     const trained = all.filter(x => x.policy_ready).length;
-    setStat('train-stat-tasks', String(tasks.length));
-    setStat('train-stat-datasets', `${recorded}/${all.length}`, all.length > 0 && recorded < all.length);
-    setStat('train-stat-ckpts', `${trained}/${all.length}`, trained < all.length);
-    setStat('train-stat-arch', String(data?.policy_architecture || '–').toUpperCase());
 
-    if (!this.project) {
-      container.innerHTML = `<div class="train-empty">${this.esc(this.t('hint.noProjectForTrain'))}</div>`;
-      this.updateTrainCmdPreview();
-      return;
-    }
-    if (!tasks.length) {
-      container.innerHTML = `<div class="train-empty">${this.esc(this.t('hint.noSkillsAvail'))}</div>`;
-      this.updateTrainCmdPreview();
-      return;
-    }
-
-    const row = (target: any, opts: { idx?: number; baseline?: boolean }): string => {
-      const slug = target.slug;
-      const blocked = !target.dataset_ready;
-      const active = this.activeTrainingSkill === slug;
-      const queued = !active && (this.trainingQueue || []).includes(slug);
-      const cls = [
-        'train-row',
-        opts.baseline ? 'is-baseline' : '',
-        target.policy_ready ? 'is-trained' : '',
-        blocked ? 'is-blocked' : '',
-      ].filter(Boolean).join(' ');
-      // Missing dataset = lerobot-train would abort on the validation error, so
-      // the row must not be selectable. The title says which repo_id is absent.
-      const blockedTitle = blocked
-        ? this.t('tip.trainNoDataset', { repo: target.repo_id })
-        : this.t('tip.trainTarget', { repo: target.repo_id });
-      const progress = (active || queued) ? `
-          <div class="train-row-progress">
-            <div class="progress-bar-container">
-              <div class="progress-bar-fill" id="train-progress-fill-${this.esc(slug)}" style="width:0%;"></div>
-            </div>
-            <div class="train-row-progress-meta">
-              <span id="train-progress-text-${this.esc(slug)}">${
-                this.esc(this.t(active ? 'val.training' : 'val.queued'))}</span>
-              <span id="train-progress-loss-${this.esc(slug)}"></span>
-            </div>
-          </div>` : '';
-      return `
-        <div class="${cls}" title="${this.esc(blockedTitle)}">
-          <input type="checkbox" class="train-target-checkbox" data-skill="${this.esc(slug)}"
-                 id="train-check-${this.esc(slug)}" onchange="App.setTrainTargetChecked('${this.esc(slug)}', this.checked)"
-                 ${blocked ? 'disabled' : ''} ${!blocked && this.trainSelected.has(slug) ? 'checked' : ''}>
-          <span class="train-row-idx">${opts.baseline ? '#' : String(opts.idx)}</span>
-          <span class="train-row-body">
-            <span class="train-row-name">${this.esc(target.name)}</span>
-            <span class="train-row-repo" title="${this.esc(target.policy_path)}">${this.esc(target.repo_id)}</span>
-          </span>
-          <span class="train-row-flags">
-            <span class="train-flag ${target.dataset_ready ? 'ready' : 'missing'}">${
-              this.esc(this.t(target.dataset_ready ? 'val.dataOk' : 'val.dataMissing'))}</span>
-            <span class="train-flag ${target.policy_ready ? 'ready' : 'missing'}">${
-              this.esc(this.t(target.policy_ready ? 'val.ckptReady' : 'val.ckptMissing'))}</span>
-            ${target.will_resume ? `
-            <span class="train-flag resume" title="${
-              this.esc(this.t('tip.trainWillResume', { dir: target.training_output_dir }))}">${
-              this.esc(this.t('val.willResume'))}</span>` : ''}
-          </span>
-          ${progress}
-        </div>`;
-    };
-
-    container.innerHTML = tasks.map(task => {
-      const steps: any[] = task.steps || [];
-      const stepRows = steps.length
-        ? steps.map((s, i) => row(s, { idx: i + 1 })).join('')
-        : `<div class="train-empty">${this.esc(this.t('hint.noStepsToLearn'))}</div>`;
-      return `
-        <div class="train-task ${task.orchestrated ? 'is-orchestrated' : ''}">
-          <div class="train-task-head">
-            <input type="checkbox" id="train-check-parent-${this.esc(task.slug)}"
-                   onchange="App.toggleTrainParentCheckbox('${this.esc(task.slug)}', this.checked)"
-                   title="${this.esc(this.t('tip.trainSelectAll'))}">
-            <span class="train-task-name" title="${this.esc(task.slug)}">${this.esc(task.name)}</span>
-            <span class="pd-task-mode ${task.orchestrated ? 'ok' : 'baseline'}">${
-              this.esc(this.t(task.orchestrated ? 'val.modeBoth' : 'val.modeBaseline'))}</span>
-          </div>
-          <div class="train-group">
-            <div class="train-group-title">${this.esc(this.t('grp.trainBaseline'))}</div>
-            ${row(task.baseline, { baseline: true })}
-          </div>
-          <div class="train-group">
-            <div class="train-group-title">${this.esc(this.t('grp.trainOrchestration'))}</div>
-            ${stepRows}
-          </div>
-        </div>`;
-    }).join('');
+    publishTrainTargets({
+      hasProject: !!this.project,
+      tasks: tasks.map((task: any) => ({
+        slug: task.slug,
+        name: task.name,
+        orchestrated: !!task.orchestrated,
+        baseline: this._trainRowSnapshot(task.baseline),
+        steps: (task.steps || []).map((s: any) => this._trainRowSnapshot(s)),
+      })),
+      stats: {
+        taskCount: tasks.length,
+        datasetsReady: recorded,
+        datasetsTotal: all.length,
+        datasetsWarn: all.length > 0 && recorded < all.length,
+        ckptsReady: trained,
+        ckptsTotal: all.length,
+        ckptsWarn: trained < all.length,
+        archLabel: String(data?.policy_architecture || '–').toUpperCase(),
+      },
+    });
 
     this.updateTrainCmdPreview();
   },
@@ -4528,11 +4505,14 @@ export const App = {
       .filter((x: any) => x && x.dataset_ready && this.trainSelected.has(x.slug));
   },
 
-  /** Records a row's tick in state so a re-render keeps it. */
+  /** Records a row's tick in state and republishes the tree — the checkbox
+   * is controlled (`checked` comes from `trainSelected`, not the DOM), so the
+   * tree must repaint or the box would visually disagree with what a
+   * subsequent readiness refresh renders. */
   setTrainTargetChecked(slug: string, checked: boolean): void {
     if (checked) this.trainSelected.add(slug);
     else this.trainSelected.delete(slug);
-    this.updateTrainCmdPreview();
+    this.renderTrainingSkillsTree();
   },
 
   /** Restates the checked rows as the command that will really be spawned.
@@ -4580,10 +4560,13 @@ export const App = {
     if (!task) return;
     [task.baseline, ...(task.steps || [])].filter(Boolean).forEach((target: any) => {
       if (!target.dataset_ready) return;  // disabled: the trainer would refuse it
-      const cb = document.getElementById(`train-check-${target.slug}`) as HTMLInputElement | null;
-      if (cb) cb.checked = checked;
-      this.setTrainTargetChecked(target.slug, checked);
+      if (checked) this.trainSelected.add(target.slug);
+      else this.trainSelected.delete(target.slug);
     });
+    // One repaint for the whole task, not one per row — every checkbox in
+    // this tree is controlled, so a single republish is enough to move them
+    // all (see `setTrainTargetChecked` for why they must be controlled at all).
+    this.renderTrainingSkillsTree();
   },
 
   /** Ordered sub-steps of a skill, as the marking column lists them. */
@@ -5286,16 +5269,12 @@ export const App = {
     const percent = Math.min(100, Math.round((step / totalSteps) * 100));
     this.setProgressPercent(percent);
 
-    // The progress row exists exactly while the target is running or queued —
-    // it is rendered from that state, not toggled by a display style, so a
-    // re-render (language switch, refreshed readiness) cannot lose it.
+    // The row's own progress bar is rendered from `trainTargets._trainLiveProgress`
+    // state, not toggled by a display style, so a re-render (language switch,
+    // refreshed readiness) cannot lose it — see `_trainRowSnapshot()`.
     if (activeSkill) {
-      const fill = document.getElementById(`train-progress-fill-${activeSkill}`);
-      if (fill) fill.style.width = `${percent}%`;
-      const txt = document.getElementById(`train-progress-text-${activeSkill}`);
-      if (txt) txt.textContent = this.t('val.stepOfTotal', { step, total: totalSteps });
-      const lossEl = document.getElementById(`train-progress-loss-${activeSkill}`);
-      if (lossEl) lossEl.textContent = `Loss: ${loss.toFixed(4)}`;
+      this._trainLiveProgress = { slug: activeSkill, step, totalSteps, lossText: `Loss: ${loss.toFixed(4)}` };
+      this.renderTrainingSkillsTree();
     }
   },
 
